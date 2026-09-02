@@ -207,15 +207,31 @@ button:disabled { opacity: 0.6; cursor: default; }
 /* 视图容器需无条件隐藏，否则 display:flex 会覆盖 hidden 属性导致页面残留 */
 .view[hidden], .manage-view[hidden] { display: none !important; }
 .manage-body { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 18px; }
+/* 操作日志：独立条带，位于参数区与日志窗口之间，显示按钮操作轨迹 */
+.op-log {
+  flex: 0 0 auto; max-height: 90px; overflow-y: auto; padding: 6px 18px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: color-mix(in srgb, var(--panel-2) 45%, var(--panel));
+  border-bottom: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; line-height: 1.5; color: var(--muted);
+}
+.op-log[hidden] { display: none; }
+.op-log span::before { content: "▪ "; color: var(--accent); }
+.op-log::-webkit-scrollbar { width: 6px; }
+.op-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 .manage-log {
-  position: relative; flex: 0 0 auto; height: 200px; display: flex; flex-direction: column;
+  position: relative; flex: 0 0 auto; height: 120px; display: flex; flex-direction: column;
   margin-top: 0; border-radius: 0; overflow: hidden;
   border-top: 1px solid var(--border); background: var(--panel);
 }
 .manage-log[hidden] { display: none; }
 .manage-log.fullscreen {
-  position: fixed; inset: 0; z-index: 90; margin: 0; border: none; border-radius: 0;
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh !important; z-index: 1000;
+  margin: 0; border: none; border-radius: 0; background: var(--panel);
 }
+.manage-log.fullscreen .manage-log-actions { opacity: 1; top: 10px; right: 10px; }
+.manage-log.fullscreen .term-body { font-size: 13px; }
 /* 拖动条：可上下调节日志高度，给参数区让位 */
 .manage-log-resize {
   position: absolute; top: 0; left: 0; right: 0; height: 5px; z-index: 4;

@@ -269,7 +269,7 @@ async function renderForm() {
 
   const stop = document.createElement("button");
   stop.id = "stop-btn";
-  stop.hidden = true;
+  stop.disabled = true;
   stop.textContent = "停止";
   stop.onclick = async () => {
     try {
@@ -286,7 +286,7 @@ async function renderForm() {
 
   const restart = document.createElement("button");
   restart.id = "restart-btn";
-  restart.hidden = true;
+  restart.disabled = true;
   restart.textContent = "重启";
   restart.onclick = async () => {
     try {
@@ -402,9 +402,9 @@ function renderStatus(st) {
     span.className = "pill" + (c.cls ? " " + c.cls : "");
     el.chips.appendChild(span);
   }
-  if (b) b.hidden = st.running;
-  if (stop) stop.hidden = !st.running;
-  if (restart) restart.hidden = !st.running;
+  if (b) b.disabled = !!st.running;
+  if (stop) stop.disabled = !st.running;
+  if (restart) restart.disabled = !st.running;
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) {
     dlBtn.dataset.installed = st.installed ? "1" : "0";
@@ -771,13 +771,37 @@ function logOp(msg) {
   const t = new Date().toLocaleTimeString();
   opLogs.push(`[${t}] ${msg}`);
   if (opLogs.length > 200) opLogs.shift();
+  if (view === "manage" && current) renderOpLog();
 }
 
 function showManageLog() {
   const box = document.querySelector("#manage-log");
+  const ope = document.querySelector("#op-log");
   if (box) box.hidden = !current || view !== "manage";
+  if (ope) ope.hidden = !current || view !== "manage";
   if (!current || view !== "manage") return;
+  renderOpLog();
   refreshManageLog();
+}
+
+// 渲染操作日志（启动/停止/下载/更新轨迹），独立条带显示在日志上方
+function renderOpLog() {
+  const ope = document.querySelector("#op-log");
+  if (!ope || ope.hidden) return;
+  if (!opLogs.length) {
+    ope.innerHTML = "";
+    ope.hidden = true;
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const o of opLogs) {
+    const span = document.createElement("span");
+    span.textContent = o;
+    frag.appendChild(span);
+  }
+  ope.innerHTML = "";
+  ope.appendChild(frag);
+  ope.scrollTop = ope.scrollHeight;
 }
 
 async function refreshManageLog() {
@@ -789,10 +813,7 @@ async function refreshManageLog() {
     content.scrollTop + content.clientHeight >= content.scrollHeight - 48;
   try {
     const logs = await invoke("get_logs", { programId: current.id });
-    // 操作日志 + 文件日志合并显示，操作日志置顶
-    const opsText = opLogs.map((o) => `◆ ${o}`).join("\n");
-    const body = opsText ? opsText + "\n\n" + logs.text : logs.text;
-    renderLogBody(content, body);
+    renderLogBody(content, logs.text);
     if (nearBottom) content.scrollTop = content.scrollHeight;
   } catch (e) {
     content.textContent = String(e);
@@ -979,6 +1000,8 @@ function switchView(v) {
   } else {
     const ml = document.querySelector("#manage-log");
     if (ml) ml.hidden = true;
+    const ope = document.querySelector("#op-log");
+    if (ope) ope.hidden = true;
     el.progTitle.textContent = v === "batch" ? "批量管理" : "模板库";
     el.progSub.textContent =
       v === "batch" ? "所有程序统一操作" : "从远程源导入程序模板";
