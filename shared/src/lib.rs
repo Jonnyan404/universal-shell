@@ -11,6 +11,7 @@ pub mod registry;
 pub mod registry_sign;
 pub mod runner;
 pub mod shell_manager;
+pub mod version;
 
 pub use config::{AssetRule, ExtractMode, Field, FieldKind, Program, ShellConfig};
 pub use github::GitHub;

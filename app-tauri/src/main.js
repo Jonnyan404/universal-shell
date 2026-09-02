@@ -46,9 +46,11 @@ function setRunDot(running) {
 
 async function refresh() {
   programs = await invoke("get_programs");
+  const ml = document.querySelector("#manage-log");
   if (!programs.length) {
     el.progTitle.textContent = "未导入任何程序";
     el.progSub.textContent = "";
+    if (ml) ml.hidden = true;
     renderSidebar();
     return;
   }
@@ -90,7 +92,10 @@ function renderSidebar() {
     info.className = "info";
     const name = document.createElement("div");
     name.className = "name";
-    name.textContent = p.name;
+    const nameText = document.createElement("span");
+    nameText.className = "nm";
+    nameText.textContent = p.name;
+    name.appendChild(nameText);
     const editIco = document.createElement("span");
     editIco.className = "prog-edit-ico";
     editIco.title = "编辑";
@@ -128,7 +133,9 @@ async function switchTo(id) {
   if (!current) return;
   values = await invoke("get_values", { programId: id });
   renderForm();
-  await refreshStatus();
+  showManageLog();
+  refreshStatus();
+  refreshManageLog();
 }
 
 // ---------- 下载 / 更新（状态栏与批量管理共用，防重复触发）----------
@@ -164,13 +171,19 @@ async function installProgram(id, btn) {
 function syncInstallBtns(id) {
   const dlBtn = document.querySelector("#dl-btn");
   if (!dlBtn || current?.id !== id) return;
+  const st = statuses.find((s) => s.id === id)?.status;
   const busy = installing.has(id);
-  dlBtn.disabled = busy;
-  dlBtn.textContent = busy
-    ? "下载中…"
-    : statuses.find((s) => s.id === id)?.status?.installed
-      ? "更新"
-      : "下载";
+  if (!st?.installed) {
+    dlBtn.hidden = false;
+    dlBtn.disabled = busy;
+    dlBtn.textContent = busy ? "下载中…" : "下载";
+  } else if (st.up_to_date) {
+    dlBtn.hidden = true;
+  } else {
+    dlBtn.hidden = false;
+    dlBtn.disabled = busy;
+    dlBtn.textContent = busy ? "下载中…" : "更新";
+  }
 }
 
 async function renderForm() {
@@ -245,6 +258,7 @@ async function renderForm() {
       });
       renderStatus(st);
       showNotice("已启动");
+      refreshManageLog();
     } catch (e) {
       showNotice(String(e), true);
     }
@@ -366,11 +380,16 @@ function renderStatus(st) {
   if (restart) restart.hidden = !st.running;
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) {
-    dlBtn.hidden = false;
     dlBtn.dataset.installed = st.installed ? "1" : "0";
-    const busy = installing.has(current.id);
-    dlBtn.disabled = busy;
-    dlBtn.textContent = busy ? "下载中…" : st.installed ? "更新" : "下载";
+    if (st.installed && st.up_to_date) {
+      // 已是最新版本：隐藏更新按钮，避免重复下载覆盖
+      dlBtn.hidden = true;
+    } else {
+      dlBtn.hidden = false;
+      const busy = installing.has(current.id);
+      dlBtn.disabled = busy;
+      dlBtn.textContent = busy ? "下载中…" : st.installed ? "更新" : "下载";
+    }
   }
   renderSidebar();
 }
@@ -489,11 +508,13 @@ function renderBatch() {
     const ops = document.createElement("span");
     ops.className = "batch-ops";
 
-    // 下载 / 更新（复用状态栏安装逻辑，防重复触发）
-    const dl = makeOpBtn(s.installed ? "更新" : "下载", () => {
+    // 下载 / 更新（复用状态栏安装逻辑，防重复触发；已最新时置灰）
+    const isUpToDate = s.installed && s.up_to_date;
+    const dl = makeOpBtn(s.installed ? (isUpToDate ? "最新" : "更新") : "下载", () => {
       dl.dataset.installed = s.installed ? "1" : "0";
       installProgram(item.id, dl);
     });
+    if (isUpToDate) dl.disabled = true;
     ops.appendChild(dl);
 
     const start = makeOpBtn("启动", async () => {
@@ -593,6 +614,43 @@ async function refreshLog() {
 function closeLogModal() {
   document.querySelector("#log-modal").hidden = true;
   logProgramId = null;
+}
+
+// ---------- 程序管理内嵌日志 ----------
+
+let mlogTab = "out";
+
+function showManageLog() {
+  const box = document.querySelector("#manage-log");
+  if (box) box.hidden = !current || view !== "manage";
+  if (!current || view !== "manage") return;
+  refreshManageLog();
+}
+
+function setManageLogTab() {
+  document
+    .querySelector("#mlog-tab-out")
+    .classList.toggle("active", mlogTab === "out");
+  document
+    .querySelector("#mlog-tab-err")
+    .classList.toggle("active", mlogTab === "err");
+}
+
+async function refreshManageLog() {
+  if (!current || view !== "manage") return;
+  const box = document.querySelector("#manage-log");
+  if (!box || box.hidden) return;
+  const content = document.querySelector("#manage-log-content");
+  try {
+    const logs = await invoke("get_logs", { programId: current.id });
+    const text = (mlogTab === "out" ? logs.out : logs.err) || "(无日志输出)";
+    const nearBottom =
+      content.scrollTop + content.clientHeight >= content.scrollHeight - 48;
+    content.textContent = text;
+    if (nearBottom) content.scrollTop = content.scrollHeight;
+  } catch (e) {
+    content.textContent = String(e);
+  }
 }
 
 // ---------- 删除 ----------
@@ -738,11 +796,14 @@ function switchView(v) {
   if (dlBtn) dlBtn.hidden = v !== "manage";
   if (v === "manage") {
     if (current) switchTo(current.id);
+    showManageLog();
     if (dot && statuses.length) {
       const st = statuses.find((s) => s.id === current.id)?.status;
       setRunDot(st?.running ?? false);
     }
   } else {
+    const ml = document.querySelector("#manage-log");
+    if (ml) ml.hidden = true;
     el.progTitle.textContent = v === "batch" ? "批量管理" : "模板库";
     el.progSub.textContent =
       v === "batch" ? "所有程序统一操作" : "从远程源导入程序模板";
@@ -976,6 +1037,19 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (e.target === logModal) closeLogModal();
   });
 
+  // 程序管理内嵌日志
+  document.querySelector("#mlog-tab-out").onclick = () => {
+    mlogTab = "out";
+    setManageLogTab();
+    refreshManageLog();
+  };
+  document.querySelector("#mlog-tab-err").onclick = () => {
+    mlogTab = "err";
+    setManageLogTab();
+    refreshManageLog();
+  };
+  document.querySelector("#manage-log-refresh").onclick = refreshManageLog;
+
   // 编辑模态
   const editModal = document.querySelector("#edit-modal");
   document.querySelector("#edit-modal-close").onclick = closeEditModal;
@@ -1001,4 +1075,14 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (view === "manage" && current) refreshStatus();
     if (view === "batch") refreshBatch();
   }, 15000);
+  // 运行日志跟随刷新：仅程序运行期间轮询，避免无谓 IPC
+  setInterval(() => {
+    if (
+      view === "manage" &&
+      current &&
+      document.querySelector("#run-dot")?.classList.contains("on")
+    ) {
+      refreshManageLog();
+    }
+  }, 3000);
 });

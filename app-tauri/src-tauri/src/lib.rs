@@ -47,6 +47,8 @@ struct StatusView {
     local_version: String,
     latest_version: Option<String>,
     latest_published: String,
+    /// 已安装且不存在更新（true 时前端隐藏「更新」按钮）
+    up_to_date: bool,
     bin_path: String,
 }
 
@@ -61,6 +63,12 @@ struct ProgramStatusView {
 
 impl StatusView {
     fn from_status(s: &shared::ProgramStatus, bin_path: &PathBuf, autostart: bool) -> Self {
+        let up_to_date = s.installed
+            && s.local_version != "-"
+            && match &s.latest_version {
+                Some(lv) => !shared::version::is_newer(lv, &s.local_version),
+                None => true,
+            };
         Self {
             installed: s.installed,
             running: s.running,
@@ -68,6 +76,7 @@ impl StatusView {
             local_version: s.local_version.clone(),
             latest_version: s.latest_version.clone(),
             latest_published: s.latest_published.clone(),
+            up_to_date,
             bin_path: bin_path.display().to_string(),
         }
     }
@@ -148,34 +157,62 @@ fn save_values(
 
 #[tauri::command]
 fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
-    let mut mgr = state.manager.lock().unwrap();
-    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
-        return Err("程序不存在".into());
-    };
-    let bin = mgr.bin_path(&p);
-    let s = mgr.status(&p);
-    Ok(StatusView::from_status(&s, &bin, mgr.autostart.is_enabled(&p.id)))
+    // 锁内只取本地状态（含 running/autostart），不触网；网络查询放锁外，避免阻塞其它命令
+    let p;
+    let bin;
+    let mut local;
+    let autostart;
+    {
+        let mut mgr = state.manager.lock().unwrap();
+        let Some(found) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+            return Err("程序不存在".into());
+        };
+        p = found;
+        bin = mgr.bin_path(&p);
+        local = mgr.status_local(&p);
+        autostart = mgr.autostart.is_enabled(&p.id);
+    }
+    if let Ok(latest) = shared::GitHub::default().latest(&p.repo) {
+        local.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
+        local.latest_published = latest.published_at.clone();
+    }
+    Ok(StatusView::from_status(&local, &bin, autostart))
 }
 
 /// 批量管理：一次性返回所有程序的名称 / 启停 / 安装 / 开机启动等状态
 #[tauri::command]
 fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String> {
-    let mut mgr = state.manager.lock().unwrap();
-    let progs = mgr.programs.clone();
-    let mut out = Vec::with_capacity(progs.len());
-    for p in &progs {
-        let bin = mgr.bin_path(p);
-        let s = mgr.status(p);
-        let autostart = mgr.autostart.is_enabled(&p.id);
-        out.push(ProgramStatusView {
+    // 锁内：本地状态（快），网络查询统一放锁外，避免长时间持锁阻塞其它命令
+    let mut locals: Vec<(Program, PathBuf, shared::ProgramStatus, bool)> = {
+        let mut mgr = state.manager.lock().unwrap();
+        let progs = mgr.programs.clone();
+        progs
+            .into_iter()
+            .map(|p| {
+                let bin = mgr.bin_path(&p);
+                let s = mgr.status_local(&p);
+                let auto = mgr.autostart.is_enabled(&p.id);
+                (p, bin, s, auto)
+            })
+            .collect()
+    };
+    let github = shared::GitHub::default();
+    for (p, _, s, _) in &mut locals {
+        if let Ok(latest) = github.latest(&p.repo) {
+            s.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
+            s.latest_published = latest.published_at.clone();
+        }
+    }
+    Ok(locals
+        .into_iter()
+        .map(|(p, bin, s, auto)| ProgramStatusView {
             id: p.id.clone(),
             name: p.name.clone(),
             repo: p.repo.clone(),
             hidden: p.hidden,
-            status: StatusView::from_status(&s, &bin, autostart),
-        });
-    }
-    Ok(out)
+            status: StatusView::from_status(&s, &bin, auto),
+        })
+        .collect())
 }
 
 #[tauri::command]

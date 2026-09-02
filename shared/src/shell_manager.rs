@@ -189,6 +189,14 @@ impl ShellManager {
         let version = release.tag_name.trim_start_matches('v').to_string();
         info!("{} 最新版本 {version}", program.id);
 
+        // 1b. 已安装且本地版本不低于最新版时，跳过重复下载
+        if !crate::version::is_newer(&version, &self.local_version(program))
+            && self.bin_path(program).exists()
+        {
+            info!("{} 已是最新版本，跳过下载", program.id);
+            return Ok((version.clone(), version));
+        }
+
         // 2. 候选匹配资产名/URL/digest
         let arch = std::env::consts::ARCH.to_string();
         let (rule, asset_name, url, api_digest) = self.github.resolve_download(program, &arch, &version)?;
@@ -296,17 +304,26 @@ impl ShellManager {
 
     /// 查询某程序状态(本地是否已装、是否运行、版本对比)
     pub fn status(&mut self, program: &Program) -> ProgramStatus {
+        let mut st = self.status_local(program);
+        if let Ok(latest) = self.github.latest(&program.repo) {
+            st.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
+            st.latest_published = latest.published_at.clone();
+        }
+        st
+    }
+
+    /// 仅本地状态（不发网络请求）：安装、运行、本地版本。
+    /// 供 UI 在不持锁情况下先渲染，再异步补全最新版本。
+    pub fn status_local(&mut self, program: &Program) -> ProgramStatus {
         let installed = self.bin_path(program).exists();
         let running = self.runner.is_running(&program.id);
         let local_version = self.local_version(program);
-        let latest = self.github.latest(&program.repo).ok();
         ProgramStatus {
             installed,
             running,
             local_version,
-            latest_version: latest.as_ref().map(|r| r.tag_name.trim_start_matches('v').to_string()),
-            latest_published: latest.as_ref().map(|r| r.published_at.clone()).unwrap_or_default(),
-            ..Default::default()
+            latest_version: None,
+            latest_published: String::new(),
         }
     }
 

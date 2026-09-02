@@ -35,6 +35,17 @@
         <form id="field-form"></form>
         <div id="actions"></div>
         <div id="notice"></div>
+        <div id="manage-log" class="manage-log" hidden>
+          <div class="manage-log-head">
+            <span>运行日志</span>
+            <span class="manage-log-tabs">
+              <button id="mlog-tab-out" class="log-tab active">stdout</button>
+              <button id="mlog-tab-err" class="log-tab">stderr</button>
+            </span>
+            <button id="manage-log-refresh" class="log-refresh">刷新</button>
+          </div>
+          <pre id="manage-log-content" class="mono"></pre>
+        </div>
       </section>
 
       <!-- 批量管理：所有程序统一列表操作 -->
