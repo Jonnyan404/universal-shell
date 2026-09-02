@@ -25,13 +25,16 @@ pub struct ReleaseAsset {
 
 pub struct GitHub {
     pub client: reqwest::blocking::Client,
+    /// 可选的 GitHub API token，用于提升请求限额（5000/h vs 60/h）
+    pub token: Option<String>,
     /// 可选的 URL 加速代理前缀，如 https://gh-proxy.com/
     pub proxy_prefix: Option<String>,
 }
 
 impl Default for GitHub {
     fn default() -> Self {
-        Self { client: reqwest::blocking::Client::new(), proxy_prefix: None }
+        let token = std::env::var("GITHUB_TOKEN").ok().filter(|t| !t.is_empty());
+        Self { client: reqwest::blocking::Client::new(), token, proxy_prefix: None }
     }
 }
 
@@ -39,12 +42,11 @@ impl GitHub {
     /// 查询最新版本，返回 (tag, published_at)
     pub fn latest(&self, repo: &str) -> anyhow::Result<LatestRelease> {
         let api = format!("https://api.github.com/repos/{repo}/releases/latest");
-        let resp = self
-            .client
-            .get(&api)
-            .header("User-Agent", "universal-shell")
-            .send()
-            .context("请求 GitHub API 失败")?;
+        let mut req = self.client.get(&api).header("User-Agent", "universal-shell");
+        if let Some(token) = &self.token {
+            req = req.header("Authorization", format!("Bearer {token}"));
+        }
+        let resp = req.send().context("请求 GitHub API 失败")?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().unwrap_or_default();

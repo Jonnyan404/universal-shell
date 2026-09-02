@@ -39,11 +39,10 @@ jobs:
         with:
           workspaces: .
 
-      - name: Build shared
-        run: cargo build -p shared --all-targets
-
       - name: verify_templates
         run: cargo run -p shared --example verify_templates
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   e2e:
     name: e2e representative download (macOS)
@@ -63,3 +62,5 @@ jobs:
         run: >
           cargo run -p shared --example e2e_download --
           dufs miniserve lazygit filebrowser
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -29,18 +29,46 @@
 └── demo/shell.json       # 示例配置（cloud-clipboard-go + 演示程序）
 ```
 
-## 运行
+## 开发环境
 
-### egui 版
+### 前置依赖
+
+- [Rust](https://rustup.rs/)（stable）
+- [Node.js](https://nodejs.org/)（Tauri 前端需要）
+- macOS 额外：Xcode Command Line Tools（`xcode-select --install`）
+- Linux 额外：见 [Tauri Linux Prerequisites](https://v2.tauri.app/start/prerequisites/#linux)，核心是 `libwebkit2gtk-4.1-dev`、`libappindicator3-dev` 等
+
+### 以开发模式运行
+
+#### egui 版（推荐先用这个，启动最快）
 
 ```bash
 cargo run -p app-egui -- demo/shell.json
 ```
 
-### Tauri 版
+使用 `demo/shell.json` 作为示例配置，加载后可浏览模板、安装程序。
+
+#### Tauri 版
 
 ```bash
 cd app-tauri && npm install && npm run tauri dev
+```
+
+首次运行会同时编译 Rust 后端和启动前端 dev server，之后增量编译较快。
+
+### 其他常用开发命令
+
+```bash
+# 仅编译全部 crate（检查错误/警告）
+cargo build --all-targets
+
+# 运行 shared 库的示例
+cargo run -p shared --example verify_templates
+cargo run -p shared --example generate_registry
+cargo run -p shared --example sign_registry
+
+# 生成 UI 文件（Tauri 前端改动后无需手动操作，Vite 自动处理）
+# 如需手动生成：cd app-tauri/src-tauri && cargo build
 ```
 
 ## 打包发布

@@ -47,6 +47,10 @@ fn main() {
         std::process::exit(2);
     }
 
+    if github.token.is_none() {
+        println!("!! 未设置 GITHUB_TOKEN，使用匿名请求（60 次/小时限额）。建议：export GITHUB_TOKEN=ghp_xxx");
+    }
+
     println!("== 验证 {} 个程序 (OS={}, arch={}) ==", programs.len(), std::env::consts::OS, arch);
     let mut failed = 0;
     for p in &programs {
