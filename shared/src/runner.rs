@@ -3,9 +3,37 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Child;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Context};
 use log::info;
+
+/// 把一路字节流逐行写入共享日志。`is_stderr` 时行首加 \x1F 标记(供前端着色)。
+fn copy_stream_lines<R: std::io::BufRead>(
+    r: &mut R,
+    writer: &Arc<Mutex<std::io::BufWriter<std::fs::File>>>,
+    is_stderr: bool,
+) {
+    use std::io::Write as _;
+    let mut buf = String::new();
+    loop {
+        buf.clear();
+        match r.read_line(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {
+                let mut line = String::with_capacity(buf.len() + 1);
+                if is_stderr {
+                    line.push('\u{1f}');
+                }
+                line.push_str(&buf);
+                if let Ok(mut w) = writer.lock() {
+                    let _ = w.write_all(line.as_bytes());
+                    let _ = w.flush();
+                }
+            }
+        }
+    }
+}
 
 /// 正在运行且被壳持有的子进程
 pub struct Runner {
@@ -74,7 +102,8 @@ impl Runner {
         false
     }
 
-    /// 前台启动(窗口应用用这个：stdout/stderr 走 file，避免阻塞)
+    /// 前台启动(窗口应用用这个)：stdout/stderr 合并写入同一日志文件，
+    /// 其中 stderr 行以记录分隔符 `\x1F` 开头，供前端着色区分。
     pub fn start_async(
         &mut self,
         id: &str,
@@ -88,22 +117,39 @@ impl Runner {
         }
 
         std::fs::create_dir_all(log_dir)?;
-        let stdout_path = log_dir.join(format!("{id}.out.log"));
-        let stderr_path = log_dir.join(format!("{id}.err.log"));
-        let stdout_file = std::fs::File::create(&stdout_path)?;
-        let stderr_file = std::fs::File::create(&stderr_path)?;
+        let log_path = log_dir.join(format!("{id}.log"));
+        let log_file = std::fs::File::create(&log_path)?;
 
         let mut cmd = std::process::Command::new(bin_path);
         cmd.args(args)
             .current_dir(working_dir)
-            .stdout(std::process::Stdio::from(stdout_file))
-            .stderr(std::process::Stdio::from(stderr_file))
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::null());
 
-        let child = cmd
+        let mut child = cmd
             .spawn()
             .with_context(|| format!("无法启动 {}", bin_path.display()))?;
         info!("已启动 {id} (pid={})", child.id());
+
+        // 后台线程把 stdout/stderr 两路写到同一文件；stderr 行加前缀
+        let out = child.stdout.take();
+        let err = child.stderr.take();
+        let writer = std::sync::Arc::new(std::sync::Mutex::new(std::io::BufWriter::new(log_file)));
+        let (out, err) = (out.map(std::io::BufReader::new), err.map(std::io::BufReader::new));
+        if let Some(mut out) = out {
+            let w = writer.clone();
+            std::thread::spawn(move || {
+                copy_stream_lines(&mut out, &w, false);
+            });
+        }
+        if let Some(mut err) = err {
+            let w = writer.clone();
+            std::thread::spawn(move || {
+                copy_stream_lines(&mut err, &w, true);
+            });
+        }
+
         self.children.insert(id.to_string(), child);
         Ok(())
     }

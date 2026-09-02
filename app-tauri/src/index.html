@@ -38,17 +38,11 @@
           <div id="notice"></div>
         </div>
         <div id="manage-log" class="manage-log" hidden>
-          <div class="term-bar">
-            <span class="term-title">运行日志</span>
-            <span class="term-controls">
-              <span class="manage-log-tabs">
-                <button id="mlog-tab-out" class="log-tab active">stdout</button>
-                <button id="mlog-tab-err" class="log-tab">stderr</button>
-              </span>
-              <button id="manage-log-fullscreen" class="log-action" title="全屏">⛶</button>
-              <button id="manage-log-copy" class="log-action" title="复制">⧉</button>
-              <button id="manage-log-refresh" class="log-refresh">刷新</button>
-            </span>
+          <div id="manage-log-resize" class="manage-log-resize" title="上下拖动调整日志高度"></div>
+          <div class="manage-log-actions">
+            <button id="manage-log-fullscreen" class="log-action" title="全屏">⛶</button>
+            <button id="manage-log-copy" class="log-action" title="复制">⧉</button>
+            <button id="manage-log-refresh" class="log-action" title="刷新">↻</button>
           </div>
           <pre id="manage-log-content" class="term-body"></pre>
         </div>
@@ -100,10 +94,6 @@
       <div class="term-bar">
         <span id="log-modal-title" class="term-title">日志</span>
         <span class="term-controls">
-          <span class="log-tabs">
-            <button id="log-tab-out" class="log-tab active">stdout</button>
-            <button id="log-tab-err" class="log-tab">stderr</button>
-          </span>
           <button id="log-copy" class="log-action" title="复制">⧉</button>
           <button id="log-refresh" class="log-refresh">刷新</button>
         </span>

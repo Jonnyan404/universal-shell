@@ -434,19 +434,18 @@ fn set_proxy(
 
 #[derive(serde::Serialize)]
 struct LogsView {
-    out: String,
-    err: String,
+    text: String,
 }
 
-/// 读取某程序的最新日志（stdout / stderr 各取尾段）
+/// 读取某程序的合并日志（stdout/stderr 同一文件，stderr 行以 \x1F 开头）
 #[tauri::command]
 fn get_logs(state: State<AppState>, program_id: String) -> Result<LogsView, String> {
     let mgr = state.manager.lock().unwrap();
     if !mgr.programs.iter().any(|p| p.id == program_id) {
         return Err("程序不存在".into());
     }
-    let (out, err) = mgr.read_logs(&program_id, 64 * 1024);
-    Ok(LogsView { out, err })
+    let (out, _err) = mgr.read_logs(&program_id, 64 * 1024);
+    Ok(LogsView { text: out })
 }
 
 #[derive(serde::Deserialize)]

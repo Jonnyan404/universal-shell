@@ -362,6 +362,7 @@ async function refreshStatus() {
     // 回写本地缓存，供批量视图复用
     const idx = statuses.findIndex((s) => s.id === current.id);
     if (idx >= 0) statuses[idx].status = st;
+    renderSidebar();
   } catch {
     // 忽略
   }
@@ -375,6 +376,7 @@ async function refreshStatusLocal() {
     renderStatus(st);
     const idx = statuses.findIndex((s) => s.id === current.id);
     if (idx >= 0) statuses[idx].status = st;
+    renderSidebar();
   } catch {
     // 忽略
   }
@@ -686,26 +688,35 @@ async function saveSettings() {
   closeSettings();
 }
 
-// ---------- 日志查看 ----------
+// ---------- 日志查看（合并 stdout/stderr 单窗口，stderr 红色）----------
 
 let logProgramId = null;
-let logTab = "out";
+
+// 把合并日志文本渲染进容器：\x1F 开头的行视为 stderr，着红色
+function renderLogBody(container, text) {
+  container.innerHTML = "";
+  if (!text) {
+    container.textContent = "(空)";
+    return;
+  }
+  const lines = text.split("\n");
+  const frag = document.createDocumentFragment();
+  for (const line of lines) {
+    const isErr = line.charCodeAt(0) === 0x1f;
+    const content = isErr ? line.slice(1) : line;
+    const span = document.createElement("span");
+    span.textContent = content;
+    if (isErr) span.classList.add("log-err");
+    frag.appendChild(span);
+    frag.appendChild(document.createTextNode("\n"));
+  }
+  container.appendChild(frag);
+}
 
 function openLogModal(id) {
   logProgramId = id;
-  logTab = "out";
   document.querySelector("#log-modal").hidden = false;
-  setLogTab();
   refreshLog();
-}
-
-function setLogTab() {
-  const out = document.querySelector("#log-tab-out");
-  const err = document.querySelector("#log-tab-err");
-  const body = document.querySelector("#log-content");
-  out.classList.toggle("active", logTab === "out");
-  err.classList.toggle("active", logTab === "err");
-  if (body) body.classList.toggle("stderr", logTab === "err");
 }
 
 async function refreshLog() {
@@ -715,7 +726,7 @@ async function refreshLog() {
   title.textContent = `日志 · ${p ? p.name : logProgramId}`;
   try {
     const logs = await invoke("get_logs", { programId: logProgramId });
-    content.textContent = (logTab === "out" ? logs.out : logs.err) || "(空)";
+    renderLogBody(content, logs.text);
   } catch (e) {
     content.textContent = String(e);
   }
@@ -752,7 +763,6 @@ async function copyLogText(text) {
 
 // ---------- 程序管理内嵌日志 ----------
 
-let mlogTab = "out";
 // 会话内操作日志（启动/停止/下载/更新等），显示在日志窗口顶部，便于回看操作轨迹
 let opLogs = [];
 
@@ -769,15 +779,6 @@ function showManageLog() {
   refreshManageLog();
 }
 
-function setManageLogTab() {
-  const outBtn = document.querySelector("#mlog-tab-out");
-  const errBtn = document.querySelector("#mlog-tab-err");
-  const body = document.querySelector("#manage-log-content");
-  outBtn.classList.toggle("active", mlogTab === "out");
-  errBtn.classList.toggle("active", mlogTab === "err");
-  if (body) body.classList.toggle("stderr", mlogTab === "err");
-}
-
 async function refreshManageLog() {
   if (!current || view !== "manage") return;
   const box = document.querySelector("#manage-log");
@@ -787,14 +788,47 @@ async function refreshManageLog() {
     content.scrollTop + content.clientHeight >= content.scrollHeight - 48;
   try {
     const logs = await invoke("get_logs", { programId: current.id });
-    const fileText = (mlogTab === "out" ? logs.out : logs.err) || "(无日志输出)";
     // 操作日志 + 文件日志合并显示，操作日志置顶
     const opsText = opLogs.map((o) => `◆ ${o}`).join("\n");
-    content.textContent = opsText ? opsText + "\n\n" + fileText : fileText;
+    const body = opsText ? opsText + "\n\n" + logs.text : logs.text;
+    renderLogBody(content, body);
     if (nearBottom) content.scrollTop = content.scrollHeight;
   } catch (e) {
     content.textContent = String(e);
   }
+}
+
+// 上下拖动调节内嵌日志窗口高度（最小 80px，不超过窗口的 70%）
+function setupManageLogResize() {
+  const log = document.querySelector("#manage-log");
+  const handle = document.querySelector("#manage-log-resize");
+  if (!log || !handle) return;
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+
+  const onMove = (e) => {
+    if (!dragging || log.classList.contains("fullscreen")) return;
+    const dh = e.clientY - startY;
+    const maxH = window.innerHeight * 0.7;
+    const h = Math.min(Math.max(startH - dh, 80), maxH);
+    log.style.height = h + "px";
+  };
+  const onUp = () => {
+    dragging = false;
+    document.body.classList.remove("resizing-log");
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onUp);
+  };
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    dragging = true;
+    startY = e.clientY;
+    startH = log.getBoundingClientRect().height;
+    document.body.classList.add("resizing-log");
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  });
 }
 
 // ---------- 删除 ----------
@@ -1178,16 +1212,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   // 日志模态
   const logModal = document.querySelector("#log-modal");
   document.querySelector("#log-modal-close").onclick = closeLogModal;
-  document.querySelector("#log-tab-out").onclick = () => {
-    logTab = "out";
-    setLogTab();
-    refreshLog();
-  };
-  document.querySelector("#log-tab-err").onclick = () => {
-    logTab = "err";
-    setLogTab();
-    refreshLog();
-  };
   document.querySelector("#log-refresh").onclick = refreshLog;
   document.querySelector("#log-copy").onclick = () => {
     const content = document.querySelector("#log-content");
@@ -1198,16 +1222,6 @@ window.addEventListener("DOMContentLoaded", async () => {
   });
 
   // 程序管理内嵌日志
-  document.querySelector("#mlog-tab-out").onclick = () => {
-    mlogTab = "out";
-    setManageLogTab();
-    refreshManageLog();
-  };
-  document.querySelector("#mlog-tab-err").onclick = () => {
-    mlogTab = "err";
-    setManageLogTab();
-    refreshManageLog();
-  };
   document.querySelector("#manage-log-refresh").onclick = refreshManageLog;
   document.querySelector("#manage-log-fullscreen").onclick = () => {
     document.querySelector("#manage-log").classList.toggle("fullscreen");
@@ -1216,6 +1230,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     const content = document.querySelector("#manage-log-content");
     copyLogText(content.textContent);
   };
+  setupManageLogResize();
 
   // 编辑模态
   const editModal = document.querySelector("#edit-modal");

@@ -554,7 +554,7 @@ impl ShellManager {
         self.save_config(path)
     }
 
-    /// 读取某程序 stdout/stderr 日志内容（尾段）。返回 (out, err) 文本。
+    /// 读取某程序合并日志（stdout/stderr 同文件；stderr 行以 \x1F 开头）。返回 (merged, 空)。
     pub fn read_logs(&self, id: &str, tail_bytes: usize) -> (String, String) {
         fn read_tail(p: &Path, n: usize) -> String {
             let Ok(data) = std::fs::read(p) else {
@@ -570,9 +570,8 @@ impl ShellManager {
             }
             String::from_utf8_lossy(&s).to_string()
         }
-        let out = read_tail(&self.log_dir().join(format!("{id}.out.log")), tail_bytes);
-        let err = read_tail(&self.log_dir().join(format!("{id}.err.log")), tail_bytes);
-        (out, err)
+        let out = read_tail(&self.log_dir().join(format!("{id}.log")), tail_bytes);
+        (out, String::new())
     }
 }
 
