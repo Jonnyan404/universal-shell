@@ -128,9 +128,8 @@ async function switchTo(id) {
   opLogs = [];
   renderForm();
   showManageLog();
-  // 先以本地状态即时渲染（保证启动/停止按钮正确出现），再网络补全最新版本
+  // 仅以本地状态渲染（不联网查版本）；版本更新只走手动「检查更新」
   await refreshStatusLocal();
-  refreshStatus();
   refreshManageLog();
 }
 
@@ -161,8 +160,8 @@ async function installProgram(id, btn) {
       btn.textContent = btn.dataset.installed === "1" ? "更新" : "下载";
     }
     syncInstallBtns(id);
-    if (view === "batch") await refreshBatch();
-    else if (current?.id === id) await refreshStatus();
+    if (view === "batch") await refreshBatchLocal();
+    else if (current?.id === id) await refreshStatusLocal();
   }
 }
 
@@ -335,7 +334,7 @@ async function renderForm() {
         // 隐藏后跳到第一个可见程序，保持主管理列表干净
         current = programs.find((p) => !p.hidden) || null;
       }
-      await refreshBatch();
+      await refreshBatchLocal();
       if (current) {
         await switchTo(current.id);
       } else {
@@ -354,20 +353,7 @@ async function renderForm() {
   el.actions.appendChild(del);
 }
 
-async function refreshStatus() {
-  if (!current) return;
-  // 先用批量缓存的状态做即时渲染（若有），避免视图空白等待网络
-  const cached = statuses.find((s) => s.id === current.id)?.status;
-  if (cached) renderStatus(cached);
-  try {
-    const st = await invoke("get_status", { programId: current.id });
-    renderStatus(st);
-  } catch {
-    // 忽略
-  }
-}
-
-// 仅本地状态轮询（无网络）：程序自行退出/报错后，刷新启动按钮与运行态
+// 仅本地状态（无网络）：程序自行退出/报错后，刷新启动按钮与运行态
 async function refreshStatusLocal() {
   if (!current || view !== "manage") return;
   try {
@@ -442,28 +428,6 @@ async function refreshBatchLocal() {
     renderBatch();
   } catch (e) {
     showNotice(String(e), true);
-  }
-}
-
-// 本地 + 并行网络补全最新版本：用户主动操作后调用
-async function refreshBatch() {
-  try {
-    // 第一帧：本地状态（无网络），表格立即渲染
-    statuses = await invoke("batch_status_local");
-    renderSidebar();
-    renderBatch();
-  } catch (e) {
-    showNotice(String(e), true);
-    return;
-  }
-  // 第二帧：并行补全最新版本（网络），表格静默刷新
-  try {
-    const full = await invoke("batch_status");
-    statuses = full;
-    renderSidebar();
-    renderBatch();
-  } catch {
-    // 网络失败保留本地展示，静默忽略
   }
 }
 
@@ -572,7 +536,7 @@ function renderBatch() {
         if (item.id === current?.id && hide.checked) current = null;
         programs = await invoke("get_programs");
         if (!current) current = programs.find((p) => !p.hidden) || null;
-        await refreshBatch();
+        await refreshBatchLocal();
         if (current) await switchTo(current.id);
         else await refresh();
       } catch (e) {
@@ -603,7 +567,7 @@ function renderBatch() {
         await invoke("start_program", {
           payload: { program_id: item.id, values: {} },
         });
-        await refreshBatch();
+        await refreshBatchLocal();
       } catch (e) {
         showNotice(String(e), true);
       }
@@ -615,7 +579,7 @@ function renderBatch() {
         await invoke("restart_program", {
           payload: { program_id: item.id, values: {} },
         });
-        await refreshBatch();
+        await refreshBatchLocal();
       } catch (e) {
         showNotice(String(e), true);
       }
@@ -625,7 +589,7 @@ function renderBatch() {
     const stop = makeOpBtn("停止", async () => {
       try {
         await invoke("stop_program", { programId: item.id });
-        await refreshBatch();
+        await refreshBatchLocal();
       } catch (e) {
         showNotice(String(e), true);
       }
@@ -871,7 +835,7 @@ async function confirmAndDelete(id, name) {
     } else {
       renderSidebar();
     }
-    if (view === "batch") await refreshBatch();
+    if (view === "batch") await refreshBatchLocal();
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -973,7 +937,7 @@ async function saveEdit() {
     if (current) {
       await switchTo(current.id);
     }
-    if (view === "batch") await refreshBatch();
+    if (view === "batch") await refreshBatchLocal();
     renderSidebar();
   } catch (e) {
     showNotice(String(e), true);
@@ -1006,7 +970,7 @@ function switchView(v) {
     el.progSub.textContent =
       v === "batch" ? "所有程序统一操作" : "从远程源导入程序模板";
     el.chips.innerHTML = "";
-    if (v === "batch") refreshBatch();
+    if (v === "batch") refreshBatchLocal();
     else renderLibrary();
   }
 }
@@ -1246,8 +1210,9 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // 程序管理内嵌日志
   document.querySelector("#manage-log-refresh").onclick = refreshManageLog;
+  // 全屏日志以弹出窗口形式打开
   document.querySelector("#manage-log-fullscreen").onclick = () => {
-    document.querySelector("#manage-log").classList.toggle("fullscreen");
+    if (current) openLogModal(current.id);
   };
   document.querySelector("#manage-log-copy").onclick = () => {
     const content = document.querySelector("#manage-log-content");
