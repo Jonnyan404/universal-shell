@@ -167,6 +167,7 @@ html[data-sidebar='narrow'] .program-list, html[data-sidebar='narrow'] nav#progr
 .refresh-btn { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 8px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
 .refresh-btn:hover { color: var(--text); }
 .dl-btn { flex-shrink: 0; padding: 6px 16px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.dl-btn.on { background: var(--ok); border-color: var(--ok); }
 .dl-btn:hover:not(:disabled) { filter: brightness(1.08); }
 .dl-btn:disabled { opacity: .55; cursor: not-allowed; }
 
@@ -194,12 +195,22 @@ button {
 button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.6; cursor: default; }
 
-#actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 20px; }
+#actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 20px; }
 #actions button:first-child { background: var(--accent); border-color: var(--accent); color: #fff; }
+#actions #stop-btn { background: var(--danger); border-color: var(--danger); color: #fff; }
+#actions #restart-btn { background: #f59e0b; border-color: #f59e0b; color: #fff; }
+#actions button:disabled { background: var(--muted); border-color: var(--border); color: #fff; opacity: 0.6; }
 
 #notice { margin: 10px 0; padding: 8px 12px; border-radius: 6px; }
 #notice.ok { color: var(--ok); }
 #notice.error { color: var(--danger); background: rgba(220, 38, 38, 0.08); }
+
+/* 全局 Toast 通知 */
+#toast-container { position: fixed; top: 14px; right: 16px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; max-width: min(360px, 80vw); }
+.toast { background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--ok); color: var(--text); padding: 10px 14px; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.18); font-size: 13px; line-height: 1.4; opacity: 0; transform: translateY(-8px); transition: opacity .25s ease, transform .25s ease; white-space: pre-wrap; word-break: break-word; }
+.toast.ok { border-left-color: var(--ok); }
+.toast.error { border-left-color: var(--danger); }
+.toast.show { opacity: 1; transform: translateY(0); }
 
 /* ---------- 程序管理：内嵌日志（终端风格，跟随主题色） ---------- */
 .manage-view { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
@@ -269,7 +280,7 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .term-body::-webkit-scrollbar-track { background: var(--panel-2); }
 .term-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 .term-body::-webkit-scrollbar-thumb:hover { background: var(--muted); }
-.term-modal { background: var(--panel); border: 1px solid var(--border); width: min(1080px, 96vw); max-height: 92vh; }
+.term-modal { background: var(--panel); border: 1px solid var(--border); width: min(1080px, 96vw); height: min(78vh, 640px); }
 .term-modal .log-refresh { font-size: 12px; padding: 3px 10px; border-radius: 6px; margin-left: 0; }
 .term-modal .term-body { font-size: 13px; }
 

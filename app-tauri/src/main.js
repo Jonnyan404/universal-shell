@@ -13,7 +13,6 @@ const el = {
   chips: document.querySelector("#status-chips"),
   form: document.querySelector("#field-form"),
   actions: document.querySelector("#actions"),
-  notice: document.querySelector("#notice"),
   manageView: document.querySelector("#manage-view"),
   batchView: document.querySelector("#batch-view"),
   libraryView: document.querySelector("#library-view"),
@@ -30,9 +29,20 @@ let registryUrl = "";
 let manifest = null;
 let libSearchValue = "";
 
-function showNotice(text, isError) {
-  el.notice.textContent = text;
-  el.notice.className = isError ? "error" : "ok";
+// 全局 Toast 通知：右上角浮层，成功/失败着色，几秒后自动消失
+function showNotice(text, isError, duration = 3200) {
+  const container = document.querySelector("#toast-container");
+  if (!container) return;
+  const toast = document.createElement("div");
+  toast.className = "toast" + (isError ? " error" : " ok");
+  toast.textContent = text;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add("show"));
+  setTimeout(() => {
+    toast.classList.remove("show");
+    toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+    setTimeout(() => toast.remove(), 600);
+  }, duration);
 }
 
 // ---------- 程序管理 ----------
@@ -189,11 +199,13 @@ async function renderForm() {
   el.progSub.textContent = current.repo || "";
   el.form.innerHTML = "";
   for (const f of current.fields) {
+    // 开机启动统一由批量管理页管理，程序页不再显示该字段
+    if (f.kind === "autostart") continue;
     const row = document.createElement("div");
     row.className = "field-row";
     const label = document.createElement("label");
-    label.textContent = f.label;
-    label.className = "field-label";
+    label.textContent = f.required ? f.label + " *" : f.label;
+    label.className = "field-label" + (f.required ? " required" : "");
     row.appendChild(label);
 
     if (f.kind === "boolean" || f.kind === "autostart") {
@@ -276,6 +288,7 @@ async function renderForm() {
       renderStatus(st);
       await refreshStatusLocal();
       logOp("已停止");
+      refreshManageLog();
     } catch (e) {
       showNotice(String(e), true);
       logOp(`停止失败: ${e}`);
@@ -303,54 +316,51 @@ async function renderForm() {
   };
   el.actions.appendChild(restart);
 
-  const logs = document.createElement("button");
-  logs.textContent = "打开日志目录";
-  logs.onclick = () => revealLogs();
-  el.actions.appendChild(logs);
+  // 有地址(/端口)字段时，提供「打开网站」「复制地址」
+  if (webUrl(current.id)) {
+    const open = document.createElement("button");
+    open.textContent = "打开网站";
+    open.onclick = () => {
+      const u = webUrl(current.id);
+      if (u) openWeb(u);
+    };
+    el.actions.appendChild(open);
 
-  const viewLog = document.createElement("button");
-  viewLog.textContent = "查看日志";
-  viewLog.onclick = () => openLogModal(current.id);
-  el.actions.appendChild(viewLog);
+    const copy = document.createElement("button");
+    copy.textContent = "复制地址";
+    copy.onclick = () => {
+      const u = webUrl(current.id);
+      if (u) copyLogText(u);
+    };
+    el.actions.appendChild(copy);
+  }
+}
 
-  const edit = document.createElement("button");
-  edit.textContent = "编辑";
-  edit.onclick = () => openEditModal(current.id);
-  el.actions.appendChild(edit);
-
-  const hideBtn = document.createElement("button");
-  hideBtn.textContent = current.hidden ? "取消隐藏" : "隐藏";
-  hideBtn.onclick = async () => {
-    try {
-      await invoke("set_program_hidden", {
-        programId: current.id,
-        hidden: !current.hidden,
-      });
-      showNotice(current.hidden ? "已取消隐藏" : "已隐藏（在批量管理中可找回）");
-      logOp(current.hidden ? "已取消隐藏" : "已隐藏");
-      programs = await invoke("get_programs");
-      current = programs.find((p) => p.id === current.id) || null;
-      if (current?.hidden) {
-        // 隐藏后跳到第一个可见程序，保持主管理列表干净
-        current = programs.find((p) => !p.hidden) || null;
-      }
-      await refreshBatchLocal();
-      if (current) {
-        await switchTo(current.id);
-      } else {
-        await refresh();
-      }
-    } catch (e) {
-      showNotice(String(e), true);
-    }
+// 构造程序的 Web 访问地址(如有地址/端口字段)。无地址返回 null
+function webUrl(id) {
+  const prog = programs.find((p) => p.id === id);
+  if (!prog) return null;
+  const fieldVal = (key) => {
+    const v = values[key];
+    if (v && String(v).trim()) return String(v).trim();
+    const f = prog.fields.find((x) => x.key === key);
+    return f && f.default && String(f.default).trim() ? String(f.default).trim() : null;
   };
-  el.actions.appendChild(hideBtn);
+  const addr = fieldVal("host") ?? fieldVal("bind") ?? fieldVal("addr");
+  if (!addr) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(addr)) return addr;
+  const port = fieldVal("port");
+  if (port && !/:\d+$/.test(addr)) return `http://${addr}:${port}`;
+  return `http://${addr}`;
+}
 
-  const del = document.createElement("button");
-  del.textContent = "删除";
-  del.className = "op-danger";
-  del.onclick = () => confirmAndDelete(current.id, current.name);
-  el.actions.appendChild(del);
+// 用系统默认浏览器打开地址
+async function openWeb(url) {
+  try {
+    await window.__TAURI__.opener.openUrl(url);
+  } catch (e) {
+    showNotice(String(e), true);
+  }
 }
 
 // 仅本地状态（无网络）：程序自行退出/报错后，刷新启动按钮与运行态
@@ -368,14 +378,17 @@ function renderStatus(st) {
   // 回写本地缓存，保证侧栏红绿圆点/批量视图即时一致
   if (current) {
     const idx = statuses.findIndex((s) => s.id === current.id);
-    if (idx >= 0) statuses[idx].status = st;
+    if (idx >= 0) {
+      statuses[idx].status = st;
+    } else {
+      statuses.push({ id: current.id, name: current.name, status: st });
+    }
   }
   const b = document.querySelector("#start-btn");
   const stop = document.querySelector("#stop-btn");
   const restart = document.querySelector("#restart-btn");
   const chips = [
     { text: `本地版本: ${st.local_version}`, cls: "" },
-    { text: `最新版本: ${st.latest_version ?? "未知"}`, cls: "" },
     { text: st.installed ? "已安装" : "未安装", cls: "" },
   ].filter((c) => c.text !== "");
   if (st.autostart) {
@@ -410,9 +423,9 @@ function renderStatus(st) {
   renderSidebar();
 }
 
-async function revealLogs() {
+async function revealLogs(id) {
   try {
-    await invoke("reveal_logs", { programId: current.id });
+    await invoke("reveal_logs", { programId: id });
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -555,8 +568,28 @@ function renderBatch() {
 
     // 下载 / 更新（复用状态栏安装逻辑，防重复触发；已最新时置灰）
     const isUpToDate = s.installed && s.up_to_date;
-    const dl = makeOpBtn(s.installed ? (isUpToDate ? "最新" : "更新") : "下载", () => {
+    const dl = makeOpBtn(s.installed ? (isUpToDate ? "最新" : "更新") : "下载", async () => {
       dl.dataset.installed = s.installed ? "1" : "0";
+      // 最新版本未知时先联网检查，避免不必要的覆盖安装
+      if (s.installed && !s.latest_version) {
+        dl.disabled = true;
+        dl.textContent = "检查中…";
+        try {
+          const full = await invoke("batch_status");
+          statuses = full;
+          const fresh = statuses.find((x) => x.id === item.id);
+          renderSidebar();
+          if (fresh?.status?.up_to_date) {
+            renderBatch();
+            showNotice("「" + item.name + "」已是最新版本");
+            return;
+          }
+        } catch (e) {
+          renderBatch();
+          showNotice(String(e), true);
+          return;
+        }
+      }
       installProgram(item.id, dl);
     });
     if (isUpToDate) dl.disabled = true;
@@ -599,6 +632,9 @@ function renderBatch() {
     const logs = makeOpBtn("日志", () => openLogModal(item.id));
     ops.appendChild(logs);
 
+    const openDir = makeOpBtn("打开日志目录", () => revealLogs(item.id));
+    ops.appendChild(openDir);
+
     const edit = makeOpBtn("编辑", () => openEditModal(item.id));
     ops.appendChild(edit);
 
@@ -634,6 +670,11 @@ function openSettings() {
       hp.value = p.http_proxy || "";
     })
     .catch((e) => showNotice(String(e), true));
+  invoke("shell_autostart_enabled")
+    .then((on) => {
+      document.querySelector("#sett-shell-auto").checked = !!on;
+    })
+    .catch(() => {});
   modal.hidden = false;
 }
 
@@ -644,9 +685,15 @@ function closeSettings() {
 async function saveSettings() {
   const acc = document.querySelector("#sett-accelerate").value;
   const hp = document.querySelector("#sett-proxy").value;
+  const shellAuto = document.querySelector("#sett-shell-auto").checked;
   try {
     await invoke("set_proxy", { acceleratePrefix: acc, httpProxy: hp });
-    showNotice("网络设置已保存");
+    try {
+      await invoke("set_shell_autostart", { enabled: shellAuto });
+    } catch (e) {
+      showNotice(`壳开机自启设置失败: ${e}`, true);
+    }
+    showNotice("设置已保存");
   } catch (e) {
     showNotice(String(e), true);
   }

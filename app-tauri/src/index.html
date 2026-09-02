@@ -31,11 +31,10 @@
       </div>
 
 <!-- 程序管理：右栏配置 -->
-      <section id="manage-view" class="view manage-view" hidden>
+      <section id="manage-view" class="view manage-view">
         <div class="manage-body">
           <form id="field-form"></form>
           <div id="actions"></div>
-          <div id="notice"></div>
         </div>
         <div id="op-log" class="op-log" hidden></div>
         <div id="manage-log" class="manage-log" hidden>
@@ -132,11 +131,11 @@
     </div>
   </div>
 
-  <!-- 模态：网络/代理设置 -->
+  <!-- 模态：全局设置 -->
   <div id="settings-modal" class="modal" hidden>
     <div class="modal-box">
       <div class="modal-head">
-        <span>网络设置</span>
+        <span>全局设置</span>
         <button id="settings-modal-close" class="modal-close" title="关闭">×</button>
       </div>
       <form id="settings-form" class="edit-form">
@@ -148,6 +147,10 @@
           <label>通用代理</label>
           <input id="sett-proxy" placeholder="如 http://127.0.0.1:7890（作用于全部网络请求）" />
         </div>
+        <div class="edit-row">
+          <label>壳开机自启</label>
+          <span class="sett-check"><input type="checkbox" id="sett-shell-auto" /> 开机时自动启动本壳（并拉起开启了自启的程序）</span>
+        </div>
         <div class="edit-actions">
           <button type="submit" id="sett-save">保存</button>
           <button type="button" id="sett-cancel">取消</button>
@@ -156,6 +159,7 @@
     </div>
   </div>
 
+  <div id="toast-container"></div>
   <script src="main.js"></script>
 </body>
 </html>

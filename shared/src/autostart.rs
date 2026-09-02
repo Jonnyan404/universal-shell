@@ -69,4 +69,15 @@ let app_path = path.to_string_lossy().into_owned();
             .map(|a| a.is_enabled().unwrap_or(false))
             .unwrap_or(false)
     }
+
+    /// 注册/解除「壳自身」的开机启动。方案 B：由壳开机自启后再拉起程序。
+    pub fn set_shell_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
+        let exe = std::env::current_exe().map_err(|e| anyhow!("无法定位壳路径: {e}"))?;
+        self.set_enabled("universal-shell", &exe, enabled)
+    }
+
+    /// 「壳自身」开机启动是否已启用
+    pub fn shell_is_enabled(&self) -> bool {
+        self.is_enabled("universal-shell")
+    }
 }

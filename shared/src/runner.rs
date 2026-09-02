@@ -68,36 +68,97 @@ impl Runner {
         }
     }
 
-    /// 按可执行文件路径杀死遗留的孤儿进程（壳重启后子进程句柄已丢失，
-    /// 若该程序仍存活在系统上则会占用端口，导致无法再次启动）。
-    /// 返回是否杀掉了进程。
-    #[cfg(target_os = "macos")]
-    pub fn kill_orphan_by_path(&self, bin_path: &PathBuf) -> bool {
-        let out = std::process::Command::new("pgrep")
+    /// 按可执行文件路径查找系统上匹配的进程 PID。
+    /// 壳重启后子进程句柄丢失，用路径探测残留进程以恢复运行态。
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn pids_by_path(&self, bin_path: &PathBuf) -> Vec<u32> {
+        let mut pids = Vec::new();
+        let Ok(out) = std::process::Command::new("pgrep")
             .arg("-f")
             .arg(bin_path.display().to_string())
-            .output();
-        let Ok(out) = out else { return false };
-        let Ok(text) = String::from_utf8(out.stdout) else {
-            return false;
+            .output()
+        else {
+            return pids;
         };
-        let mut killed = false;
+        let Ok(text) = String::from_utf8(out.stdout) else {
+            return pids;
+        };
         for line in text.lines() {
             let pid = line.trim();
             if pid.is_empty() || !pid.chars().all(|c| c.is_ascii_digit()) {
                 continue;
             }
-            // 跳过自己……壳进程本身不可能与受管二进制同路径，直接 kill
-            let _ = std::process::Command::new("kill")
-                .arg(pid)
-                .status();
-            killed = true;
+            if let Ok(p) = pid.parse::<u32>() {
+                pids.push(p);
+            }
         }
-        killed
+        pids
     }
 
-    /// 非 macos 兜底：尽力而为（暂无实现），返回 false
-    #[cfg(not(target_os = "macos"))]
+    /// Windows：用 tasklist 按镜像名(可执行文件名) 匹配进程 PID
+    #[cfg(target_os = "windows")]
+    fn pids_by_path(&self, bin_path: &PathBuf) -> Vec<u32> {
+        let Some(name) = bin_path.file_name().map(|n| n.to_string_lossy().into_owned())
+        else {
+            return Vec::new();
+        };
+        let mut pids = Vec::new();
+        let Ok(out) = std::process::Command::new("tasklist")
+            .args(["/FI", &format!("IMAGENAME eq {name}"), "/FO", "CSV", "/NH"])
+            .output()
+        else {
+            return pids;
+        };
+        let text = String::from_utf8_lossy(&out.stdout);
+        for line in text.lines() {
+            // CSV 列: "name","pid","session"...  取第二列
+            let cols: Vec<&str> = line.split('"').collect();
+            if cols.len() >= 4 && cols[3].trim().chars().all(|c| c.is_ascii_digit()) {
+                if let Ok(p) = cols[3].trim().parse::<u32>() {
+                    pids.push(p);
+                }
+            }
+        }
+        pids
+    }
+
+    /// 系统上是否有该可执行文件的进程在运行（含残留孤儿）
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
+    pub fn is_process_alive(&self, bin_path: &PathBuf) -> bool {
+        !self.pids_by_path(bin_path).is_empty()
+    }
+
+    /// 其它平台兜底：无检测能力，返回 false
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    pub fn is_process_alive(&self, _bin_path: &PathBuf) -> bool {
+        false
+    }
+
+    /// 按可执行文件路径杀死遗留的孤儿进程（壳重启后子进程句柄已丢失，
+    /// 若该程序仍存活在系统上则会占用端口，导致无法再次启动）。
+    /// 返回是否杀掉了进程。
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    pub fn kill_orphan_by_path(&self, bin_path: &PathBuf) -> bool {
+        let pids = self.pids_by_path(bin_path);
+        for &pid in &pids {
+            let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+        }
+        !pids.is_empty()
+    }
+
+    #[cfg(target_os = "windows")]
+    pub fn kill_orphan_by_path(&self, bin_path: &PathBuf) -> bool {
+        let pids = self.pids_by_path(bin_path);
+        for &pid in &pids {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/F", "/T"])
+                .status();
+        }
+        !pids.is_empty()
+    }
+
+    /// 其它平台兜底：尽力而为（暂无实现），返回 false
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     pub fn kill_orphan_by_path(&self, _bin_path: &PathBuf) -> bool {
         false
     }

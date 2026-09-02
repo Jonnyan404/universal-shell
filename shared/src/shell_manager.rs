@@ -186,6 +186,11 @@ impl ShellManager {
         self.data_dir.join("logs")
     }
 
+    /// 清空某程序的日志文件（显式“停止”时调用；重启不清空）
+    pub fn clear_log(&self, id: &str) {
+        let _ = std::fs::write(self.log_dir().join(format!("{id}.log")), b"");
+    }
+
     // ---------- 安装 / 更新 ----------
 
     /// 安装或更新程序到最新版。返回 (本地版本号, 最新版本号)
@@ -334,7 +339,9 @@ impl ShellManager {
     /// 供 UI 在不持锁情况下先渲染，再异步补全最新版本。
     pub fn status_local(&mut self, program: &Program) -> ProgramStatus {
         let installed = self.bin_path(program).exists();
-        let running = self.runner.is_running(&program.id);
+        let bin = self.bin_path(program);
+        // 壳持有句柄，或该系统上仍有该程序的进程（壳重启后残留）→ 视为运行中
+        let running = self.runner.is_running(&program.id) || self.runner.is_process_alive(&bin);
         let local_version = self.local_version(program);
         ProgramStatus {
             installed,
@@ -357,16 +364,36 @@ impl ShellManager {
         if !bin.exists() {
             return Err(anyhow::anyhow!("{} 尚未安装，请先下载", program.name));
         }
-        // 若无存活的受管子进程句柄，但有系统残留的孤儿进程（如壳上次异常退出），
-        // 先将其清掉再启动，避免端口占用导致无法再次启动。
-        if !self.runner.is_running(&program.id) {
-            let killed = self.runner.kill_orphan_by_path(&bin);
-            if killed {
-                log::info!(
-                    "清理了 {} 的孤儿进程后重新启动",
-                    program.name
-                );
-            }
+        // 若壳持有句柄 → 已在运行，直接报错
+        // 若壳无句柄但系统仍有该程序进程（壳上次退出后残留、仍在后台运行）→
+        // 不杀不重启，提示已在运行，避免误杀用户保留的常驻进程。
+        let held = self.runner.is_running(&program.id);
+        let orphan = !held && self.runner.is_process_alive(&bin);
+        if held {
+            return Err(anyhow::anyhow!("{} 已在运行", program.name));
+        }
+        if orphan {
+            return Err(anyhow::anyhow!(
+                "{} 正在后台运行，请先停止或在操作中点击「重启」",
+                program.name
+            ));
+        }
+        let missing: Vec<&str> = program
+            .fields
+            .iter()
+            .filter(|f| f.required)
+            .filter(|f| {
+                let v = field_values.get(&f.key);
+                !v.map(|s| !s.trim().is_empty()).unwrap_or(false)
+            })
+            .map(|f| f.label())
+            .collect();
+        if !missing.is_empty() {
+            return Err(anyhow::anyhow!(
+                "{} 缺少必填项：{}",
+                program.name,
+                missing.join("、")
+            ));
         }
         let args = program.render_args(field_values);
         let wd: PathBuf = if program.working_dir == "." {
@@ -379,7 +406,25 @@ impl ShellManager {
     }
 
     pub fn stop(&mut self, id: &str) -> anyhow::Result<()> {
-        self.runner.stop(id)
+        // 优先停掉壳持有的子进程句柄；若壳无句柄（如上次退出后该程序仍在后台
+        // 运行），则按可执行文件路径杀掉残留进程，确保能真正停掉、可再重启。
+        match self.runner.stop(id) {
+            Ok(()) => return Ok(()),
+            Err(e1) => {
+                let bin = self
+                    .programs
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| self.bin_path(p));
+                if let Some(bin) = bin {
+                    if self.runner.kill_orphan_by_path(&bin) {
+                        log::info!("已停止后台残留进程 {id}");
+                        return Ok(());
+                    }
+                }
+                Err(e1)
+            }
+        }
     }
 
     pub fn stop_all(&mut self) {
@@ -408,16 +453,56 @@ impl ShellManager {
         }
     }
 
+    /// 读取程序「自启动」字段的当前值（方案 B：由壳启动时拉起，而非系统登录项）
+    pub fn program_autostart(&self, program: &Program) -> bool {
+        let key = program
+            .fields
+            .iter()
+            .find(|f| matches!(f.kind, FieldKind::AutoStart { .. }))
+            .map(|f| f.key.clone());
+        match key {
+            Some(k) => self
+                .load_field_values(program)
+                .get(&k)
+                .map(|v| v == "true")
+                .unwrap_or(false),
+            None => false,
+        }
+    }
+
     /// Autostart 字段:若字段值是 true 则注册登录项，否则关闭
-    pub fn apply_key_autostart(&mut self, program: &Program, values: &BTreeMap<String, String>) -> anyhow::Result<()> {
-        for f in &program.fields {
-            if matches!(f.kind, FieldKind::AutoStart { .. }) {
-                let enabled = values.get(&f.key).map(|v| v == "true").unwrap_or(false);
-                let bin = self.bin_path(program);
-                self.autostart.set_enabled(&program.id, &bin, enabled)?;
+    /// 方案 B（壳管理）：程序的「自启动」不再注册系统登录项，而是作为
+    /// 「壳启动时自动拉起」的清单。启用状态由字段值持久化（见 set_autostart）。
+    /// 此函数保留为空操作，避免误注册被管程序到系统登录项。
+    pub fn apply_key_autostart(&mut self, _program: &Program, _values: &BTreeMap<String, String>) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// 壳启动后自动拉起所有开启「自启动」的程序（方案 B：壳管理）。    /// 逐个用保存的字段值渲染参数并启动，失败仅记日志不影响后续。
+    pub fn start_autostart_programs(&mut self) {
+        let programs = self.programs.clone();
+        for p in &programs {
+            let values = self.load_field_values(p);
+            let enabled = p
+                .fields
+                .iter()
+                .find(|f| matches!(f.kind, FieldKind::AutoStart { .. }))
+                .map(|f| values.get(&f.key).map(|v| v == "true").unwrap_or(false))
+                .unwrap_or(false);
+            if !enabled {
+                continue;
+            }
+            let bin = self.bin_path(p);
+            let held = self.runner.is_running(&p.id);
+            let orphan = !held && self.runner.is_process_alive(&bin);
+            if held || orphan {
+                continue; // 已在运行/残留进程在跑，不重复拉起
+            }
+            match self.start(p, &values) {
+                Ok(()) => log::info!("开机自启已拉起 {}", p.name),
+                Err(e) => log::warn!("开机自启拉起 {} 失败: {}", p.name, e),
             }
         }
-        Ok(())
     }
 
     // ---------- 模板更新 (C4) ----------
@@ -640,7 +725,7 @@ mod tests {
         // 远端模板：修改 args、新增字段、repo 不变
         let mut remote = prog_copy(&current);
         remote.args = vec!["--bind".to_string(), "127.0.0.1".to_string(), "-p".to_string(), "{port}".into()];
-        remote.fields.push(Field { key: "bind".into(), kind: FieldKind::String { label: "绑定".into(), default: "127.0.0.1".into(), placeholder: String::new() } });
+        remote.fields.push(Field { key: "bind".into(), kind: FieldKind::String { label: "绑定".into(), default: "127.0.0.1".into(), placeholder: String::new() }, required: false });
 
         let mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-unknown")).unwrap();
         let diff = mgr.template_diff(&current, &remote);

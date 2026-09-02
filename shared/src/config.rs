@@ -185,6 +185,13 @@ pub struct Field {
     pub key: String,
     #[serde(flatten)]
     pub kind: FieldKind,
+    /// 启动前必填标记：为 true 且值为空时，启动前报错并列出缺项
+    #[serde(default, skip_serializing_if = "is_falsef")]
+    pub required: bool,
+}
+
+fn is_falsef(b: &bool) -> bool {
+    !*b
 }
 
 impl Field {

@@ -192,7 +192,7 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
         p = found;
         bin = mgr.bin_path(&p);
         local = mgr.status_local(&p);
-        autostart = mgr.autostart.is_enabled(&p.id);
+        autostart = mgr.program_autostart(&p);
         let layout = mgr.proxy.clone();
         let gh = proxied_github(&layout);
         drop(mgr);
@@ -213,7 +213,7 @@ fn get_status_local(state: State<AppState>, program_id: String) -> Result<Status
     };
     let bin = mgr.bin_path(&p);
     let s = mgr.status_local(&p);
-    let auto = mgr.autostart.is_enabled(&p.id);
+    let auto = mgr.program_autostart(&p);
     Ok(StatusView::from_local(&s, &bin, auto))
 }
 #[tauri::command]
@@ -225,7 +225,7 @@ fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, 
         .map(|p| {
             let bin = mgr.bin_path(&p);
             let s = mgr.status_local(&p);
-            let auto = mgr.autostart.is_enabled(&p.id);
+            let auto = mgr.program_autostart(&p);
             ProgramStatusView {
                 id: p.id.clone(),
                 name: p.name.clone(),
@@ -250,7 +250,7 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             .map(|p| {
                 let bin = mgr.bin_path(&p);
                 let s = mgr.status_local(&p);
-                let auto = mgr.autostart.is_enabled(&p.id);
+                let auto = mgr.program_autostart(&p);
                 (p, bin, s, auto)
             })
             .collect()
@@ -322,7 +322,7 @@ fn start_program(
     mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
-    Ok(StatusView::from_status(&s, &bin, mgr.autostart.is_enabled(&p.id)))
+    Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
 }
 
 #[tauri::command]
@@ -332,9 +332,10 @@ fn stop_program(state: State<AppState>, program_id: String) -> Result<StatusView
         return Err("程序不存在".into());
     };
     mgr.stop(&program_id).map_err(|e| format!("{e:#}"))?;
+    mgr.clear_log(&program_id);
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
-    Ok(StatusView::from_status(&s, &bin, mgr.autostart.is_enabled(&p.id)))
+    Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
 }
 
 /// 重启：停止后重新加载字段值并启动
@@ -355,7 +356,7 @@ fn restart_program(
     mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
-    Ok(StatusView::from_status(&s, &bin, mgr.autostart.is_enabled(&p.id)))
+    Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
 }
 
 #[tauri::command]
@@ -371,14 +372,38 @@ fn set_autostart(
     program_id: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let mut mgr = state.manager.lock().unwrap();
+    let mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
         return Err("程序不存在".into());
     };
-    let bin = mgr.bin_path(&p);
+    // 方案 B：把自启动状态写进该程序的字段值(壳启动时据此决定是否拉起)
+    let mut values = mgr.load_field_values(&p);
+    let key = p
+        .fields
+        .iter()
+        .find(|f| matches!(f.kind, shared::config::FieldKind::AutoStart { .. }))
+        .map(|f| f.key.clone());
+    if let Some(key) = key {
+        values.insert(key, if enabled { "true".into() } else { "false".into() });
+        mgr.save_field_values(&p, &values);
+    }
+    Ok(())
+}
+
+/// 壳自身开机自启（方案 B：壳作为唯一登录项，启动后拉起开启了自启的程序）
+#[tauri::command]
+fn set_shell_autostart(state: State<AppState>, enabled: bool) -> Result<(), String> {
+    let mut mgr = state.manager.lock().unwrap();
     mgr.autostart
-        .set_enabled(&program_id, &bin, enabled)
+        .set_shell_enabled(enabled)
         .map_err(|e| format!("{e:#}"))
+}
+
+/// 查询壳自身开机自启是否已启用
+#[tauri::command]
+fn shell_autostart_enabled(state: State<AppState>) -> Result<bool, String> {
+    let mgr = state.manager.lock().unwrap();
+    Ok(mgr.autostart.shell_is_enabled())
 }
 
 #[tauri::command]
@@ -454,6 +479,8 @@ struct EditField {
     kind: String,
     label: String,
     default: String,
+    #[serde(default)]
+    required: bool,
 }
 
 /// 编辑程序的完整定义（name/description/repo/binary/args/fields）。
@@ -502,6 +529,7 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
             shared::config::Field {
                 key: f.key.clone(),
                 kind,
+                required: f.required,
             }
         })
         .collect();
@@ -742,29 +770,53 @@ pub fn run() {
         })
         // D1: 托盘常驻。关闭窗口→隐藏而非退出；托盘菜单唤出/退出。
         .setup(|app| {
-            use tauri::menu::{Menu, MenuItem};
+            use tauri::menu::{CheckMenuItem, Menu, MenuItem};
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
             let show_i = MenuItem::with_id(app, "tray_show", "显示主窗口", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "tray_quit", "退出", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+            let auto_i = CheckMenuItem::with_id(app, "tray_auto", "开机自启", true, false, None::<&str>)?;
+            if let Ok(on) = app
+                .state::<AppState>()
+                .manager
+                .lock()
+                .map(|m| m.autostart.shell_is_enabled())
+            {
+                let _ = auto_i.set_checked(on);
+            }
+            let menu = Menu::with_items(app, &[&show_i, &auto_i, &quit_i])?;
 
             let tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(move |app, event| match event.id.as_ref() {
-                    "tray_quit" => {
-                        app.exit(0);
-                    }
-                    "tray_show" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.show();
-                            let _ = w.unminimize();
-                            let _ = w.set_focus();
+                .on_menu_event({
+                    let auto_i = auto_i.clone();
+                    move |app, event| match event.id.as_ref() {
+                        "tray_quit" => {
+                            app.exit(0);
                         }
+                        "tray_show" => {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.show();
+                                let _ = w.unminimize();
+                                let _ = w.set_focus();
+                            }
+                        }
+                        "tray_auto" => {
+                            let next;
+                            {
+                                let st = app.state::<AppState>();
+                                let mut mgr = st.manager.lock().unwrap();
+                                next = !mgr.autostart.shell_is_enabled();
+                                if let Err(e) = mgr.autostart.set_shell_enabled(next) {
+                                    log::warn!("切换壳开机自启失败: {e:#}");
+                                }
+                            }
+                            let _ = auto_i.set_checked(next);
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
@@ -781,6 +833,15 @@ pub fn run() {
                     }
                 });
             tray.build(app)?;
+
+            // 方案 B：壳启动后自动拉起开启了「自启动」的程序
+            {
+                let mgr = app.state::<AppState>();
+                let _ = mgr
+                    .manager
+                    .lock()
+                    .map(|mut m| m.start_autostart_programs());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -804,6 +865,8 @@ pub fn run() {
             stop_all,
             batch_status,
             set_autostart,
+            set_shell_autostart,
+            shell_autostart_enabled,
             reveal_logs,
             get_logs,
             edit_program,
