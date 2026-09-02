@@ -35,13 +35,6 @@ function showNotice(text, isError) {
   el.notice.className = isError ? "error" : "ok";
 }
 
-function setRunDot(running) {
-  const dot = document.querySelector("#run-dot");
-  if (!dot) return;
-  dot.className = "status-dot" + (running ? " on" : "");
-  dot.title = running ? "运行中" : "已停止";
-}
-
 // ---------- 程序管理 ----------
 
 async function refresh() {
@@ -264,7 +257,6 @@ async function renderForm() {
         payload: { program_id: current.id, values },
       });
       renderStatus(st);
-      showNotice("已启动");
       logOp(`已启动`);
       refreshManageLog();
     } catch (e) {
@@ -282,7 +274,6 @@ async function renderForm() {
     try {
       const st = await invoke("stop_program", { programId: current.id });
       renderStatus(st);
-      showNotice("已停止");
       logOp("已停止");
     } catch (e) {
       showNotice(String(e), true);
@@ -301,7 +292,6 @@ async function renderForm() {
         payload: { program_id: current.id, values },
       });
       renderStatus(st);
-      showNotice("已重启");
       logOp("已重启");
       refreshManageLog();
     } catch (e) {
@@ -394,7 +384,6 @@ function renderStatus(st) {
   const b = document.querySelector("#start-btn");
   const stop = document.querySelector("#stop-btn");
   const restart = document.querySelector("#restart-btn");
-  setRunDot(st.running);
   const chips = [
     { text: `本地版本: ${st.local_version}`, cls: "" },
     { text: `最新版本: ${st.latest_version ?? "未知"}`, cls: "" },
@@ -611,7 +600,6 @@ function renderBatch() {
         await invoke("start_program", {
           payload: { program_id: item.id, values: {} },
         });
-        showNotice(`已启动「${item.name}」`);
         await refreshBatch();
       } catch (e) {
         showNotice(String(e), true);
@@ -624,7 +612,6 @@ function renderBatch() {
         await invoke("restart_program", {
           payload: { program_id: item.id, values: {} },
         });
-        showNotice(`已重启「${item.name}」`);
         await refreshBatch();
       } catch (e) {
         showNotice(String(e), true);
@@ -635,7 +622,6 @@ function renderBatch() {
     const stop = makeOpBtn("停止", async () => {
       try {
         await invoke("stop_program", { programId: item.id });
-        showNotice(`已停止「${item.name}」`);
         await refreshBatch();
       } catch (e) {
         showNotice(String(e), true);
@@ -950,17 +936,11 @@ function switchView(v) {
   el.manageView.hidden = v !== "manage";
   el.batchView.hidden = v !== "batch";
   el.libraryView.hidden = v !== "library";
-  const dot = document.querySelector("#run-dot");
-  if (dot) dot.style.display = v === "manage" ? "" : "none";
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) dlBtn.hidden = v !== "manage";
   if (v === "manage") {
     if (current) switchTo(current.id);
     showManageLog();
-    if (dot && statuses.length) {
-      const st = statuses.find((s) => s.id === current.id)?.status;
-      setRunDot(st?.running ?? false);
-    }
   } else {
     const ml = document.querySelector("#manage-log");
     if (ml) ml.hidden = true;
@@ -1265,12 +1245,8 @@ window.addEventListener("DOMContentLoaded", async () => {
   }, 15000);
   // 运行日志跟随刷新：仅程序运行期间轮询，避免无谓 IPC
   setInterval(() => {
-    if (
-      view === "manage" &&
-      current &&
-      document.querySelector("#run-dot")?.classList.contains("on")
-    ) {
-      refreshManageLog();
-    }
+    if (view !== "manage" || !current) return;
+    const st = statuses.find((s) => s.id === current.id)?.status;
+    if (st?.running) refreshManageLog();
   }, 3000);
 });

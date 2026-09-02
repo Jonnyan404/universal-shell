@@ -40,6 +40,40 @@ impl Runner {
         }
     }
 
+    /// 按可执行文件路径杀死遗留的孤儿进程（壳重启后子进程句柄已丢失，
+    /// 若该程序仍存活在系统上则会占用端口，导致无法再次启动）。
+    /// 返回是否杀掉了进程。
+    #[cfg(target_os = "macos")]
+    pub fn kill_orphan_by_path(&self, bin_path: &PathBuf) -> bool {
+        let out = std::process::Command::new("pgrep")
+            .arg("-f")
+            .arg(bin_path.display().to_string())
+            .output();
+        let Ok(out) = out else { return false };
+        let Ok(text) = String::from_utf8(out.stdout) else {
+            return false;
+        };
+        let mut killed = false;
+        for line in text.lines() {
+            let pid = line.trim();
+            if pid.is_empty() || !pid.chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            // 跳过自己……壳进程本身不可能与受管二进制同路径，直接 kill
+            let _ = std::process::Command::new("kill")
+                .arg(pid)
+                .status();
+            killed = true;
+        }
+        killed
+    }
+
+    /// 非 macos 兜底：尽力而为（暂无实现），返回 false
+    #[cfg(not(target_os = "macos"))]
+    pub fn kill_orphan_by_path(&self, _bin_path: &PathBuf) -> bool {
+        false
+    }
+
     /// 前台启动(窗口应用用这个：stdout/stderr 走 file，避免阻塞)
     pub fn start_async(
         &mut self,

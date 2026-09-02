@@ -357,6 +357,17 @@ impl ShellManager {
         if !bin.exists() {
             return Err(anyhow::anyhow!("{} 尚未安装，请先下载", program.name));
         }
+        // 若无存活的受管子进程句柄，但有系统残留的孤儿进程（如壳上次异常退出），
+        // 先将其清掉再启动，避免端口占用导致无法再次启动。
+        if !self.runner.is_running(&program.id) {
+            let killed = self.runner.kill_orphan_by_path(&bin);
+            if killed {
+                log::info!(
+                    "清理了 {} 的孤儿进程后重新启动",
+                    program.name
+                );
+            }
+        }
         let args = program.render_args(field_values);
         let wd: PathBuf = if program.working_dir == "." {
             self.data_dir.clone()
