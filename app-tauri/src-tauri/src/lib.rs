@@ -80,6 +80,21 @@ impl StatusView {
             bin_path: bin_path.display().to_string(),
         }
     }
+
+    /// 本地即时渲染阶段：未知最新版本，up_to_date 置 false
+    /// 避免尚未刷新就把「更新」按钮置灰隐藏
+    fn from_local(s: &shared::ProgramStatus, bin_path: &PathBuf, autostart: bool) -> Self {
+        Self {
+            installed: s.installed,
+            running: s.running,
+            autostart,
+            local_version: s.local_version.clone(),
+            latest_version: None,
+            latest_published: String::new(),
+            up_to_date: false,
+            bin_path: bin_path.display().to_string(),
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -179,10 +194,31 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
     Ok(StatusView::from_status(&local, &bin, autostart))
 }
 
-/// 批量管理：一次性返回所有程序的名称 / 启停 / 安装 / 开机启动等状态
+/// 批量管理：仅本地状态（无网络），用于即时渲染表格第一帧
+#[tauri::command]
+fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let progs = mgr.programs.clone();
+    Ok(progs
+        .into_iter()
+        .map(|p| {
+            let bin = mgr.bin_path(&p);
+            let s = mgr.status_local(&p);
+            let auto = mgr.autostart.is_enabled(&p.id);
+            ProgramStatusView {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                repo: p.repo.clone(),
+                hidden: p.hidden,
+                status: StatusView::from_local(&s, &bin, auto),
+            }
+        })
+        .collect())
+}
+
+/// 批量管理：锁内取本地状态、锁外并行查最新版本（网络），最后合并返回
 #[tauri::command]
 fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String> {
-    // 锁内：本地状态（快），网络查询统一放锁外，避免长时间持锁阻塞其它命令
     let mut locals: Vec<(Program, PathBuf, shared::ProgramStatus, bool)> = {
         let mut mgr = state.manager.lock().unwrap();
         let progs = mgr.programs.clone();
@@ -196,11 +232,29 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             })
             .collect()
     };
-    let github = shared::GitHub::default();
-    for (p, _, s, _) in &mut locals {
-        if let Ok(latest) = github.latest(&p.repo) {
-            s.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
-            s.latest_published = latest.published_at.clone();
+    // 锁外并行：每个 repo 各起一个线程查最新版本（全局缓存避免重复网络）
+    let latest: Vec<Option<(String, String)>> = std::thread::scope(|s| {
+        let handles: Vec<_> = locals
+            .iter()
+            .map(|(p, _, _, _)| {
+                let repo = p.repo.clone();
+                s.spawn(move || {
+                    let gh = shared::GitHub::default();
+                    gh.latest(&repo)
+                        .ok()
+                        .map(|r| (r.tag_name.trim_start_matches('v').to_string(), r.published_at.clone()))
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().unwrap_or(None))
+            .collect()
+    });
+    for ((_, _, s, _), lv) in locals.iter_mut().zip(latest) {
+        if let Some((v, pb)) = lv {
+            s.latest_version = Some(v);
+            s.latest_published = pb;
         }
     }
     Ok(locals
@@ -660,6 +714,7 @@ pub fn run() {
             get_values,
             save_values,
             get_status,
+            batch_status_local,
             install,
             start_program,
             stop_program,

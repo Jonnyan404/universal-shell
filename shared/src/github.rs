@@ -2,8 +2,22 @@
 
 use anyhow::{anyhow, Context};
 use std::path::PathBuf;
+use std::collections::BTreeMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use crate::config::Program;
+
+/// latest() 缓存有效期：60 秒——足够刷新界面又不至过度重复请求
+const CACHE_TTL: Duration = Duration::from_secs(60);
+
+/// 所有 GitHub 实例共享一个全局最新版本缓存，避免
+/// get_status / batch_status / 15 秒轮询等反复发起网络请求。
+static GLOBAL_CACHE: OnceLock<Mutex<BTreeMap<String, (Instant, LatestRelease)>>> = OnceLock::new();
+
+fn global_cache() -> &'static Mutex<BTreeMap<String, (Instant, LatestRelease)>> {
+    GLOBAL_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct LatestRelease {
@@ -34,13 +48,29 @@ pub struct GitHub {
 impl Default for GitHub {
     fn default() -> Self {
         let token = std::env::var("GITHUB_TOKEN").ok().filter(|t| !t.is_empty());
-        Self { client: reqwest::blocking::Client::new(), token, proxy_prefix: None }
+        Self {
+            client: reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| reqwest::blocking::Client::new()),
+            token,
+            proxy_prefix: None,
+        }
     }
 }
 
 impl GitHub {
-    /// 查询最新版本，返回 (tag, published_at)
+    /// 查询最新版本，返回 (tag, published_at)。结果带 TTL 缓存。
     pub fn latest(&self, repo: &str) -> anyhow::Result<LatestRelease> {
+        // 1. 命中全局缓存直接返回
+        if let Ok(c) = global_cache().lock() {
+            if let Some((ts, rel)) = c.get(repo) {
+                if ts.elapsed() < CACHE_TTL {
+                    return Ok(rel.clone());
+                }
+            }
+        }
+        // 2. 网络请求（已设 15 秒超时，不会无限挂起）
         let api = format!("https://api.github.com/repos/{repo}/releases/latest");
         let mut req = self.client.get(&api).header("User-Agent", "universal-shell");
         if let Some(token) = &self.token {
@@ -52,8 +82,14 @@ impl GitHub {
             let body = resp.text().unwrap_or_default();
             return Err(anyhow!("GitHub API 返回 {status}: {body}"));
         }
-        resp.json::<LatestRelease>()
-            .context("解析 GitHub API 响应失败")
+        let rel = resp
+            .json::<LatestRelease>()
+            .context("解析 GitHub API 响应失败")?;
+        // 3. 写入全局缓存
+        if let Ok(mut c) = global_cache().lock() {
+            c.insert(repo.to_string(), (Instant::now(), rel.clone()));
+        }
+        Ok(rel)
     }
 
     /// 找匹配 asset 的下载直链(可走加速前缀)

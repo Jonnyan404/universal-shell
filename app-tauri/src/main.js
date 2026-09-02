@@ -347,10 +347,17 @@ async function renderForm() {
 }
 
 async function refreshStatus() {
+  if (!current) return;
+  // 先用批量缓存的状态做即时渲染（若有），避免视图空白等待网络
+  const cached = statuses.find((s) => s.id === current.id)?.status;
+  if (cached) renderStatus(cached);
   try {
     const st = await invoke("get_status", { programId: current.id });
     renderStatus(st);
-  } catch (e) {
+    // 回写本地缓存，供批量视图复用
+    const idx = statuses.findIndex((s) => s.id === current.id);
+    if (idx >= 0) statuses[idx].status = st;
+  } catch {
     // 忽略
   }
 }
@@ -406,11 +413,22 @@ async function revealLogs() {
 
 async function refreshBatch() {
   try {
-    statuses = await invoke("batch_status");
+    // 第一帧：本地状态（无网络），表格立即渲染
+    statuses = await invoke("batch_status_local");
     renderSidebar();
     renderBatch();
   } catch (e) {
     showNotice(String(e), true);
+    return;
+  }
+  // 第二帧：并行补全最新版本（网络），表格静默刷新
+  try {
+    const full = await invoke("batch_status");
+    statuses = full;
+    renderSidebar();
+    renderBatch();
+  } catch {
+    // 网络失败保留本地展示，静默忽略
   }
 }
 
@@ -594,8 +612,10 @@ function openLogModal(id) {
 function setLogTab() {
   const out = document.querySelector("#log-tab-out");
   const err = document.querySelector("#log-tab-err");
+  const body = document.querySelector("#log-content");
   out.classList.toggle("active", logTab === "out");
   err.classList.toggle("active", logTab === "err");
+  if (body) body.classList.toggle("stderr", logTab === "err");
 }
 
 async function refreshLog() {
@@ -628,12 +648,12 @@ function showManageLog() {
 }
 
 function setManageLogTab() {
-  document
-    .querySelector("#mlog-tab-out")
-    .classList.toggle("active", mlogTab === "out");
-  document
-    .querySelector("#mlog-tab-err")
-    .classList.toggle("active", mlogTab === "err");
+  const outBtn = document.querySelector("#mlog-tab-out");
+  const errBtn = document.querySelector("#mlog-tab-err");
+  const body = document.querySelector("#manage-log-content");
+  outBtn.classList.toggle("active", mlogTab === "out");
+  errBtn.classList.toggle("active", mlogTab === "err");
+  if (body) body.classList.toggle("stderr", mlogTab === "err");
 }
 
 async function refreshManageLog() {
