@@ -4,16 +4,6 @@ on:
   schedule:
     # 每天 UTC 12:00 检查模板资产命名是否仍匹配上游 release
     - cron: '0 12 * * *'
-  push:
-    paths:
-      - 'templates/**'
-      - 'demo/shell.json'
-      - 'shared/src/**'
-  pull_request:
-    paths:
-      - 'templates/**'
-      - 'demo/shell.json'
-      - 'shared/src/**'
   workflow_dispatch:
 
 permissions:
