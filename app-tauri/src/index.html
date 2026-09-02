@@ -74,6 +74,50 @@
     </main>
   </div>
 
+  <!-- 模态：日志查看 -->
+  <div id="log-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span id="log-modal-title">日志</span>
+        <button id="log-modal-close" class="modal-close" title="关闭">×</button>
+      </div>
+      <div class="log-tabs">
+        <button id="log-tab-out" class="log-tab active">stdout</button>
+        <button id="log-tab-err" class="log-tab">stderr</button>
+        <button id="log-refresh" class="log-refresh">刷新</button>
+      </div>
+      <pre id="log-content" class="mono"></pre>
+    </div>
+  </div>
+
+  <!-- 模态：编辑程序 -->
+  <div id="edit-modal" class="modal" hidden>
+    <div class="modal-box wide">
+      <div class="modal-head">
+        <span>编辑程序</span>
+        <button id="edit-modal-close" class="modal-close" title="关闭">×</button>
+      </div>
+      <form id="edit-form" class="edit-form">
+        <div class="edit-row"><label>名称</label><input id="edit-name" /></div>
+        <div class="edit-row"><label>描述</label><input id="edit-desc" /></div>
+        <div class="edit-row"><label>GitHub 仓库 (owner/repo)</label><input id="edit-repo" /></div>
+        <div class="edit-row"><label>二进制名</label><input id="edit-binary" /></div>
+        <div class="edit-row"><label>启动参数 args（支持 {key}）</label><input id="edit-args" /></div>
+        <div class="edit-fields">
+          <div class="edit-fields-head">
+            <span>UI 字段</span>
+            <button type="button" id="edit-add-field">+ 添加字段</button>
+          </div>
+          <div id="edit-fields-body"></div>
+        </div>
+        <div class="edit-actions">
+          <button type="submit" id="edit-save">保存</button>
+          <button type="button" id="edit-cancel">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="main.js"></script>
 </body>
 </html>

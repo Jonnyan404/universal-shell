@@ -53,7 +53,7 @@ async function refresh() {
     return;
   }
   if (!current || !programs.some((p) => p.id === current.id)) {
-    current = programs[0];
+    current = programs.find((p) => !p.hidden) || programs[0];
   }
   renderSidebar();
   await switchTo(current.id);
@@ -61,7 +61,9 @@ async function refresh() {
 
 function renderSidebar() {
   el.tabs.innerHTML = "";
-  if (!programs.length) {
+  // 侧栏只展示未隐藏的程序；隐藏程序在批量管理里可见
+  const visible = programs.filter((p) => !p.hidden);
+  if (!visible.length) {
     const hint = document.createElement("div");
     hint.style.cssText =
       "font-size:12px;color:var(--sidebar-sub);padding:12px 6px;";
@@ -70,7 +72,7 @@ function renderSidebar() {
     return;
   }
   const stById = new Map(statuses.map((s) => [s.id, s.status]));
-  for (const p of programs) {
+  for (const p of visible) {
     const item = document.createElement("div");
     item.className = p?.id === current?.id ? "prog-item active" : "prog-item";
 
@@ -252,6 +254,50 @@ async function renderForm() {
   logs.textContent = "打开日志目录";
   logs.onclick = () => revealLogs();
   el.actions.appendChild(logs);
+
+  const viewLog = document.createElement("button");
+  viewLog.textContent = "查看日志";
+  viewLog.onclick = () => openLogModal(current.id);
+  el.actions.appendChild(viewLog);
+
+  const edit = document.createElement("button");
+  edit.textContent = "编辑";
+  edit.onclick = () => openEditModal(current.id);
+  el.actions.appendChild(edit);
+
+  const hideBtn = document.createElement("button");
+  hideBtn.textContent = current.hidden ? "取消隐藏" : "隐藏";
+  hideBtn.onclick = async () => {
+    try {
+      await invoke("set_program_hidden", {
+        programId: current.id,
+        hidden: !current.hidden,
+      });
+      showNotice(current.hidden ? "已取消隐藏" : "已隐藏（在批量管理中可找回）");
+      programs = await invoke("get_programs");
+      const wasHidden = current.hidden;
+      current = programs.find((p) => p.id === current.id) || null;
+      if (current && !wasHidden) {
+        // 隐藏后跳到侧栏第一个可见程序，保持主管理列表干净
+        const firstVisible = programs.find((p) => !p.hidden);
+        current = firstVisible || current;
+      }
+      if (current) {
+        await switchTo(current.id);
+      } else {
+        await refresh();
+      }
+    } catch (e) {
+      showNotice(String(e), true);
+    }
+  };
+  el.actions.appendChild(hideBtn);
+
+  const del = document.createElement("button");
+  del.textContent = "删除";
+  del.className = "op-danger";
+  del.onclick = () => confirmAndDelete(current.id, current.name);
+  el.actions.appendChild(del);
 }
 
 async function refreshStatus() {
@@ -326,6 +372,12 @@ function renderBatch() {
 
     const tdName = document.createElement("td");
     tdName.textContent = item.name;
+    if (item.hidden) {
+      const tag = document.createElement("span");
+      tag.className = "batch-hidden";
+      tag.textContent = "已隐藏";
+      tdName.appendChild(tag);
+    }
     tr.appendChild(tdName);
 
     const tdLocal = document.createElement("td");
@@ -416,6 +468,32 @@ function renderBatch() {
     });
     ops.appendChild(stop);
 
+    const logs = makeOpBtn("日志", () => openLogModal(item.id));
+    ops.appendChild(logs);
+
+    const edit = makeOpBtn("编辑", () => openEditModal(item.id));
+    ops.appendChild(edit);
+
+    const hide = makeOpBtn(item.hidden ? "取消隐藏" : "隐藏", async () => {
+      try {
+        await invoke("set_program_hidden", {
+          programId: item.id,
+          hidden: !item.hidden,
+        });
+        showNotice(item.hidden ? `已取消隐藏「${item.name}」` : `已隐藏「${item.name}」`);
+        if (item.id === current?.id) await switchTo(item.id);
+        await refreshBatch();
+        renderSidebar();
+      } catch (e) {
+        showNotice(String(e), true);
+      }
+    });
+    ops.appendChild(hide);
+
+    const del = makeOpBtn("删除", () => confirmAndDelete(item.id, item.name));
+    del.className = "op-btn op-danger";
+    ops.appendChild(del);
+
     tdOps.appendChild(ops);
     tr.appendChild(tdOps);
     el.batchBody.appendChild(tr);
@@ -428,6 +506,174 @@ function makeOpBtn(label, fn) {
   b.className = "op-btn";
   b.onclick = fn;
   return b;
+}
+
+// ---------- 日志查看 ----------
+
+let logProgramId = null;
+let logTab = "out";
+
+function openLogModal(id) {
+  logProgramId = id;
+  logTab = "out";
+  document.querySelector("#log-modal").hidden = false;
+  setLogTab();
+  refreshLog();
+}
+
+function setLogTab() {
+  const out = document.querySelector("#log-tab-out");
+  const err = document.querySelector("#log-tab-err");
+  out.classList.toggle("active", logTab === "out");
+  err.classList.toggle("active", logTab === "err");
+}
+
+async function refreshLog() {
+  const content = document.querySelector("#log-content");
+  const title = document.querySelector("#log-modal-title");
+  const p = programs.find((x) => x.id === logProgramId);
+  title.textContent = `日志 · ${p ? p.name : logProgramId}`;
+  try {
+    const logs = await invoke("get_logs", { programId: logProgramId });
+    content.textContent = (logTab === "out" ? logs.out : logs.err) || "(空)";
+  } catch (e) {
+    content.textContent = String(e);
+  }
+}
+
+function closeLogModal() {
+  document.querySelector("#log-modal").hidden = true;
+  logProgramId = null;
+}
+
+// ---------- 删除 ----------
+
+async function confirmAndDelete(id, name) {
+  const ok = window.confirm(
+    `确定删除程序「${name}」？\n将移除其配置、已下载二进制与日志，且不可恢复。`
+  );
+  if (!ok) return;
+  try {
+    await invoke("delete_program", { programId: id });
+    showNotice(`已删除「${name}」`);
+    programs = await invoke("get_programs");
+    if (current?.id === id) {
+      current = null;
+      await refresh();
+    } else {
+      renderSidebar();
+    }
+    if (view === "batch") await refreshBatch();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+// ---------- 编辑 ----------
+
+let editProgramId = null;
+
+function openEditModal(id) {
+  const p = programs.find((x) => x.id === id);
+  if (!p) return;
+  editProgramId = id;
+  document.querySelector("#edit-name").value = p.name;
+  document.querySelector("#edit-desc").value = p.description || "";
+  document.querySelector("#edit-repo").value = p.repo;
+  document.querySelector("#edit-binary").value = p.binary;
+  document.querySelector("#edit-args").value = (p.args || []).join(" ");
+  renderEditFields(p.fields || []);
+  document.querySelector("#edit-modal").hidden = false;
+}
+
+function renderEditFields(fields) {
+  const body = document.querySelector("#edit-fields-body");
+  body.innerHTML = "";
+  for (const f of fields) {
+    body.appendChild(editFieldRow(f));
+  }
+}
+
+function editFieldRow(f) {
+  const row = document.createElement("div");
+  row.className = "edit-field-row";
+  const k = document.createElement("input");
+  k.className = "k";
+  k.placeholder = "字段 key";
+  k.value = f.key;
+  const l = document.createElement("input");
+  l.className = "l";
+  l.placeholder = "标签";
+  l.value = f.label || f.key;
+  const sel = document.createElement("select");
+  sel.className = "kind";
+  const kinds = ["string", "boolean", "file", "directory", "autostart"];
+  for (const kd of kinds) {
+    const opt = document.createElement("option");
+    opt.value = kd;
+    opt.textContent = kd;
+    if (kd === f.kind) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  const d = document.createElement("input");
+  d.className = "d";
+  d.placeholder = "默认值";
+  d.value = f.default ?? "";
+  const del = document.createElement("button");
+  del.className = "edit-field-del";
+  del.type = "button";
+  del.textContent = "✕";
+  del.title = "删除字段";
+  del.onclick = () => row.remove();
+  row.append(k, l, sel, d, del);
+  return row;
+}
+
+async function saveEdit() {
+  const fields = [];
+  document
+    .querySelectorAll("#edit-fields-body .edit-field-row")
+    .forEach((row) => {
+      const k = row.querySelector(".k").value.trim();
+      const l = row.querySelector(".l").value.trim();
+      const kind = row.querySelector(".kind").value;
+      const def = row.querySelector(".d").value;
+      if (!k) return;
+      fields.push({ key: k, kind, label: l || k, default: def });
+    });
+  const payload = {
+    id: editProgramId,
+    name: document.querySelector("#edit-name").value.trim(),
+    description: document.querySelector("#edit-desc").value.trim(),
+    repo: document.querySelector("#edit-repo").value.trim(),
+    binary: document.querySelector("#edit-binary").value.trim(),
+    args: document
+      .querySelector("#edit-args")
+      .value.trim()
+      .split(/\s+/)
+      .filter(Boolean),
+    fields,
+  };
+  try {
+    await invoke("edit_program", { payload });
+    showNotice("已保存修改");
+    const editedId = editProgramId;
+    closeEditModal();
+    programs = await invoke("get_programs");
+    current = programs.find((p) => p.id === editedId) || current;
+    if (current) {
+      await switchTo(current.id);
+    }
+    if (view === "batch") await refreshBatch();
+    renderSidebar();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+function closeEditModal() {
+  document.querySelector("#edit-modal").hidden = true;
+  editProgramId = null;
 }
 
 // ---------- 视图切换 ----------
@@ -658,6 +904,42 @@ window.addEventListener("DOMContentLoaded", async () => {
         showNotice(String(e), true);
       }
     };
+
+  // 日志模态
+  const logModal = document.querySelector("#log-modal");
+  document.querySelector("#log-modal-close").onclick = closeLogModal;
+  document.querySelector("#log-tab-out").onclick = () => {
+    logTab = "out";
+    setLogTab();
+    refreshLog();
+  };
+  document.querySelector("#log-tab-err").onclick = () => {
+    logTab = "err";
+    setLogTab();
+    refreshLog();
+  };
+  document.querySelector("#log-refresh").onclick = refreshLog;
+  logModal.addEventListener("click", (e) => {
+    if (e.target === logModal) closeLogModal();
+  });
+
+  // 编辑模态
+  const editModal = document.querySelector("#edit-modal");
+  document.querySelector("#edit-modal-close").onclick = closeEditModal;
+  document.querySelector("#edit-cancel").onclick = closeEditModal;
+  document.querySelector("#edit-save").onclick = (e) => {
+    e.preventDefault();
+    saveEdit();
+  };
+  document.querySelector("#edit-add-field").onclick = () => {
+    document
+      .querySelector("#edit-fields-body")
+      .appendChild(editFieldRow({ key: "", label: "", kind: "string", default: "" }));
+  };
+  editModal.addEventListener("click", (e) => {
+    if (e.target === editModal) closeEditModal();
+  });
+
   registries = await invoke("get_registries");
   registryUrl = registries[0] ?? "";
   renderRegistryBar();

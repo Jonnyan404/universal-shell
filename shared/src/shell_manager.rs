@@ -454,6 +454,80 @@ impl ShellManager {
         }
         merged
     }
+
+    // ---------- 本地实例管理 ----------
+
+    /// 用新定义替换实例（完整编辑 name/description/repo/args/fields 等），
+    /// 保留 id 与 hidden 状态，并迁移/补齐字段值 + 写回配置。
+    pub fn update_program(
+        &mut self,
+        id: &str,
+        remote: &Program,
+        path: &Path,
+    ) -> anyhow::Result<()> {
+        let Some(idx) = self.programs.iter().position(|p| p.id == id) else {
+            anyhow::bail!("程序不存在: {id}");
+        };
+        let old_values = self.load_field_values(&self.programs[idx]);
+        let hidden = self.programs[idx].hidden;
+        let merged = Self::apply_template_update(&mut self.programs[idx], remote, &old_values);
+        self.programs[idx].hidden = hidden;
+        // id 跟随实例(用户不改 id)，避免改动脏掉关联文件
+        self.programs[idx].id = id.to_string();
+        // apply_template_update 已按 remote.fields 迁移/补齐字段值
+        self.save_field_values(&self.programs[idx], &merged);
+        self.save_config(path)
+    }
+
+    /// 删除实例：从配置移除程序，并清理其二进制/版本/字段值文件。
+    pub fn delete_program(&mut self, id: &str, path: &Path) -> anyhow::Result<()> {
+        let Some(idx) = self.programs.iter().position(|p| p.id == id) else {
+            anyhow::bail!("程序不存在: {id}");
+        };
+        let p = self.programs.remove(idx);
+        if let Err(e) = self.runner.stop(&id) {
+            log::warn!("停止「{id}」失败: {e:#}");
+        }
+        // 清理磁盘数据
+        for f in [id.to_string() + ".version", id.to_string() + ".values.json"] {
+            let _ = std::fs::remove_file(self.data_dir.join(&f));
+        }
+        let _ = std::fs::remove_file(&self.bin_path(&p));
+        // 整包解压目录（若存在）
+        let _ = std::fs::remove_dir_all(self.data_dir.join(&p.id));
+        self.save_config(path)
+    }
+
+    /// 设置实例的隐藏状态；写出配置。隐藏后侧栏/主管理不展示，
+    /// 批量管理始终可见，故不会出现「全部程序失联」的情况。
+    pub fn set_hidden(&mut self, id: &str, hidden: bool, path: &Path) -> anyhow::Result<()> {
+        let Some(p) = self.programs.iter_mut().find(|p| p.id == id) else {
+            anyhow::bail!("程序不存在: {id}");
+        };
+        p.hidden = hidden;
+        self.save_config(path)
+    }
+
+    /// 读取某程序 stdout/stderr 日志内容（尾段）。返回 (out, err) 文本。
+    pub fn read_logs(&self, id: &str, tail_bytes: usize) -> (String, String) {
+        fn read_tail(p: &Path, n: usize) -> String {
+            let Ok(data) = std::fs::read(p) else {
+                return String::new();
+            };
+            // 从尾部截取最近 n 字节，尽量从换行处开始
+            let start = data.len().saturating_sub(n);
+            let mut s = data[start..].to_vec();
+            if start > 0 {
+                if let Some(pos) = s.iter().position(|&b| b == b'\n') {
+                    s.drain(..=pos);
+                }
+            }
+            String::from_utf8_lossy(&s).to_string()
+        }
+        let out = read_tail(&self.log_dir().join(format!("{id}.out.log")), tail_bytes);
+        let err = read_tail(&self.log_dir().join(format!("{id}.err.log")), tail_bytes);
+        (out, err)
+    }
 }
 
 impl Default for ProgramStatus {

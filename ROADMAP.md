@@ -47,6 +47,15 @@
 | D2 | 打包：egui 单二进制 + tauri bundle | 两版可分发 | ☑ (scripts/build-release.sh: egui 单二进制 + cargo tauri build 产出 .app/.dmg 与 sha256.txt，产物架构/DMG 校验通过) |
 | D3 | README 更新（模板源、配置、安全说明） | — | ☑ (README 补全：远程模板库、packaging、配置含 template_registries、校验/签名/安全说明) |
 
+## 阶段 E — 本地实例管理（Tauri）
+
+| # | 任务 | 验收标准 | 状态 |
+|---|---|---|---|
+| E1 | Program.hidden：侧栏/主管理隐藏，批量管理仍可见 | 隐藏程序从侧栏消失，批量管理可找回并切换 | ☑ |
+| E2 | 完整编辑实例（name/描述/repo/binary/args/fields） | 编辑对话框保存后写回配置，字段值迁移/补齐默认 | ☑ |
+| E3 | 删除实例（含二进制/日志/字段值清理） | 删除后配置与磁盘数据一并清理 | ☑ |
+| E4 | 应用内日志查看（stdout/stderr 尾段） | 管理/批量页可打开日志模态并刷新 | ☑ |
+
 ## 执行顺序建议
 
 A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → D1-D3

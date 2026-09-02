@@ -159,6 +159,13 @@ pub struct Program {
     /// asset digest 校验，防止篡改资产被安装。
     #[serde(default)]
     pub check_sha256: Option<String>,
+    /// 是否在侧栏/主管理列表隐藏（批量管理仍可见）。
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// 从模板导入到 ShellConfig 时打上的来源戳

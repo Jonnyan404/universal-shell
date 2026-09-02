@@ -242,3 +242,75 @@ button:disabled { opacity: 0.6; cursor: default; }
 .lib-repo { color: var(--muted); font-size: 12px; flex: 1; min-width: 120px; }
 .lib-conflict { color: #c7772b; font-size: 12px; margin-right: 8px; }
 .lib-desc { color: var(--muted); margin-top: 6px; font-size: 13px; }
+
+/* ---------- 模态框 ---------- */
+.modal {
+  position: fixed; inset: 0; z-index: 100; display: flex; align-items: center;
+  justify-content: center; background: rgba(0, 0, 0, 0.45);
+}
+.modal[hidden] { display: none; }
+.modal-box {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  width: min(720px, 92vw); max-height: 86vh; display: flex; flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3); overflow: hidden;
+}
+.modal-box.wide { width: min(860px, 96vw); }
+.modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600;
+}
+.modal-close {
+  background: none; border: none; color: var(--muted); font-size: 20px;
+  line-height: 1; cursor: pointer;
+}
+.modal-close:hover { color: var(--text); }
+
+/* 日志查看 */
+.log-tabs { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.log-tab {
+  background: none; border: 1px solid var(--border); color: var(--muted);
+  padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.log-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.log-refresh { margin-left: auto; font-size: 13px; }
+.mono {
+  flex: 1; overflow: auto; margin: 0; padding: 12px 16px; white-space: pre-wrap;
+  word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px; line-height: 1.5; color: var(--text); background: var(--panel-2);
+}
+
+/* 编辑程序 */
+.edit-form { padding: 14px 16px; overflow: auto; }
+.edit-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.edit-row label { flex: 0 0 150px; color: var(--muted); font-size: 13px; text-align: right; }
+.edit-row input {
+  flex: 1; background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px; padding: 7px 10px;
+}
+.edit-fields { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }
+.edit-fields-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
+.edit-field-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.edit-field-row input {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 6px 8px; font-size: 13px;
+}
+.edit-field-row .k { flex: 1 1 90px; }
+.edit-field-row .l { flex: 1 1 120px; }
+.edit-field-row select {
+  flex: 0 1 110px; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 6px 6px;
+}
+.edit-field-row .d { flex: 1 1 100px; }
+.edit-field-del {
+  flex: 0 0 auto; background: none; border: none; color: var(--danger);
+  font-size: 16px; cursor: pointer;
+}
+.edit-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+
+/* 批量管理：隐藏标记 + 额外操作 */
+.batch-hidden { color: var(--muted); font-size: 12px; margin-left: 6px; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+.op-danger { color: var(--danger); border-color: var(--danger); }
+.op-danger:hover { background: var(--danger); color: #fff; }
+
+/* 程序管理：隐藏/日志入口 */
+.batch-toolbar .spacer { flex: 1; }

@@ -36,6 +36,7 @@ struct ProgramView {
     binary: String,
     args: Vec<String>,
     fields: Vec<FieldView>,
+    hidden: bool,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -54,6 +55,7 @@ struct ProgramStatusView {
     id: String,
     name: String,
     repo: String,
+    hidden: bool,
     status: StatusView,
 }
 
@@ -90,6 +92,7 @@ fn to_view(p: &Program) -> ProgramView {
             .iter()
             .map(|f| to_field_view(f))
             .collect(),
+        hidden: p.hidden,
     }
 }
 
@@ -168,6 +171,7 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             id: p.id.clone(),
             name: p.name.clone(),
             repo: p.repo.clone(),
+            hidden: p.hidden,
             status: StatusView::from_status(&s, &bin, autostart),
         });
     }
@@ -269,6 +273,140 @@ fn reveal_logs(state: State<AppState>, program_id: String) -> Result<(), String>
     let log_dir = mgr.data_dir.join("logs");
     std::fs::create_dir_all(&log_dir).map_err(|e| format!("{e:#}"))?;
     open_in_file_manager(log_dir)
+}
+
+// ---------- 本地实例管理（编辑/删除/隐藏/日志） ----------
+
+#[derive(serde::Serialize)]
+struct LogsView {
+    out: String,
+    err: String,
+}
+
+/// 读取某程序的最新日志（stdout / stderr 各取尾段）
+#[tauri::command]
+fn get_logs(state: State<AppState>, program_id: String) -> Result<LogsView, String> {
+    let mgr = state.manager.lock().unwrap();
+    if !mgr.programs.iter().any(|p| p.id == program_id) {
+        return Err("程序不存在".into());
+    }
+    let (out, err) = mgr.read_logs(&program_id, 64 * 1024);
+    Ok(LogsView { out, err })
+}
+
+#[derive(serde::Deserialize)]
+struct EditField {
+    key: String,
+    kind: String,
+    label: String,
+    default: String,
+}
+
+/// 编辑程序的完整定义（name/description/repo/binary/args/fields）。
+/// 资产规则与架构映射沿用原实例（当前简单 UI 不编辑这两项）。
+#[derive(serde::Deserialize)]
+struct EditProgramPayload {
+    id: String,
+    name: String,
+    description: String,
+    repo: String,
+    binary: String,
+    args: Vec<String>,
+    fields: Vec<EditField>,
+}
+
+fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
+    use shared::config::FieldKind;
+    let fields = e
+        .fields
+        .iter()
+        .map(|f| {
+            let kind = match f.kind.as_str() {
+                "file" => FieldKind::File {
+                    label: f.label.clone(),
+                    default: f.default.clone(),
+                    filter: String::new(),
+                },
+                "directory" => FieldKind::Directory {
+                    label: f.label.clone(),
+                    default: f.default.clone(),
+                },
+                "boolean" => FieldKind::Boolean {
+                    label: f.label.clone(),
+                    default: f.default == "true",
+                },
+                "autostart" => FieldKind::AutoStart {
+                    label: f.label.clone(),
+                    default: f.default == "true",
+                },
+                _ => FieldKind::String {
+                    label: f.label.clone(),
+                    default: f.default.clone(),
+                    placeholder: String::new(),
+                },
+            };
+            shared::config::Field {
+                key: f.key.clone(),
+                kind,
+            }
+        })
+        .collect();
+    Program {
+        id: e.id.clone(),
+        name: e.name.clone(),
+        description: e.description.clone(),
+        category: base.category.clone(),
+        repo: e.repo.clone(),
+        binary: if e.binary.is_empty() {
+            e.id.clone()
+        } else {
+            e.binary.clone()
+        },
+        assets: base.assets.clone(),
+        arch_map: base.arch_map.clone(),
+        os_map: base.os_map.clone(),
+        fields,
+        args: e.args.clone(),
+        working_dir: base.working_dir.clone(),
+        template_source: base.template_source.clone(),
+        imported_at: base.imported_at,
+        check_sha256: base.check_sha256.clone(),
+        hidden: base.hidden,
+    }
+}
+
+#[tauri::command]
+fn edit_program(
+    state: State<AppState>,
+    payload: EditProgramPayload,
+) -> Result<ProgramView, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let Some(base) = mgr.programs.iter().find(|p| p.id == payload.id).cloned() else {
+        return Err("程序不存在".into());
+    };
+    let updated = build_program_from_edit(&payload, &base);
+    mgr.update_program(&payload.id, &updated, &state.config_path)
+        .map_err(|e| format!("{e:#}"))?;
+    let view = to_view(&updated);
+    Ok(view)
+}
+
+#[tauri::command]
+fn delete_program(state: State<AppState>, program_id: String) -> Result<(), String> {
+    let mut mgr = state.manager.lock().unwrap();
+    mgr.delete_program(&program_id, &state.config_path)
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+fn set_program_hidden(
+    state: State<AppState>,
+    program_id: String,
+    hidden: bool,
+) -> Result<(), String> {
+    let mut mgr = state.manager.lock().unwrap();
+    mgr.set_hidden(&program_id, hidden, &state.config_path)
+        .map_err(|e| format!("{e:#}"))
 }
 
 // ---------- 模板库 ----------
@@ -493,6 +631,10 @@ pub fn run() {
             batch_status,
             set_autostart,
             reveal_logs,
+            get_logs,
+            edit_program,
+            delete_program,
+            set_program_hidden,
             get_registries,
             get_manifest,
             get_merged_manifest,
