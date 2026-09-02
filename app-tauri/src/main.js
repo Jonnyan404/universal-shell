@@ -257,6 +257,7 @@ async function renderForm() {
         payload: { program_id: current.id, values },
       });
       renderStatus(st);
+      await refreshStatusLocal();
       logOp(`已启动`);
       refreshManageLog();
     } catch (e) {
@@ -274,6 +275,7 @@ async function renderForm() {
     try {
       const st = await invoke("stop_program", { programId: current.id });
       renderStatus(st);
+      await refreshStatusLocal();
       logOp("已停止");
     } catch (e) {
       showNotice(String(e), true);
@@ -292,6 +294,7 @@ async function renderForm() {
         payload: { program_id: current.id, values },
       });
       renderStatus(st);
+      await refreshStatusLocal();
       logOp("已重启");
       refreshManageLog();
     } catch (e) {
@@ -359,10 +362,6 @@ async function refreshStatus() {
   try {
     const st = await invoke("get_status", { programId: current.id });
     renderStatus(st);
-    // 回写本地缓存，供批量视图复用
-    const idx = statuses.findIndex((s) => s.id === current.id);
-    if (idx >= 0) statuses[idx].status = st;
-    renderSidebar();
   } catch {
     // 忽略
   }
@@ -374,15 +373,17 @@ async function refreshStatusLocal() {
   try {
     const st = await invoke("get_status_local", { programId: current.id });
     renderStatus(st);
-    const idx = statuses.findIndex((s) => s.id === current.id);
-    if (idx >= 0) statuses[idx].status = st;
-    renderSidebar();
   } catch {
     // 忽略
   }
 }
 
 function renderStatus(st) {
+  // 回写本地缓存，保证侧栏红绿圆点/批量视图即时一致
+  if (current) {
+    const idx = statuses.findIndex((s) => s.id === current.id);
+    if (idx >= 0) statuses[idx].status = st;
+  }
   const b = document.querySelector("#start-btn");
   const stop = document.querySelector("#stop-btn");
   const restart = document.querySelector("#restart-btn");
