@@ -31,11 +31,13 @@
         <button id="dl-btn" class="dl-btn" hidden></button>
       </div>
 
-      <!-- 程序管理：右栏配置 -->
-      <section id="manage-view" class="view">
-        <form id="field-form"></form>
-        <div id="actions"></div>
-        <div id="notice"></div>
+<!-- 程序管理：右栏配置 -->
+      <section id="manage-view" class="view manage-view" hidden>
+        <div class="manage-body">
+          <form id="field-form"></form>
+          <div id="actions"></div>
+          <div id="notice"></div>
+        </div>
         <div id="manage-log" class="manage-log" hidden>
           <div class="term-bar">
             <span class="term-dots"><span></span><span></span><span></span></span>
@@ -44,6 +46,8 @@
               <button id="mlog-tab-out" class="log-tab active">stdout</button>
               <button id="mlog-tab-err" class="log-tab">stderr</button>
             </span>
+            <button id="manage-log-fullscreen" class="log-action" title="全屏">⛶</button>
+            <button id="manage-log-copy" class="log-action" title="复制">⧉</button>
             <button id="manage-log-refresh" class="log-refresh">刷新</button>
           </div>
           <pre id="manage-log-content" class="term-body"></pre>
@@ -99,6 +103,7 @@
         <span class="log-tabs">
           <button id="log-tab-out" class="log-tab active">stdout</button>
           <button id="log-tab-err" class="log-tab">stderr</button>
+          <button id="log-copy" class="log-action" title="复制">⧉</button>
           <button id="log-refresh" class="log-refresh">刷新</button>
         </span>
         <button id="log-modal-close" class="modal-close" title="关闭">×</button>

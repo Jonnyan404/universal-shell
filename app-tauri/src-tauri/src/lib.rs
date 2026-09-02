@@ -204,7 +204,18 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
     Ok(StatusView::from_status(&local, &bin, autostart))
 }
 
-/// 批量管理：仅本地状态（无网络），用于即时渲染表格第一帧
+/// 单程序仅本地状态（无网络）：供 UI 定时轮询运行态，不触发版本检查
+#[tauri::command]
+fn get_status_local(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+        return Err("程序不存在".into());
+    };
+    let bin = mgr.bin_path(&p);
+    let s = mgr.status_local(&p);
+    let auto = mgr.autostart.is_enabled(&p.id);
+    Ok(StatusView::from_local(&s, &bin, auto))
+}
 #[tauri::command]
 fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String> {
     let mut mgr = state.manager.lock().unwrap();
@@ -785,6 +796,7 @@ pub fn run() {
             get_values,
             save_values,
             get_status,
+            get_status_local,
             batch_status_local,
             install,
             start_program,

@@ -362,6 +362,19 @@ async function refreshStatus() {
   }
 }
 
+// 仅本地状态轮询（无网络）：程序自行退出/报错后，刷新启动按钮与运行态
+async function refreshStatusLocal() {
+  if (!current || view !== "manage") return;
+  try {
+    const st = await invoke("get_status_local", { programId: current.id });
+    renderStatus(st);
+    const idx = statuses.findIndex((s) => s.id === current.id);
+    if (idx >= 0) statuses[idx].status = st;
+  } catch {
+    // 忽略
+  }
+}
+
 function renderStatus(st) {
   const b = document.querySelector("#start-btn");
   const stop = document.querySelector("#stop-btn");
@@ -707,6 +720,30 @@ async function refreshLog() {
 function closeLogModal() {
   document.querySelector("#log-modal").hidden = true;
   logProgramId = null;
+}
+
+// 复制文本到剪贴板（带旧 API 兜底）
+async function copyLogText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showNotice("已复制");
+    return;
+  } catch {
+    // 回退：隐藏 textarea + execCommand
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+      showNotice("已复制");
+    } catch {
+      showNotice("复制失败", true);
+    }
+    ta.remove();
+  }
 }
 
 // ---------- 程序管理内嵌日志 ----------
@@ -1142,6 +1179,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     refreshLog();
   };
   document.querySelector("#log-refresh").onclick = refreshLog;
+  document.querySelector("#log-copy").onclick = () => {
+    const content = document.querySelector("#log-content");
+    copyLogText(content.textContent);
+  };
   logModal.addEventListener("click", (e) => {
     if (e.target === logModal) closeLogModal();
   });
@@ -1158,6 +1199,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     refreshManageLog();
   };
   document.querySelector("#manage-log-refresh").onclick = refreshManageLog;
+  document.querySelector("#manage-log-fullscreen").onclick = () => {
+    document.querySelector("#manage-log").classList.toggle("fullscreen");
+  };
+  document.querySelector("#manage-log-copy").onclick = () => {
+    const content = document.querySelector("#manage-log-content");
+    copyLogText(content.textContent);
+  };
 
   // 编辑模态
   const editModal = document.querySelector("#edit-modal");
@@ -1180,9 +1228,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   registryUrl = registries[0] ?? "";
   renderRegistryBar();
   await refresh();
-  // 不自动联网检查版本：仅本地状态周期性刷新（批量管理）；版本更新走“检查更新”按钮
+  // 不自动联网检查版本：仅本地状态周期性刷新；版本更新走“检查更新”按钮
   setInterval(() => {
     if (view === "batch") refreshBatchLocal();
+    else if (view === "manage" && current) refreshStatusLocal();
   }, 15000);
   // 运行日志跟随刷新：仅程序运行期间轮询，避免无谓 IPC
   setInterval(() => {
