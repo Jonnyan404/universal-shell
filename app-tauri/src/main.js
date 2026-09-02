@@ -132,8 +132,11 @@ async function switchTo(id) {
   current = programs.find((p) => p.id === id);
   if (!current) return;
   values = await invoke("get_values", { programId: id });
+  opLogs = [];
   renderForm();
   showManageLog();
+  // 先以本地状态即时渲染（保证启动/停止按钮正确出现），再网络补全最新版本
+  await refreshStatusLocal();
   refreshStatus();
   refreshManageLog();
 }
@@ -154,8 +157,10 @@ async function installProgram(id, btn) {
     const v = await invoke("install", { programId: id });
     const p = programs.find((x) => x.id === id);
     showNotice(`已下载/更新「${p ? p.name : id}」，当前版本 ${v}`);
+    if (id === current?.id) logOp(`已下载/更新，当前版本 ${v}`);
   } catch (e) {
     showNotice(String(e), true);
+    if (id === current?.id) logOp(`下载/更新失败: ${e}`);
   } finally {
     installing.delete(id);
     if (btn) {
@@ -177,7 +182,8 @@ function syncInstallBtns(id) {
     dlBtn.hidden = false;
     dlBtn.disabled = busy;
     dlBtn.textContent = busy ? "下载中…" : "下载";
-  } else if (st.up_to_date) {
+  } else if (st.up_to_date || !st.latest_version) {
+    // 已最新，或最新版本未知：不显示“更新”
     dlBtn.hidden = true;
   } else {
     dlBtn.hidden = false;
@@ -212,6 +218,7 @@ async function renderForm() {
               enabled: check.checked,
             });
             showNotice("开机启动已设置");
+            logOp(check.checked ? "已开启开机启动" : "已关闭开机启动");
           } catch (e) {
             showNotice(String(e), true);
           }
@@ -258,9 +265,11 @@ async function renderForm() {
       });
       renderStatus(st);
       showNotice("已启动");
+      logOp(`已启动`);
       refreshManageLog();
     } catch (e) {
       showNotice(String(e), true);
+      logOp(`启动失败: ${e}`);
     }
   };
   el.actions.appendChild(start);
@@ -274,8 +283,10 @@ async function renderForm() {
       const st = await invoke("stop_program", { programId: current.id });
       renderStatus(st);
       showNotice("已停止");
+      logOp("已停止");
     } catch (e) {
       showNotice(String(e), true);
+      logOp(`停止失败: ${e}`);
     }
   };
   el.actions.appendChild(st);
@@ -291,8 +302,11 @@ async function renderForm() {
       });
       renderStatus(st);
       showNotice("已重启");
+      logOp("已重启");
+      refreshManageLog();
     } catch (e) {
       showNotice(String(e), true);
+      logOp(`重启失败: ${e}`);
     }
   };
   el.actions.appendChild(restart);
@@ -321,6 +335,7 @@ async function renderForm() {
         hidden: !current.hidden,
       });
       showNotice(current.hidden ? "已取消隐藏" : "已隐藏（在批量管理中可找回）");
+      logOp(current.hidden ? "已取消隐藏" : "已隐藏");
       programs = await invoke("get_programs");
       current = programs.find((p) => p.id === current.id) || null;
       if (current?.hidden) {
@@ -402,7 +417,10 @@ function renderStatus(st) {
   if (dlBtn) {
     dlBtn.dataset.installed = st.installed ? "1" : "0";
     if (st.installed && st.up_to_date) {
-      // 已是最新版本：隐藏更新按钮，避免重复下载覆盖
+      // 已是最新版本：隐藏更新按钮
+      dlBtn.hidden = true;
+    } else if (st.installed && !st.latest_version) {
+      // 已安装但最新版本未知（未联网刷新）：不擅自显示“更新”，避免误导
       dlBtn.hidden = true;
     } else {
       dlBtn.hidden = false;
@@ -749,6 +767,14 @@ async function copyLogText(text) {
 // ---------- 程序管理内嵌日志 ----------
 
 let mlogTab = "out";
+// 会话内操作日志（启动/停止/下载/更新等），显示在日志窗口顶部，便于回看操作轨迹
+let opLogs = [];
+
+function logOp(msg) {
+  const t = new Date().toLocaleTimeString();
+  opLogs.push(`[${t}] ${msg}`);
+  if (opLogs.length > 200) opLogs.shift();
+}
 
 function showManageLog() {
   const box = document.querySelector("#manage-log");
@@ -771,12 +797,14 @@ async function refreshManageLog() {
   const box = document.querySelector("#manage-log");
   if (!box || box.hidden) return;
   const content = document.querySelector("#manage-log-content");
+  const nearBottom =
+    content.scrollTop + content.clientHeight >= content.scrollHeight - 48;
   try {
     const logs = await invoke("get_logs", { programId: current.id });
-    const text = (mlogTab === "out" ? logs.out : logs.err) || "(无日志输出)";
-    const nearBottom =
-      content.scrollTop + content.clientHeight >= content.scrollHeight - 48;
-    content.textContent = text;
+    const fileText = (mlogTab === "out" ? logs.out : logs.err) || "(无日志输出)";
+    // 操作日志 + 文件日志合并显示，操作日志置顶
+    const opsText = opLogs.map((o) => `◆ ${o}`).join("\n");
+    content.textContent = opsText ? opsText + "\n\n" + fileText : fileText;
     if (nearBottom) content.scrollTop = content.scrollHeight;
   } catch (e) {
     content.textContent = String(e);
@@ -793,6 +821,7 @@ async function confirmAndDelete(id, name) {
   try {
     await invoke("delete_program", { programId: id });
     showNotice(`已删除「${name}」`);
+    if (current?.id === id) logOp(`已删除「${name}」`);
     programs = await invoke("get_programs");
     if (current?.id === id) {
       current = null;
@@ -894,6 +923,7 @@ async function saveEdit() {
   try {
     await invoke("edit_program", { payload });
     showNotice("已保存修改");
+    logOp("已保存配置修改");
     const editedId = editProgramId;
     closeEditModal();
     programs = await invoke("get_programs");
