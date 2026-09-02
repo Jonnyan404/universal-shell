@@ -281,7 +281,7 @@ async function renderForm() {
       logOp(`停止失败: ${e}`);
     }
   };
-  el.actions.appendChild(st);
+  el.actions.appendChild(stop);
 
   const restart = document.createElement("button");
   restart.id = "restart-btn";
