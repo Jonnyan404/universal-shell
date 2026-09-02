@@ -983,7 +983,6 @@ function switchView(v) {
     el.progSub.textContent =
       v === "batch" ? "所有程序统一操作" : "从远程源导入程序模板";
     el.chips.innerHTML = "";
-    if (dot) dot.className = "status-dot";
     if (v === "batch") refreshBatch();
     else renderLibrary();
   }
