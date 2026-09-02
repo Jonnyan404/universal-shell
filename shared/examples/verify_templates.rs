@@ -1,4 +1,4 @@
-//! 模板验证工具：遍历 templates/ 下模板(+ demo/shell.json)，
+//! 模板验证工具：遍历 templates/ 下模板，
 //! 对当前 OS/arch 调 GitHub API 检查资产候选能否命中真实 release。
 //!
 //! 用法：cargo run -p shared --example verify_templates
@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use shared::config::{ShellConfig, Program};
+use shared::config::Program;
 use shared::github::GitHub;
 
 fn load_all_templates() -> Vec<Program> {
@@ -26,13 +26,6 @@ fn load_all_templates() -> Vec<Program> {
                     }
                 }
             }
-        }
-    }
-    // demo 配置里的程序也纳入
-    let demo = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../demo/shell.json"));
-    if demo.exists() {
-        if let Ok(cfg) = ShellConfig::load(&demo) {
-            out.extend(cfg.programs);
         }
     }
     out
@@ -54,11 +47,6 @@ fn main() {
     println!("== 验证 {} 个程序 (OS={}, arch={}) ==", programs.len(), std::env::consts::OS, arch);
     let mut failed = 0;
     for p in &programs {
-        // 跳过演示用假仓库
-        if p.id == "demo-echo" {
-            println!("[SKIP] {:<12} (演示程序，无真实仓库)", p.id);
-            continue;
-        }
         let result = (|| -> anyhow::Result<(String, String, Option<String>)> {
             let release = github.latest(&p.repo)?;
             let version = release.tag_name.trim_start_matches('v').to_string();
