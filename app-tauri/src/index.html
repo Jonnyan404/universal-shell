@@ -40,15 +40,16 @@
         </div>
         <div id="manage-log" class="manage-log" hidden>
           <div class="term-bar">
-            <span class="term-dots"><span></span><span></span><span></span></span>
             <span class="term-title">运行日志</span>
-            <span class="manage-log-tabs">
-              <button id="mlog-tab-out" class="log-tab active">stdout</button>
-              <button id="mlog-tab-err" class="log-tab">stderr</button>
+            <span class="term-controls">
+              <span class="manage-log-tabs">
+                <button id="mlog-tab-out" class="log-tab active">stdout</button>
+                <button id="mlog-tab-err" class="log-tab">stderr</button>
+              </span>
+              <button id="manage-log-fullscreen" class="log-action" title="全屏">⛶</button>
+              <button id="manage-log-copy" class="log-action" title="复制">⧉</button>
+              <button id="manage-log-refresh" class="log-refresh">刷新</button>
             </span>
-            <button id="manage-log-fullscreen" class="log-action" title="全屏">⛶</button>
-            <button id="manage-log-copy" class="log-action" title="复制">⧉</button>
-            <button id="manage-log-refresh" class="log-refresh">刷新</button>
           </div>
           <pre id="manage-log-content" class="term-body"></pre>
         </div>
