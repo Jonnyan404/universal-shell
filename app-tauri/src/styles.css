@@ -104,7 +104,10 @@ nav#program-tabs.room-list { flex: 1; overflow-y: auto; margin: 4px -6px; paddin
   align-items: center; justify-content: center; font-size: 13px; font-weight: 700; flex-shrink: 0;
 }
 .prog-item .info { flex: 1; min-width: 0; }
-.prog-item .name { font-size: 13px; color: var(--sidebar-name); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.prog-item .name { font-size: 13px; color: var(--sidebar-name); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+.prog-edit-ico { flex-shrink: 0; font-size: 11px; color: var(--sidebar-sub); opacity: 0; transition: opacity .12s ease; cursor: pointer; }
+.prog-item:hover .prog-edit-ico { opacity: 1; }
+.prog-edit-ico:hover { color: var(--accent); }
 .prog-item .sub { font-size: 11px; color: var(--sidebar-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .sidebar-settings {
@@ -159,6 +162,9 @@ html[data-sidebar='narrow'] .program-list, html[data-sidebar='narrow'] nav#progr
 .statusbar .spacer { flex: 1; }
 .refresh-btn { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 8px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
 .refresh-btn:hover { color: var(--text); }
+.dl-btn { flex-shrink: 0; padding: 6px 16px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.dl-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.dl-btn:disabled { opacity: .55; cursor: not-allowed; }
 
 .view { flex: 1; padding: 18px; overflow-y: auto; }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }

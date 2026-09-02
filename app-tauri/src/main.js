@@ -91,6 +91,15 @@ function renderSidebar() {
     const name = document.createElement("div");
     name.className = "name";
     name.textContent = p.name;
+    const editIco = document.createElement("span");
+    editIco.className = "prog-edit-ico";
+    editIco.title = "编辑";
+    editIco.textContent = "✎";
+    editIco.onclick = (e) => {
+      e.stopPropagation();
+      openEditModal(p.id);
+    };
+    name.appendChild(editIco);
     const sub = document.createElement("div");
     sub.className = "sub";
     sub.textContent = !st
@@ -120,6 +129,48 @@ async function switchTo(id) {
   values = await invoke("get_values", { programId: id });
   renderForm();
   await refreshStatus();
+}
+
+// ---------- 下载 / 更新（状态栏与批量管理共用，防重复触发）----------
+
+const installing = new Set();
+
+async function installProgram(id, btn) {
+  if (installing.has(id)) return;
+  installing.add(id);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "下载中…";
+  }
+  syncInstallBtns(id);
+  try {
+    const v = await invoke("install", { programId: id });
+    const p = programs.find((x) => x.id === id);
+    showNotice(`已下载/更新「${p ? p.name : id}」，当前版本 ${v}`);
+  } catch (e) {
+    showNotice(String(e), true);
+  } finally {
+    installing.delete(id);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = btn.dataset.installed === "1" ? "更新" : "下载";
+    }
+    syncInstallBtns(id);
+    if (view === "batch") await refreshBatch();
+    else if (current?.id === id) await refreshStatus();
+  }
+}
+
+function syncInstallBtns(id) {
+  const dlBtn = document.querySelector("#dl-btn");
+  if (!dlBtn || current?.id !== id) return;
+  const busy = installing.has(id);
+  dlBtn.disabled = busy;
+  dlBtn.textContent = busy
+    ? "下载中…"
+    : statuses.find((s) => s.id === id)?.status?.installed
+      ? "更新"
+      : "下载";
 }
 
 async function renderForm() {
@@ -184,24 +235,6 @@ async function renderForm() {
   }
 
   el.actions.innerHTML = "";
-  const dl = document.createElement("button");
-  dl.textContent = "下载 / 更新";
-  dl.onclick = async () => {
-    dl.disabled = true;
-    dl.textContent = "下载中…";
-    try {
-      const v = await invoke("install", { programId: current.id });
-      showNotice(`下载/更新完成，当前版本 ${v}`);
-    } catch (e) {
-      showNotice(String(e), true);
-    } finally {
-      dl.disabled = false;
-      dl.textContent = "下载 / 更新";
-      await refreshStatus();
-    }
-  };
-  el.actions.appendChild(dl);
-
   const start = document.createElement("button");
   start.id = "start-btn";
   start.textContent = "启动";
@@ -275,13 +308,12 @@ async function renderForm() {
       });
       showNotice(current.hidden ? "已取消隐藏" : "已隐藏（在批量管理中可找回）");
       programs = await invoke("get_programs");
-      const wasHidden = current.hidden;
       current = programs.find((p) => p.id === current.id) || null;
-      if (current && !wasHidden) {
-        // 隐藏后跳到侧栏第一个可见程序，保持主管理列表干净
-        const firstVisible = programs.find((p) => !p.hidden);
-        current = firstVisible || current;
+      if (current?.hidden) {
+        // 隐藏后跳到第一个可见程序，保持主管理列表干净
+        current = programs.find((p) => !p.hidden) || null;
       }
+      await refreshBatch();
       if (current) {
         await switchTo(current.id);
       } else {
@@ -332,6 +364,14 @@ function renderStatus(st) {
   if (b) b.hidden = st.running;
   if (stop) stop.hidden = !st.running;
   if (restart) restart.hidden = !st.running;
+  const dlBtn = document.querySelector("#dl-btn");
+  if (dlBtn) {
+    dlBtn.hidden = false;
+    dlBtn.dataset.installed = st.installed ? "1" : "0";
+    const busy = installing.has(current.id);
+    dlBtn.disabled = busy;
+    dlBtn.textContent = busy ? "下载中…" : st.installed ? "更新" : "下载";
+  }
   renderSidebar();
 }
 
@@ -360,7 +400,7 @@ function renderBatch() {
   if (!statuses.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 6;
+    td.colSpan = 7;
     td.textContent = "尚未导入任何程序";
     tr.appendChild(td);
     el.batchBody.appendChild(tr);
@@ -415,19 +455,44 @@ function renderBatch() {
     tdAuto.appendChild(auto);
     tr.appendChild(tdAuto);
 
+    const tdHide = document.createElement("td");
+    const hide = document.createElement("input");
+    hide.type = "checkbox";
+    hide.checked = item.hidden;
+    hide.addEventListener("change", async () => {
+      hide.disabled = true;
+      try {
+        await invoke("set_program_hidden", {
+          programId: item.id,
+          hidden: hide.checked,
+        });
+        showNotice(
+          hide.checked ? `已隐藏「${item.name}」` : `已取消隐藏「${item.name}」`
+        );
+        if (item.id === current?.id && hide.checked) current = null;
+        programs = await invoke("get_programs");
+        if (!current) current = programs.find((p) => !p.hidden) || null;
+        await refreshBatch();
+        if (current) await switchTo(current.id);
+        else await refresh();
+      } catch (e) {
+        hide.checked = !hide.checked;
+        showNotice(String(e), true);
+      } finally {
+        hide.disabled = false;
+      }
+    });
+    tdHide.appendChild(hide);
+    tr.appendChild(tdHide);
+
     const tdOps = document.createElement("td");
     const ops = document.createElement("span");
     ops.className = "batch-ops";
 
-    // 下载 / 启动 / 重启 / 停止
-    const dl = makeOpBtn("下载", async () => {
-      try {
-        await invoke("install", { programId: item.id });
-        showNotice(`已下载「${item.name}」`);
-        await refreshBatch();
-      } catch (e) {
-        showNotice(String(e), true);
-      }
+    // 下载 / 更新（复用状态栏安装逻辑，防重复触发）
+    const dl = makeOpBtn(s.installed ? "更新" : "下载", () => {
+      dl.dataset.installed = s.installed ? "1" : "0";
+      installProgram(item.id, dl);
     });
     ops.appendChild(dl);
 
@@ -473,22 +538,6 @@ function renderBatch() {
 
     const edit = makeOpBtn("编辑", () => openEditModal(item.id));
     ops.appendChild(edit);
-
-    const hide = makeOpBtn(item.hidden ? "取消隐藏" : "隐藏", async () => {
-      try {
-        await invoke("set_program_hidden", {
-          programId: item.id,
-          hidden: !item.hidden,
-        });
-        showNotice(item.hidden ? `已取消隐藏「${item.name}」` : `已隐藏「${item.name}」`);
-        if (item.id === current?.id) await switchTo(item.id);
-        await refreshBatch();
-        renderSidebar();
-      } catch (e) {
-        showNotice(String(e), true);
-      }
-    });
-    ops.appendChild(hide);
 
     const del = makeOpBtn("删除", () => confirmAndDelete(item.id, item.name));
     del.className = "op-btn op-danger";
@@ -685,6 +734,8 @@ function switchView(v) {
   el.libraryView.hidden = v !== "library";
   const dot = document.querySelector("#run-dot");
   if (dot) dot.style.display = v === "manage" ? "" : "none";
+  const dlBtn = document.querySelector("#dl-btn");
+  if (dlBtn) dlBtn.hidden = v !== "manage";
   if (v === "manage") {
     if (current) switchTo(current.id);
     if (dot && statuses.length) {
@@ -904,6 +955,8 @@ window.addEventListener("DOMContentLoaded", async () => {
         showNotice(String(e), true);
       }
     };
+  const dlBtn = document.querySelector("#dl-btn");
+  if (dlBtn) dlBtn.onclick = () => installProgram(current?.id, dlBtn);
 
   // 日志模态
   const logModal = document.querySelector("#log-modal");
