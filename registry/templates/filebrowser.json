@@ -1,0 +1,39 @@
+{
+  "id": "filebrowser",
+  "name": "filebrowser",
+  "description": "filebrowser — 网页版文件管理器，为指定目录提供一个现代化 Web 界面。默认只绑定 127.0.0.1。",
+  "repo": "filebrowser/filebrowser",
+  "binary": "filebrowser",
+  "category": "file-sharing",
+  "assets": {
+    "darwin": {
+      "candidates": ["darwin-arm64-filebrowser.tar.gz", "darwin-amd64-filebrowser.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "filebrowser"
+    },
+    "linux": {
+      "candidates": ["linux-arm64-filebrowser.tar.gz", "linux-amd64-filebrowser.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "filebrowser"
+    },
+    "windows": {
+      "candidates": ["windows-amd64-filebrowser.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "filebrowser.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "addr", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
+    { "key": "port", "kind": "string", "label": "端口", "default": "8088", "placeholder": "8088" },
+    { "key": "root", "kind": "directory", "label": "根目录", "default": "" },
+    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+  ],
+  "args": ["-a", "{addr}", "-p", "{port}", "-r", "{root}"]
+}

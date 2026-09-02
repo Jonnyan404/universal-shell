@@ -1,0 +1,565 @@
+//! 壳级协调层：数据目录、安装/更新流程、对 UI 暴露的高层接口。
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use anyhow::Context;
+use log::info;
+
+use crate::autostart::AutoStart;
+use crate::config::{ExtractMode, FieldKind, Program, ShellConfig};
+use crate::extract;
+use crate::github::{GitHub, LatestRelease};
+use crate::runner::Runner;
+
+/// 内置模板注册表（bash 配置为空时的默认源）。
+/// 指向本仓库 `registry/` 的 GitHub raw，配对的 Ed25519 公钥见
+/// [`DEFAULT_REGISTRY_PUBKEY`]。
+pub const DEFAULT_REGISTRY: &str =
+    "https://raw.githubusercontent.com/Jonnyan404/universal-shell/main/registry/";
+/// 配套内置注册表的 demo 公钥（sign_registry 固定测试种子对应公钥）。
+pub const DEFAULT_REGISTRY_PUBKEY: &str =
+    "4cb5abf6ad79fbf5abbccafcc269d85cd2651ed4b885b5869f241aedf0a5ba29";
+
+/// 运行状态快照，供 UI 显示
+#[derive(Debug, Clone)]
+pub struct ProgramStatus {
+    pub installed: bool,
+    pub running: bool,
+    pub local_version: String,
+    pub latest_version: Option<String>,
+    pub latest_published: String,
+}
+
+/// 实例与远端模板的差异(供「应用模板更新」前展示)
+#[derive(Debug, Clone, Default)]
+pub struct TemplateDiff {
+    /// 变更是何类内容引起（可空，表示模板定义本身无变化）
+    pub changed_repo: bool,
+    pub changed_assets: bool,
+    pub changed_args: bool,
+    pub changed_fields: bool,
+    pub changed_fields_detail: Vec<String>,
+    pub changed_arch_map: bool,
+    pub changed_os_map: bool,
+    pub changed_working_dir: bool,
+    pub changed_version_pin: bool,
+}
+
+impl TemplateDiff {
+    pub fn is_empty(&self) -> bool {
+        !self.changed_repo
+            && !self.changed_assets
+            && !self.changed_args
+            && !self.changed_fields
+            && !self.changed_arch_map
+            && !self.changed_os_map
+            && !self.changed_working_dir
+            && !self.changed_version_pin
+    }
+
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+        if self.changed_repo {
+            parts.push("repo".to_string());
+        }
+        if self.changed_assets {
+            parts.push("资产规则".to_string());
+        }
+        if self.changed_args {
+            parts.push("启动参数".to_string());
+        }
+        if self.changed_fields {
+            parts.push("UI 字段".to_string());
+        }
+        if self.changed_arch_map || self.changed_os_map {
+            parts.push("架构/OS 映射".to_string());
+        }
+        if self.changed_working_dir {
+            parts.push("工作目录".to_string());
+        }
+        if self.changed_version_pin {
+            parts.push("版本钉住".to_string());
+        }
+        if parts.is_empty() {
+            "无实质变化".to_string()
+        } else {
+            format!("变化: {}", parts.join("、"))
+        }
+    }
+}
+
+pub struct ShellManager {
+    /// 数据目录：存放下载的二进制、日志、运行时配置
+    pub data_dir: PathBuf,
+    pub programs: Vec<Program>,
+    /// 远程模板注册表基地址列表
+    pub template_registries: Vec<String>,
+    /// 各注册表 base -> Ed25519 公钥(hex)，签名校验
+    pub registry_pubkeys: BTreeMap<String, String>,
+    pub github: GitHub,
+    pub runner: Runner,
+    pub autostart: AutoStart,
+}
+
+impl ShellManager {
+    pub fn new(data_dir: PathBuf) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(&data_dir)
+            .with_context(|| format!("无法创建数据目录 {}", data_dir.display()))?;
+        Ok(Self {
+            data_dir,
+            programs: vec![],
+            template_registries: vec![],
+            registry_pubkeys: BTreeMap::new(),
+            github: GitHub::default(),
+            runner: Runner::new(),
+            autostart: AutoStart::new(),
+        })
+    }
+
+    /// 加载配置文件(JSON)。支持 `--config` 路径，默认从数据目录读 shell.json
+    pub fn load_config(&mut self, path: &Path) -> anyhow::Result<()> {
+        info!("加载配置 {}", path.display());
+        let cfg = ShellConfig::load(&path.to_path_buf())?;
+        self.programs = cfg.programs;
+        // 未显式配置注册表时使用内置 GitHub 源（附 demo 公钥签名校验）
+        self.template_registries = if cfg.template_registries.is_empty() {
+            vec![DEFAULT_REGISTRY.to_string()]
+        } else {
+            cfg.template_registries
+        };
+        let mut pubkeys = cfg.registry_pubkeys;
+        if !pubkeys
+            .keys()
+            .any(|b| self.template_registries.iter().any(|r| r == b))
+        {
+            pubkeys.insert(DEFAULT_REGISTRY.to_string(), DEFAULT_REGISTRY_PUBKEY.to_string());
+        }
+        self.registry_pubkeys = pubkeys;
+        info!("已加载 {} 个受管程序", self.programs.len());
+        Ok(())
+    }
+
+    /// 将当前程序列表 + 注册表配置写回到 shell.json
+    pub fn save_config(&self, path: &Path) -> anyhow::Result<()> {
+        let cfg = ShellConfig {
+            programs: self.programs.clone(),
+            template_registries: self.template_registries.clone(),
+            registry_pubkeys: self.registry_pubkeys.clone(),
+        };
+        let json = serde_json::to_string_pretty(&cfg).context("序列化配置失败")?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, json)
+            .with_context(|| format!("写入配置 {} 失败", path.display()))?;
+        info!("已保存配置 {}", path.display());
+        Ok(())
+    }
+
+    pub fn default_config_path(&self) -> PathBuf {
+        self.data_dir.join("shell.json")
+    }
+
+    /// 程序对应的可执行入口路径(下载/运行位置)。固定在数据目录下 .bin/ 子目录，
+    /// 避免与 whole 模式的解包目录 (<data>/<id>/) 同名冲突。
+    pub fn bin_path(&self, p: &Program) -> PathBuf {
+        let name = if std::env::consts::OS == "windows" {
+            format!("{}.exe", p.binary)
+        } else {
+            p.binary.clone()
+        };
+        self.data_dir.join(".bin").join(&name)
+    }
+
+    fn log_dir(&self) -> PathBuf {
+        self.data_dir.join("logs")
+    }
+
+    // ---------- 安装 / 更新 ----------
+
+    /// 安装或更新程序到最新版。返回 (本地版本号, 最新版本号)
+    ///
+    /// 从 GitHub 拉最新版本，下载匹配当前 OS/架构的资产，解压出成员落盘为
+    /// bin_path(与壳不同名，天然防覆盖)。已装同类文件时保留旧二进制为 .old 便于回滚。
+    pub fn install_or_update(&self, program: &Program, on_progress: impl Fn(&str)) -> anyhow::Result<(String, String)> {
+        let _ = on_progress;
+        // 1. 查最新版本
+        let release: LatestRelease = self.github.latest(&program.repo)?;
+        let version = release.tag_name.trim_start_matches('v').to_string();
+        info!("{} 最新版本 {version}", program.id);
+
+        // 2. 候选匹配资产名/URL/digest
+        let arch = std::env::consts::ARCH.to_string();
+        let (rule, asset_name, url, api_digest) = self.github.resolve_download(program, &arch, &version)?;
+
+        // 3. 下载到临时文件
+        let dl_path = self.data_dir.join(format!(".dl-{}", &asset_name));
+        info!("下载 {} 到 {}", url, dl_path.display());
+        self.github.download_to(&url, &dl_path)?;
+        info!("下载完成 {} bytes", std::fs::metadata(&dl_path).map(|m| m.len()).unwrap_or(0));
+
+        // 3b. sha256 校验：优先用 GitHub API 下发的 digest；模板显式 check_sha256 钉住时以它为准
+        let expect = match (&program.check_sha256, &api_digest) {
+            (Some(pin), _) => Some(pin.clone()),
+            (None, Some(d)) => Some(d.clone()),
+            (None, None) => None,
+        };
+        if let Some(expect) = expect {
+            if let Err(e) = crate::checksum::verify_download(&dl_path, &expect) {
+                let _ = std::fs::remove_file(&dl_path);
+                return Err(e.context(format!(
+                    "资产校验失败，已删除缓存: {}",
+                    dl_path.display()
+                )));
+            }
+            info!("{} 资产 sha256 校验通过", program.id);
+        }
+
+        // 4. 若为 whole 模式则整包解到 <id> 目录，再令 bin 指向其中 member
+        let run_target = self.bin_path(program);
+        let package_dir = self.data_dir.join(&program.id);
+        match rule.mode {
+            ExtractMode::Single => {
+                // 直接抽单成员落盘为 run_target
+                if run_target.exists() {
+                    let old = run_target.with_extension("old");
+                    let _ = std::fs::remove_file(&old);
+                    let _ = std::fs::rename(&run_target, &old);
+                }
+                let member = rule.member.as_deref();
+                extract::extract_file(&dl_path, &rule.format, member, &run_target)
+                    .with_context(|| format!("解压资产 {} 失败", dl_path.display()))?;
+            }
+            ExtractMode::Whole => {
+                // 清空旧解包目录(避免残留旧版多余文件)
+                if package_dir.exists() {
+                    let _ = std::fs::remove_dir_all(&package_dir);
+                }
+                extract::extract_whole(&dl_path, &rule.format, &package_dir)
+                    .with_context(|| format!("解压资产 {} 失败", dl_path.display()))?;
+                // 在壳数据目录生成指向包内成员的可执行入口(与壳不同名，防覆盖壳自身)
+                let member_tpl = rule.member.as_deref().unwrap_or(&program.binary);
+                let inner = program.render_template(member_tpl, &version, &rule, &arch);
+                let inner_real = resolve_member(&package_dir, &inner);
+                let _ = std::fs::remove_file(&run_target);
+                if let Some(parent) = run_target.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                if std::fs::hard_link(&inner_real, &run_target).is_err() {
+                    std::fs::copy(&inner_real, &run_target)
+                        .with_context(|| "复制可执行文件失败")?;
+                }
+                set_exec(run_target.as_path());
+            }
+            ExtractMode::Raw => {
+                if run_target.exists() {
+                    let old = run_target.with_extension("old");
+                    let _ = std::fs::remove_file(&old);
+                    let _ = std::fs::rename(&run_target, &old);
+                }
+                std::fs::copy(&dl_path, &run_target)
+                    .with_context(|| format!("复制裸二进制失败: {}", dl_path.display()))?;
+                set_exec(run_target.as_path());
+            }
+        }
+
+        // 5. 清理临时文件
+        let _ = std::fs::remove_file(&dl_path);
+
+        // 6. 记录本地版本
+        self.save_local_version(program, &version);
+        Ok((version.clone(), version))
+    }
+
+    /// 独立(data_dir + Program)的安装入口，供线程/CLI 使用。返回最新版本号。
+    pub fn install_standalone(data_dir: &PathBuf, program: &Program) -> anyhow::Result<String> {
+        let mgr = ShellManager::new(data_dir.clone())?;
+        let (version, _) = mgr.install_or_update(program, |_| {})?;
+        Ok(version)
+    }
+
+    pub fn save_local_version(&self, program: &Program, version: &str) {
+        let vs_file = self.data_dir.join(format!("{}.version", program.id));
+        if let Ok(mut f) = std::fs::File::create(&vs_file) {
+            use std::io::Write;
+            let _ = f.write_all(version.as_bytes());
+        }
+    }
+
+    pub fn local_version(&self, program: &Program) -> String {
+        let vs_file = self.data_dir.join(format!("{}.version", program.id));
+        std::fs::read_to_string(vs_file)
+            .map(|s| s.trim().trim_start_matches('v').to_string())
+            .unwrap_or_else(|_| "-".to_string())
+    }
+
+    /// 查询某程序状态(本地是否已装、是否运行、版本对比)
+    pub fn status(&mut self, program: &Program) -> ProgramStatus {
+        let installed = self.bin_path(program).exists();
+        let running = self.runner.is_running(&program.id);
+        let local_version = self.local_version(program);
+        let latest = self.github.latest(&program.repo).ok();
+        ProgramStatus {
+            installed,
+            running,
+            local_version,
+            latest_version: latest.as_ref().map(|r| r.tag_name.trim_start_matches('v').to_string()),
+            latest_published: latest.as_ref().map(|r| r.published_at.clone()).unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+
+    // ---------- 启动 / 停止 ----------
+
+    /// 用字段值渲染 args 并启动子进程
+    pub fn start(
+        &mut self,
+        program: &Program,
+        field_values: &BTreeMap<String, String>,
+    ) -> anyhow::Result<()> {
+        let bin = self.bin_path(program);
+        if !bin.exists() {
+            return Err(anyhow::anyhow!("{} 尚未安装，请先下载", program.name));
+        }
+        let args = program.render_args(field_values);
+        let wd: PathBuf = if program.working_dir == "." {
+            self.data_dir.clone()
+        } else {
+            PathBuf::from(&program.working_dir)
+        };
+        self.runner
+            .start_async(&program.id, &bin, &args, &wd, &self.log_dir())
+    }
+
+    pub fn stop(&mut self, id: &str) -> anyhow::Result<()> {
+        self.runner.stop(id)
+    }
+
+    pub fn stop_all(&mut self) {
+        self.runner.stop_all();
+    }
+
+    // ---------- 字段值持久化 ----------
+
+    /// 读取程序上次保存的字段值(合并运行时默认)
+    pub fn load_field_values(&self, program: &Program) -> BTreeMap<String, String> {
+        let mut map = program.runtime_defaults();
+        let fv_file = self.data_dir.join(format!("{}.values.json", program.id));
+        if let Ok(raw) = std::fs::read_to_string(&fv_file) {
+            if let Ok(extra) = serde_json::from_str::<BTreeMap<String, String>>(&raw) {
+                map.extend(extra);
+            }
+        }
+        map
+    }
+
+    /// 保存字段值
+    pub fn save_field_values(&self, program: &Program, values: &BTreeMap<String, String>) {
+        let fv_file = self.data_dir.join(format!("{}.values.json", program.id));
+        if let Ok(raw) = serde_json::to_string_pretty(values) {
+            let _ = std::fs::write(&fv_file, raw);
+        }
+    }
+
+    /// Autostart 字段:若字段值是 true 则注册登录项，否则关闭
+    pub fn apply_key_autostart(&mut self, program: &Program, values: &BTreeMap<String, String>) -> anyhow::Result<()> {
+        for f in &program.fields {
+            if matches!(f.kind, FieldKind::AutoStart { .. }) {
+                let enabled = values.get(&f.key).map(|v| v == "true").unwrap_or(false);
+                let bin = self.bin_path(program);
+                self.autostart.set_enabled(&program.id, &bin, enabled)?;
+            }
+        }
+        Ok(())
+    }
+
+    // ---------- 模板更新 (C4) ----------
+
+    /// 对比实例当前定义与远端模板定义，产出差异摘要。比较结构层面：repo/资产/参数/字段/映射。
+    pub fn template_diff(&self, current: &Program, remote: &Program) -> TemplateDiff {
+        let mut d = TemplateDiff::default();
+        let eqkv = |a: &serde_json::Value, b: &serde_json::Value| a == b;
+        d.changed_repo = current.repo != remote.repo;
+        d.changed_assets = serde_json::to_value(&current.assets).unwrap_or_default()
+            != serde_json::to_value(&remote.assets).unwrap_or_default();
+        d.changed_args = current.args != remote.args;
+        d.changed_arch_map = current.arch_map != remote.arch_map;
+        d.changed_os_map = current.os_map != remote.os_map;
+        d.changed_working_dir = current.working_dir != remote.working_dir;
+        d.changed_version_pin = current.check_sha256 != remote.check_sha256;
+        // 字段变化：逐条比对 key + kind
+        let cur: BTreeMap<&str, &crate::config::Field> =
+            current.fields.iter().map(|f| (f.key.as_str(), f)).collect();
+        let rem: BTreeMap<&str, &crate::config::Field> =
+            remote.fields.iter().map(|f| (f.key.as_str(), f)).collect();
+        if !eqkv(&serde_json::to_value(&current.fields).unwrap_or_default(), &serde_json::to_value(&remote.fields).unwrap_or_default())
+        {
+            d.changed_fields = true;
+        }
+        for key in rem.keys() {
+            match cur.get(key) {
+                None => d.changed_fields_detail.push(format!(
+                    "新增字段 {key}「{}」(默认: {})",
+                    rem[key].label(),
+                    rem[key].default_raw()
+                )),
+                Some(cf) if !eqkv(&serde_json::to_value(&cf.kind).unwrap_or_default(), &serde_json::to_value(&rem[key].kind).unwrap_or_default()) => {
+                    d.changed_fields_detail.push(format!("字段 {key} 类型/默认值变化「{}」", rem[key].label()));
+                }
+                _ => {}
+            }
+        }
+        for key in cur.keys() {
+            if !rem.contains_key(key) {
+                d.changed_fields_detail.push(format!("移除字段 {key}「{}」", cur[key].label()));
+            }
+        }
+        d
+    }
+
+    /// 把远端模板应用到实例：用远端定义替换当前实例的结构，但保留用户已填的字段值。
+    /// 返回合并后的字段值(含新增字段默认值)。
+    pub fn apply_template_update(
+        current: &mut Program,
+        remote: &Program,
+        current_values: &BTreeMap<String, String>,
+    ) -> BTreeMap<String, String> {
+        // 结构字段整体替换
+        current.repo = remote.repo.clone();
+        current.binary = remote.binary.clone();
+        current.assets = remote.assets.clone();
+        current.arch_map = remote.arch_map.clone();
+        current.os_map = remote.os_map.clone();
+        current.fields = remote.fields.clone();
+        current.args = remote.args.clone();
+        current.working_dir = remote.working_dir.clone();
+        current.check_sha256 = remote.check_sha256.clone();
+        current.description = remote.description.clone();
+        current.category = remote.category.clone();
+        // 名称一般不变，但可同步
+        current.name = remote.name.clone();
+
+        // 字段值迁移：保留仍存在的 key，新增字段补默认值
+        let mut merged = current_values.clone();
+        let keys: Vec<String> = current_values.keys().cloned().collect();
+        let live: Vec<&str> = remote.fields.iter().map(|f| f.key.as_str()).collect();
+        for k in &keys {
+            if !live.contains(&k.as_str()) {
+                merged.remove(k);
+            }
+        }
+        for f in &remote.fields {
+            merged.entry(f.key.clone()).or_insert_with(|| f.default_raw());
+        }
+        merged
+    }
+}
+
+impl Default for ProgramStatus {
+    fn default() -> Self {
+        Self {
+            installed: false,
+            running: false,
+            local_version: "-".into(),
+            latest_version: None,
+            latest_published: String::new(),
+        }
+    }
+}
+
+/// 在解包目录内以 member(可能含前缀) 匹配真实文件路径；找不到回退直接拼接
+fn resolve_member(package_dir: &Path, member: &str) -> PathBuf {
+    let joined = package_dir.join(strip_leading(member));
+    if joined.exists() {
+        return joined;
+    }
+    let leaf = member.rsplit('/').next().unwrap_or(member).to_string();
+    if let Some(found) = crate::extract::list_entries(&package_dir.to_path_buf())
+        .into_iter()
+        .find(|f| f.file_name().map(|n| n == leaf.as_str()).unwrap_or(false))
+    {
+        return found;
+    }
+    joined
+}
+
+fn strip_leading(p: &str) -> &str {
+    p.strip_prefix("./").unwrap_or(p)
+}
+
+fn set_exec(p: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755));
+    }
+    #[cfg(windows)]
+    {
+        let _ = p;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Field, FieldKind, Program};
+
+    fn prog_copy(p: &Program) -> Program {
+        serde_json::from_str(&serde_json::to_string(p).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn diff_detects_changes_and_apply_preserves_user_values() {
+        let mut current: Program = serde_json::from_str(r#"{
+            "id":"dufs","name":"dufs","repo":"sigoden/dufs","binary":"dufs",
+            "assets":{"darwin":{"candidates":["dufs-v{version}-x86_64-apple-darwin.tar.gz"],"format":"tar.gz","mode":"single"}},
+            "fields":[{"key":"port","kind":"string","label":"端口","default":"5000"}],
+            "args":["-p","{port}"]
+        }"#).unwrap();
+
+        // 远端模板：修改 args、新增字段、repo 不变
+        let mut remote = prog_copy(&current);
+        remote.args = vec!["--bind".to_string(), "127.0.0.1".to_string(), "-p".to_string(), "{port}".into()];
+        remote.fields.push(Field { key: "bind".into(), kind: FieldKind::String { label: "绑定".into(), default: "127.0.0.1".into(), placeholder: String::new() } });
+
+        let mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-unknown")).unwrap();
+        let diff = mgr.template_diff(&current, &remote);
+        assert!(diff.changed_args);
+        assert!(diff.changed_fields);
+        assert!(!diff.is_empty());
+        assert!(diff.changed_fields_detail.iter().any(|d| d.contains("新增字段 bind")));
+
+        // 用户填过 port,apply 后应保留 port 值并补 bind 默认
+        let mut values = BTreeMap::new();
+        values.insert("port".into(), "8888".into());
+        let merged = ShellManager::apply_template_update(&mut current, &remote, &values);
+        assert_eq!(merged.get("port").unwrap(), "8888");
+        assert_eq!(merged.get("bind").unwrap(), "127.0.0.1");
+        assert_eq!(current.args, remote.args);
+        assert_eq!(current.fields.len(), 2);
+    }
+
+    #[test]
+    fn diff_identical_is_empty() {
+        let p: Program = serde_json::from_str(r#"{"id":"x","name":"X","repo":"a/b","binary":"x1","fields":[],"args":[]}"#).unwrap();
+        // 需有匹配 os 的 assets(否则 identity map) —— 直接复制相同 JSON 确保完全一致
+        let q = prog_copy(&p);
+        let mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-noop")).unwrap();
+        assert!(mgr.template_diff(&p, &q).is_empty());
+    }
+
+    #[test]
+    fn empty_registries_falls_back_to_builtin() {
+        let dir = std::env::temp_dir().join("cc-builtin-registry");
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let empty = dir.join("empty.json");
+        std::fs::write(&empty, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&empty).unwrap();
+        assert_eq!(mgr.template_registries, vec![DEFAULT_REGISTRY]);
+        assert_eq!(
+            mgr.registry_pubkeys.get(DEFAULT_REGISTRY).map(|s| s.as_str()),
+            Some(DEFAULT_REGISTRY_PUBKEY)
+        );
+    }
+}

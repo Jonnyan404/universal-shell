@@ -1,0 +1,143 @@
+//! GitHub API 交互：查询最新版本、下载资产。
+
+use anyhow::{anyhow, Context};
+use std::path::PathBuf;
+
+use crate::config::Program;
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LatestRelease {
+    pub tag_name: String,
+    #[serde(default)]
+    pub published_at: String,
+    pub assets: Vec<ReleaseAsset>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct ReleaseAsset {
+    pub name: String,
+    #[serde(default)]
+    pub browser_download_url: String,
+    /// GitHub API 下发该资产的 sha256("sha256:<hex>")，用于下载后字节级校验
+    #[serde(default)]
+    pub digest: Option<String>,
+}
+
+pub struct GitHub {
+    pub client: reqwest::blocking::Client,
+    /// 可选的 URL 加速代理前缀，如 https://gh-proxy.com/
+    pub proxy_prefix: Option<String>,
+}
+
+impl Default for GitHub {
+    fn default() -> Self {
+        Self { client: reqwest::blocking::Client::new(), proxy_prefix: None }
+    }
+}
+
+impl GitHub {
+    /// 查询最新版本，返回 (tag, published_at)
+    pub fn latest(&self, repo: &str) -> anyhow::Result<LatestRelease> {
+        let api = format!("https://api.github.com/repos/{repo}/releases/latest");
+        let resp = self
+            .client
+            .get(&api)
+            .header("User-Agent", "universal-shell")
+            .send()
+            .context("请求 GitHub API 失败")?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().unwrap_or_default();
+            return Err(anyhow!("GitHub API 返回 {status}: {body}"));
+        }
+        resp.json::<LatestRelease>()
+            .context("解析 GitHub API 响应失败")
+    }
+
+    /// 找匹配 asset 的下载直链(可走加速前缀)
+    pub fn find_asset_url(
+        &self,
+        release: &LatestRelease,
+        want_filename: &str,
+    ) -> anyhow::Result<String> {
+        let asset = release
+            .assets
+            .iter()
+            .find(|a| a.name == want_filename)
+            .ok_or_else(|| anyhow!("发行版中未找到资产 {want_filename}"))?;
+        let raw = asset.browser_download_url.clone();
+        if let Some(p) = &self.proxy_prefix {
+            if !p.is_empty() {
+                return Ok(format!("{}{}", p.trim_end_matches('/'), raw));
+            }
+        }
+        Ok(raw)
+    }
+
+    /// 下载资产到目标路径
+    pub fn download_to(&self, url: &str, dest: &PathBuf) -> anyhow::Result<()> {
+        let mut resp = self
+            .client
+            .get(url)
+            .header("User-Agent", "universal-shell")
+            .send()
+            .context("下载失败")?;
+        if !resp.status().is_success() {
+            return Err(anyhow!("下载返回 {}", resp.status()));
+        }
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut file = std::fs::File::create(dest)
+            .with_context(|| format!("无法创建 {}", dest.display()))?;
+        std::io::copy(&mut resp, &mut file)?;
+        Ok(())
+    }
+
+    /// 按候选列表对真实发行版资产做顺序匹配：
+    /// 遍历 candidates，命中第一个真实存在者即返回 (资产名, 其下载 URL, 其 sha256 digest)。
+    /// 全部未命中返回 Err(含提示)。
+    pub fn match_candidate<'a>(
+        &self,
+        release: &'a LatestRelease,
+        candidates: &[String],
+    ) -> anyhow::Result<(String, String, Option<String>)> {
+        for name in candidates {
+            if let Some(asset) = release.assets.iter().find(|a| a.name == *name) {
+                let raw = asset.browser_download_url.clone();
+                let url = if let Some(p) = &self.proxy_prefix {
+                    if !p.is_empty() {
+                        format!("{}{}", p.trim_end_matches('/'), raw)
+                    } else {
+                        raw
+                    }
+                } else {
+                    raw
+                };
+                return Ok((name.clone(), url, asset.digest.clone()));
+            }
+        }
+        let have: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
+        anyhow::bail!(
+            "发行版中未找到匹配资产；期待候选 {:?}，实际有 {} 个资产(含 {:?})",
+            candidates,
+            have.len(),
+            have.iter().take(5).copied().collect::<Vec<_>>()
+        )
+    }
+
+    /// 计算 Program 当前 OS/arch 需要的资产：候选匹配后返回 (rule, 资产名, URL, digest)
+    pub fn resolve_download(
+        &self,
+        program: &Program,
+        arch: &str,
+        version: &str,
+    ) -> anyhow::Result<(crate::config::AssetRule, String, String, Option<String>)> {
+        let release = self.latest(&program.repo)?;
+        let (rule, candidates) = program
+            .candidate_names(arch, version)
+            .ok_or_else(|| anyhow!("当前系统 {} 无对应资产规则", std::env::consts::OS))?;
+        let (name, url, digest) = self.match_candidate(&release, &candidates)?;
+        Ok((rule, name, url, digest))
+    }
+}

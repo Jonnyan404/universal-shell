@@ -1,0 +1,32 @@
+{
+  "id": "miniserve",
+  "name": "miniserve",
+  "description": "miniserve — RIIR 风格极简文件服务器，单个裸二进制，无任何依赖。默认只绑定 127.0.0.1。",
+  "repo": "svenstaro/miniserve",
+  "binary": "miniserve",
+  "category": "file-sharing",
+  "assets": {
+    "darwin": {
+      "candidates": ["miniserve-{version}-aarch64-apple-darwin", "miniserve-{version}-x86_64-apple-darwin"],
+      "format": "raw",
+      "mode": "raw"
+    },
+    "linux": {
+      "candidates": ["miniserve-{version}-x86_64-unknown-linux-musl"],
+      "format": "raw",
+      "mode": "raw"
+    },
+    "windows": {
+      "candidates": ["miniserve-{version}-x86_64-pc-windows-msvc"],
+      "format": "raw",
+      "mode": "raw"
+    }
+  },
+  "fields": [
+    { "key": "bind", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
+    { "key": "port", "kind": "string", "label": "端口", "default": "5000", "placeholder": "5000" },
+    { "key": "dir", "kind": "directory", "label": "根目录", "default": "" },
+    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+  ],
+  "args": ["-a", "{bind}", "-p", "{port}", "{dir}"]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "frpc",
+  "name": "frp client (frpc)",
+  "description": "frpc — frp 的内网穿透客户端，把内网服务映射到公网 frps。需自行提供 frps 服务器地址/端口。整含 frpc.toml 配置，使用 whole 解包。",
+  "repo": "fatedier/frp",
+  "binary": "frpc",
+  "category": "proxy",
+  "assets": {
+    "darwin": {
+      "candidates": ["frp_{version}_{os}_{arch}.tar.gz"],
+      "format": "tar.gz",
+      "mode": "whole",
+      "member": "frp_{version}_{os}_{arch}/frpc"
+    },
+    "linux": {
+      "candidates": ["frp_{version}_{os}_{arch}.tar.gz"],
+      "format": "tar.gz",
+      "mode": "whole",
+      "member": "frp_{version}_{os}_{arch}/frpc"
+    },
+    "windows": {
+      "candidates": ["frp_{version}_{os}_{arch}.zip"],
+      "format": "zip",
+      "mode": "whole",
+      "member": "frp_{version}_{os}_{arch}/frpc.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "config", "kind": "file", "label": "frpc.toml 配置", "default": "", "filter": "*.toml,*.ini" },
+    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+  ],
+  "args": ["-c", "{config}"]
+}

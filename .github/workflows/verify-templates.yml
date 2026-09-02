@@ -1,0 +1,65 @@
+name: Verify Templates (universal-shell)
+
+on:
+  schedule:
+    # 每天 UTC 12:00 检查模板资产命名是否仍匹配上游 release
+    - cron: '0 12 * * *'
+  push:
+    paths:
+      - 'templates/**'
+      - 'demo/shell.json'
+      - 'shared/src/**'
+  pull_request:
+    paths:
+      - 'templates/**'
+      - 'demo/shell.json'
+      - 'shared/src/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify_templates (${{ matrix.os }})
+    # 真实验证各 OS 候选：macOS->darwin, ubuntu->linux
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, ubuntu-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Build shared
+        run: cargo build -p shared --all-targets
+
+      - name: verify_templates
+        run: cargo run -p shared --example verify_templates
+
+  e2e:
+    name: e2e representative download (macOS)
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: e2e download (representative subset)
+        run: >
+          cargo run -p shared --example e2e_download --
+          dufs miniserve lazygit filebrowser

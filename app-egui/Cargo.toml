@@ -1,0 +1,23 @@
+[package]
+name = "app-egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Universal shell (egui)"
+
+[[bin]]
+name = "universal-shell-egui"
+path = "src/main.rs"
+
+[dependencies]
+shared = { workspace = true }
+# glow (OpenGL) 后端兼容性最好；wgpu 在无 GPU/远程环境会 Device lost 崩溃。
+# 不启 default 的 wgpu，避免误用 wgpu 渲染器。
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }
+egui = "0.36"
+rfd = "0.17"
+tray-icon = "0.24"
+log = { workspace = true }
+env_logger = { workspace = true }
+anyhow = "1.0"
+dirs = "6.0"

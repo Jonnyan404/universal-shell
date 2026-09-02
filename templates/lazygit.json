@@ -1,0 +1,36 @@
+{
+  "id": "lazygit",
+  "name": "lazygit",
+  "description": "lazygit — 终端里的 Git 客户端，简单直接。单次运行的 TUI 程序。",
+  "repo": "jesseduffield/lazygit",
+  "binary": "lazygit",
+  "category": "vcs",
+  "assets": {
+    "darwin": {
+      "candidates": ["lazygit_{version}_darwin_arm64.tar.gz", "lazygit_{version}_darwin_x86_64.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "lazygit"
+    },
+    "linux": {
+      "candidates": ["lazygit_{version}_linux_x86_64.tar.gz", "lazygit_{version}_linux_arm64.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "lazygit"
+    },
+    "windows": {
+      "candidates": ["lazygit_{version}_Windows_x86_64.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "lazygit.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "x86_64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-g . 等" }
+  ],
+  "args": ["{args_extra}"]
+}

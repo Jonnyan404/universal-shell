@@ -1,0 +1,37 @@
+{
+  "id": "syncthing",
+  "name": "syncthing",
+  "description": "syncthing — 开源、去中心化的文件同步工具（不依赖云）。整包含 config/脚本，使用 whole 解包模式。",
+  "repo": "syncthing/syncthing",
+  "binary": "syncthing",
+  "category": "sync",
+  "assets": {
+    "darwin": {
+      "candidates": ["syncthing-macos-{arch}-v{version}.zip"],
+      "format": "zip",
+      "mode": "whole",
+      "member": "syncthing-macos-{arch}-v{version}/syncthing"
+    },
+    "linux": {
+      "candidates": ["syncthing-linux-{arch}-v{version}.tar.gz"],
+      "format": "tar.gz",
+      "mode": "whole",
+      "member": "syncthing-linux-{arch}-v{version}/syncthing"
+    },
+    "windows": {
+      "candidates": ["syncthing-windows-{arch}-v{version}.zip"],
+      "format": "zip",
+      "mode": "whole",
+      "member": "syncthing-windows-{arch}-v{version}/syncthing.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-home … --no-browser" },
+    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+  ],
+  "args": ["-no-browser", "{args_extra}"]
+}

@@ -1,0 +1,42 @@
+{
+  "id": "dufs",
+  "name": "dufs",
+  "description": "dufs — 简洁的文件服务器（单可执行文件），支持上传/下载/WebDAV/搜索。默认只绑定 127.0.0.1。",
+  "repo": "sigoden/dufs",
+  "binary": "dufs",
+  "category": "file-sharing",
+  "assets": {
+    "darwin": {
+      "candidates": ["dufs-v{version}-aarch64-apple-darwin.tar.gz", "dufs-v{version}-x86_64-apple-darwin.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "dufs"
+    },
+    "linux": {
+      "candidates": ["dufs-v{version}-x86_64-unknown-linux-musl.tar.gz", "dufs-v{version}-aarch64-unknown-linux-musl.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "dufs"
+    },
+    "windows": {
+      "candidates": ["dufs-v{version}-x86_64-pc-windows-msvc.zip", "dufs-v{version}-aarch64-pc-windows-msvc.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "dufs.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "x86_64",
+    "aarch64": "aarch64"
+  },
+  "os_map": {
+    "macos": "apple-darwin"
+  },
+  "fields": [
+    { "key": "bind", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
+    { "key": "port", "kind": "string", "label": "端口", "default": "5000", "placeholder": "5000" },
+    { "key": "dir", "kind": "directory", "label": "共享目录", "default": "" },
+    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+  ],
+  "args": ["-b", "{bind}", "-p", "{port}", "-A", "{dir}"]
+}

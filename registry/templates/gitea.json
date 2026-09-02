@@ -1,0 +1,36 @@
+{
+  "id": "gitea",
+  "name": "gitea",
+  "description": "gitea — 开源自托管 Git 服务（GitHub 轻量替代）。单裸二进制，首次启动用 sqlite。默认只绑定 127.0.0.1。",
+  "repo": "go-gitea/gitea",
+  "binary": "gitea",
+  "category": "vcs",
+  "assets": {
+    "darwin": {
+      "candidates": ["gitea-{version}-darwin-10.12-arm64", "gitea-{version}-darwin-10.12-amd64"],
+      "format": "raw",
+      "mode": "raw"
+    },
+    "linux": {
+      "candidates": ["gitea-{version}-linux-amd64"],
+      "format": "raw",
+      "mode": "raw"
+    },
+    "windows": {
+      "candidates": ["gitea-{version}-windows-4.0-amd64.exe"],
+      "format": "raw",
+      "mode": "raw"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "bind", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
+    { "key": "worktree", "kind": "directory", "label": "安装/数据目录", "default": "" },
+    { "key": "port", "kind": "string", "label": "端口", "default": "3000", "placeholder": "3000" },
+    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+  ],
+  "args": ["web", "--root", "{worktree}", "--http-addr", "{bind}", "--http-port", "{port}"]
+}

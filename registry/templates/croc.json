@@ -1,0 +1,36 @@
+{
+  "id": "croc",
+  "name": "croc",
+  "description": "croc — 点对点文件传输工具，一条命令在两台电脑之间传文件/文件夹。无需服务器，端到端加密。",
+  "repo": "schollz/croc",
+  "binary": "croc",
+  "category": "file-sharing",
+  "assets": {
+    "darwin": {
+      "candidates": ["croc_v{version}_macOS-ARM64.tar.gz", "croc_v{version}_macOS-64bit.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "croc"
+    },
+    "linux": {
+      "candidates": ["croc_v{version}_Linux-ARM64.tar.gz", "croc_v{version}_Linux-64bit.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "croc"
+    },
+    "windows": {
+      "candidates": ["croc_v{version}_Windows-64bit.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "croc.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "64bit",
+    "aarch64": "ARM64"
+  },
+  "fields": [
+    { "key": "args_extra", "kind": "string", "label": "参数", "default": "", "placeholder": "--hash 或传文件路径…" }
+  ],
+  "args": ["{args_extra}"]
+}

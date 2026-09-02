@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Universal Shell</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <span class="dot"></span><span class="app-name">Universal Shell</span>
+        <button id="theme-btn" class="theme-btn" title="切换深浅色"></button>
+      </div>
+      <nav id="program-tabs" class="room-list"></nav>
+      <button id="batch-link" class="sidebar-settings">☰ <span class="app-btn-label">批量管理</span></button>
+      <button id="library-link" class="sidebar-settings">▤ <span class="app-btn-label">模板库</span></button>
+      <div class="sidebar-foot"></div>
+    </aside>
+    <div class="sidebar-edge"><button id="collapse-btn" class="edge" title="收窄侧栏">«</button></div>
+
+    <main class="main">
+      <div id="statusbar" class="statusbar">
+        <span class="status-dot" id="run-dot"></span>
+        <span class="room-title" id="prog-title"></span>
+        <span class="room-sub" id="prog-sub"></span>
+        <span class="spacer"></span>
+        <div id="status-chips" class="pills"></div>
+      </div>
+
+      <!-- 程序管理：右栏配置 -->
+      <section id="manage-view" class="view">
+        <form id="field-form"></form>
+        <div id="actions"></div>
+        <div id="notice"></div>
+      </section>
+
+      <!-- 批量管理：所有程序统一列表操作 -->
+      <section id="batch-view" class="view" hidden>
+        <div class="panel">
+          <div class="batch-toolbar">
+            <span class="batch-title">批量管理</span>
+            <button id="batch-refresh">刷新状态</button>
+            <button id="batch-stop-all">停止所有</button>
+          </div>
+          <table class="batch-table">
+            <thead>
+              <tr>
+                <th>程序</th>
+                <th>本地版本</th>
+                <th>最新版本</th>
+                <th>状态</th>
+                <th>开机启动</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="batch-body"></tbody>
+          </table>
+        </div>
+        <div id="notice"></div>
+      </section>
+
+      <!-- 模板库 -->
+      <section id="library-view" class="view" hidden>
+        <div class="panel">
+          <h2 class="lib-heading">模板源</h2>
+          <div id="registry-bar"></div>
+          <div id="lib-status"></div>
+          <div id="lib-search"></div>
+          <div id="lib-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>

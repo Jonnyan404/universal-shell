@@ -1,0 +1,37 @@
+{
+  "id": "sing-box",
+  "name": "sing-box",
+  "description": "sing-box — 通用代理平台（Clash 系内核），支持多种出站协议。需自行提供 config.json。默认监听 127.0.0.1。",
+  "repo": "SagerNet/sing-box",
+  "binary": "sing-box",
+  "category": "proxy",
+  "assets": {
+    "darwin": {
+      "candidates": ["sing-box-{version}-darwin-arm64.tar.gz", "sing-box-{version}-darwin-amd64.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "sing-box"
+    },
+    "linux": {
+      "candidates": ["sing-box-{version}-linux-amd64.tar.gz", "sing-box-{version}-linux-arm64.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "sing-box"
+    },
+    "windows": {
+      "candidates": ["sing-box-{version}-windows-amd64.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "sing-box.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "config", "kind": "file", "label": "config.json", "default": "", "filter": "*.json" },
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-D <dir> -D 数据目录 …" }
+  ],
+  "args": ["run", "-c", "{config}", "{args_extra}"]
+}

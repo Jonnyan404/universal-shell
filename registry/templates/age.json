@@ -1,0 +1,38 @@
+{
+  "id": "age",
+  "name": "age",
+  "description": "age — 简单、现代的加密工具，用于文件加密与密钥管理。单次运行即退出。",
+  "repo": "FiloSottile/age",
+  "binary": "age",
+  "category": "utility",
+  "assets": {
+    "darwin": {
+      "candidates": ["age-v{version}-darwin-arm64.tar.gz", "age-v{version}-darwin-amd64.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "age/age"
+    },
+    "linux": {
+      "candidates": ["age-v{version}-linux-amd64.tar.gz", "age-v{version}-linux-arm64.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "age/age"
+    },
+    "windows": {
+      "candidates": ["age-v{version}-windows-amd64.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "age.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "input", "kind": "file", "label": "输入文件", "default": "", "filter": "*" },
+    { "key": "recipient", "kind": "string", "label": "接收方密钥", "default": "", "placeholder": "age1…" },
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-o out.age …" }
+  ],
+  "args": ["-r", "{recipient}", "{input}"]
+}

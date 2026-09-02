@@ -1,0 +1,38 @@
+{
+  "id": "cloud-clipboard-go",
+  "name": "cloud-clipboard-go",
+  "description": "cloud-clipboard-go — 云剪贴板核心程序 (Go)，支持监听/端口/配置/数据目录配置。",
+  "repo": "Jonnyan404/cloud-clipboard-go",
+  "binary": "cloud-clipboard-go",
+  "category": "clipboard",
+  "assets": {
+    "darwin": {
+      "candidates": ["{name}_Darwin_{arch}.tar.gz"],
+      "format": "tar.gz",
+      "member": "cloud-clipboard-go"
+    },
+    "linux": {
+      "candidates": ["{name}_Linux_{arch}.tar.gz"],
+      "format": "tar.gz",
+      "member": "cloud-clipboard-go"
+    },
+    "windows": {
+      "candidates": ["{name}_Windows_{arch}.zip"],
+      "format": "zip",
+      "member": "cloud-clipboard-go.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "x86_64",
+    "aarch64": "aarch64"
+  },
+  "fields": [
+    { "key": "host", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
+    { "key": "port", "kind": "string", "label": "端口", "default": "9000", "placeholder": "9000" },
+    { "key": "config", "kind": "file", "label": "配置文件", "default": "", "filter": "*.json,*.yaml,*.toml" },
+    { "key": "data_dir", "kind": "directory", "label": "数据目录", "default": "" },
+    { "key": "verbose", "kind": "boolean", "label": "详细日志", "default": false },
+    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+  ],
+  "args": ["-host", "{host}", "-port", "{port}", "-config", "{config}", "-dir", "{data_dir}"]
+}

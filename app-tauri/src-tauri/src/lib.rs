@@ -1,0 +1,503 @@
+//! universal-shell (Tauri 版后端)
+//!
+//! 复用 shared core。前端通过 invoke 调这些命令；字段表单由
+//! get_programs 返回的 fields 描述动态渲染。
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use shared::config::{Field, Program};
+use shared::ShellManager;
+use tauri::Manager;
+use tauri::State;
+
+struct AppState {
+    manager: Mutex<ShellManager>,
+    config_path: PathBuf,
+}
+
+/// 给前端传的字段（含默认值，但不含运行时值——值由 get_values 单独返回）
+#[derive(serde::Serialize)]
+struct FieldView {
+    key: String,
+    label: String,
+    kind: String,
+    default: String,
+}
+
+/// 程序描述（前端据此渲染整张表单）
+#[derive(serde::Serialize)]
+struct ProgramView {
+    id: String,
+    name: String,
+    description: String,
+    repo: String,
+    binary: String,
+    args: Vec<String>,
+    fields: Vec<FieldView>,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct StatusView {
+    installed: bool,
+    running: bool,
+    autostart: bool,
+    local_version: String,
+    latest_version: Option<String>,
+    latest_published: String,
+    bin_path: String,
+}
+
+#[derive(serde::Serialize, Clone)]
+struct ProgramStatusView {
+    id: String,
+    name: String,
+    repo: String,
+    status: StatusView,
+}
+
+impl StatusView {
+    fn from_status(s: &shared::ProgramStatus, bin_path: &PathBuf, autostart: bool) -> Self {
+        Self {
+            installed: s.installed,
+            running: s.running,
+            autostart,
+            local_version: s.local_version.clone(),
+            latest_version: s.latest_version.clone(),
+            latest_published: s.latest_published.clone(),
+            bin_path: bin_path.display().to_string(),
+        }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct StartPayload {
+    program_id: String,
+    values: BTreeMap<String, String>,
+}
+
+fn to_view(p: &Program) -> ProgramView {
+    ProgramView {
+        id: p.id.clone(),
+        name: p.name.clone(),
+        description: p.description.clone(),
+        repo: p.repo.clone(),
+        binary: p.binary.clone(),
+        args: p.args.clone(),
+        fields: p
+            .fields
+            .iter()
+            .map(|f| to_field_view(f))
+            .collect(),
+    }
+}
+
+fn to_field_view(f: &Field) -> FieldView {
+    let (kind, label, default) = match &f.kind {
+        shared::config::FieldKind::String { label, default, .. } => {
+            ("string", label.clone(), default.clone())
+        }
+        shared::config::FieldKind::File { label, default, .. } => {
+            ("file", label.clone(), default.clone())
+        }
+        shared::config::FieldKind::Directory { label, default, .. } => {
+            ("directory", label.clone(), default.clone())
+        }
+        shared::config::FieldKind::Boolean { label, default } => {
+            ("boolean", label.clone(), default.to_string())
+        }
+        shared::config::FieldKind::AutoStart { label, default } => {
+            ("autostart", label.clone(), default.to_string())
+        }
+    };
+    FieldView { key: f.key.clone(), kind: kind.to_string(), label, default }
+}
+
+#[tauri::command]
+fn get_programs(state: State<AppState>) -> Vec<ProgramView> {
+    let mgr = state.manager.lock().unwrap();
+    mgr.programs.iter().map(to_view).collect()
+}
+
+#[tauri::command]
+fn get_values(state: State<AppState>, program_id: String) -> BTreeMap<String, String> {
+    let mgr = state.manager.lock().unwrap();
+    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id) else {
+        return BTreeMap::new();
+    };
+    mgr.load_field_values(p)
+}
+
+#[tauri::command]
+fn save_values(
+    state: State<AppState>,
+    program_id: String,
+    values: BTreeMap<String, String>,
+) -> Result<(), String> {
+    let mgr = state.manager.lock().unwrap();
+    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id) else {
+        return Err("程序不存在".into());
+    };
+    mgr.save_field_values(p, &values);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+        return Err("程序不存在".into());
+    };
+    let bin = mgr.bin_path(&p);
+    let s = mgr.status(&p);
+    Ok(StatusView::from_status(&s, &bin, mgr.autostart.is_enabled(&p.id)))
+}
+
+/// 批量管理：一次性返回所有程序的名称 / 启停 / 安装 / 开机启动等状态
+#[tauri::command]
+fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let progs = mgr.programs.clone();
+    let mut out = Vec::with_capacity(progs.len());
+    for p in &progs {
+        let bin = mgr.bin_path(p);
+        let s = mgr.status(p);
+        let autostart = mgr.autostart.is_enabled(&p.id);
+        out.push(ProgramStatusView {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            repo: p.repo.clone(),
+            status: StatusView::from_status(&s, &bin, autostart),
+        });
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+fn install(state: State<AppState>, program_id: String) -> Result<String, String> {
+    let mgr = state.manager.lock().unwrap();
+    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+        return Err("程序不存在".into());
+    };
+    let data_dir = mgr.data_dir.clone();
+    drop(mgr);
+    // 独立下载，避免长时间持有锁
+    ShellManager::install_standalone(&data_dir, &p).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+fn start_program(
+    state: State<AppState>,
+    payload: StartPayload,
+) -> Result<StatusView, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let Some(p) = mgr.programs.iter().find(|p| p.id == payload.program_id).cloned() else {
+        return Err("程序不存在".into());
+    };
+    mgr.save_field_values(&p, &payload.values);
+    // 应用开机启动字段（若配置了）
+    if let Err(e) = mgr.apply_key_autostart(&p, &payload.values) {
+        log::info!("autostart 设置失败: {e:#}");
+    }
+    mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
+    let bin = mgr.bin_path(&p);
+    let s = mgr.status(&p);
+    Ok(StatusView::from_status(&s, &bin, mgr.autostart.is_enabled(&p.id)))
+}
+
+#[tauri::command]
+fn stop_program(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+        return Err("程序不存在".into());
+    };
+    mgr.stop(&program_id).map_err(|e| format!("{e:#}"))?;
+    let bin = mgr.bin_path(&p);
+    let s = mgr.status(&p);
+    Ok(StatusView::from_status(&s, &bin, mgr.autostart.is_enabled(&p.id)))
+}
+
+/// 重启：停止后重新加载字段值并启动
+#[tauri::command]
+fn restart_program(
+    state: State<AppState>,
+    payload: StartPayload,
+) -> Result<StatusView, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let Some(p) = mgr.programs.iter().find(|p| p.id == payload.program_id).cloned() else {
+        return Err("程序不存在".into());
+    };
+    mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
+    mgr.save_field_values(&p, &payload.values);
+    if let Err(e) = mgr.apply_key_autostart(&p, &payload.values) {
+        log::info!("autostart 设置失败: {e:#}");
+    }
+    mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
+    let bin = mgr.bin_path(&p);
+    let s = mgr.status(&p);
+    Ok(StatusView::from_status(&s, &bin, mgr.autostart.is_enabled(&p.id)))
+}
+
+#[tauri::command]
+fn stop_all(state: State<AppState>) -> Result<(), String> {
+    let mut mgr = state.manager.lock().unwrap();
+    mgr.stop_all();
+    Ok(())
+}
+
+#[tauri::command]
+fn set_autostart(
+    state: State<AppState>,
+    program_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+        return Err("程序不存在".into());
+    };
+    let bin = mgr.bin_path(&p);
+    mgr.autostart
+        .set_enabled(&program_id, &bin, enabled)
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+fn reveal_logs(state: State<AppState>, program_id: String) -> Result<(), String> {
+    let mgr = state.manager.lock().unwrap();
+    let _ = program_id;
+    let log_dir = mgr.data_dir.join("logs");
+    std::fs::create_dir_all(&log_dir).map_err(|e| format!("{e:#}"))?;
+    open_in_file_manager(log_dir)
+}
+
+// ---------- 模板库 ----------
+
+#[derive(serde::Serialize)]
+struct ManifestView {
+    revision: String,
+    categories: Vec<String>,
+    templates: Vec<shared::TemplateIndex>,
+    offline: bool,
+}
+
+#[tauri::command]
+fn get_registries(state: State<AppState>) -> Result<Vec<String>, String> {
+    let mgr = state.manager.lock().unwrap();
+    Ok(mgr.template_registries.clone())
+}
+
+#[tauri::command]
+fn get_manifest(
+    state: State<AppState>,
+    registry_url: String,
+) -> Result<ManifestView, String> {
+    let mgr = state.manager.lock().unwrap();
+    let cache = mgr.data_dir.join("cache/registry");
+    let client = shared::RegistryClient::new(&registry_url, cache);
+    let (offline, manifest) = client
+        .load_manifest()
+        .map_err(|e| format!("{e:#}"))?;
+    Ok(ManifestView {
+        revision: manifest.revision,
+        categories: manifest.categories,
+        templates: manifest.templates,
+        offline,
+    })
+}
+
+/// C5：合并配置里所有注册表，一次性返回(含各源离线/冲突信息)。
+#[derive(serde::Serialize)]
+struct MergedManifestView {
+    templates: Vec<(String, shared::TemplateIndex, String)>, // (base, index)
+    sources: Vec<(String, bool)>,
+    conflicts: Vec<(String, usize)>, // id -> 提供它的源数量
+}
+
+#[tauri::command]
+fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<MergedManifestView, String> {
+    let mgr = state.manager.lock().unwrap();
+    let cache = mgr.data_dir.join("cache/registry");
+    let mut bases: Vec<String> = mgr.template_registries.clone();
+    let typed = registry_url.trim().to_string();
+    if !typed.is_empty() && !bases.contains(&typed) {
+        bases.push(typed);
+    }
+    if bases.is_empty() {
+        return Err("未配置注册表".into());
+    }
+    let merged = shared::load_merged_manifests(&bases, cache, mgr.registry_pubkeys.clone());
+    Ok(MergedManifestView {
+        templates: merged
+            .by_id
+            .iter()
+            .map(|(id, (base, idx))| (id.clone(), idx.clone(), base.clone()))
+            .collect(),
+        sources: merged.sources.clone(),
+        conflicts: merged
+            .conflicts
+            .iter()
+            .map(|(id, bases)| (id.clone(), bases.len()))
+            .collect(),
+    })
+}
+
+/// 导入：拉取模板 → 快照进本地配置 → 写回 shell.json
+#[tauri::command]
+fn import_template(
+    state: State<AppState>,
+    registry_url: String,
+    template_id: String,
+) -> Result<ProgramView, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let cache = mgr.data_dir.join("cache/registry");
+    let client = shared::RegistryClient::new(&registry_url, cache);
+    let (_offline, mut program) = client
+        .load_template(&template_id)
+        .map_err(|e| format!("{e:#}"))?;
+
+    if mgr.programs.iter().any(|p| p.id == program.id) {
+        return Err(format!("程序「{}」已存在", program.id));
+    }
+    // 允许模板没有显式 binary 时用 id 兜底
+    if program.binary.is_empty() {
+        program.binary = program.id.clone();
+    }
+    let view = to_view(&program);
+    mgr.programs.push(program);
+    mgr.save_config(&state.config_path)
+        .map_err(|e| format!("{e:#}"))?;
+    Ok(view)
+}
+
+#[cfg(target_os = "macos")]
+fn open_in_file_manager(path: PathBuf) -> Result<(), String> {
+    std::process::Command::new("open")
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[cfg(target_os = "linux")]
+fn open_in_file_manager(path: PathBuf) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[cfg(target_os = "windows")]
+fn open_in_file_manager(path: PathBuf) -> Result<(), String> {
+    std::process::Command::new("explorer")
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    let data_dir = dirs::data_dir()
+        .map(|d| d.join("universal-shell"))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let config_path = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| data_dir.join("shell.json"));
+
+    let mut manager = ShellManager::new(data_dir.clone()).expect("初始化数据目录失败");
+    if config_path.exists() {
+        manager
+            .load_config(&config_path)
+            .expect("加载配置失败");
+    } else if let Ok(cwd) = std::env::current_dir() {
+        for cand in [cwd.join("shell.json"), cwd.join("demo/shell.json")] {
+            if cand.exists() {
+                manager.load_config(&cand).unwrap();
+                break;
+            }
+        }
+    }
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(AppState {
+            manager: Mutex::new(manager),
+            config_path,
+        })
+        // D1: 托盘常驻。关闭窗口→隐藏而非退出；托盘菜单唤出/退出。
+        .setup(|app| {
+            use tauri::menu::{Menu, MenuItem};
+            use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+            let show_i = MenuItem::with_id(app, "tray_show", "显示主窗口", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "tray_quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+
+            let tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(move |app, event| match event.id.as_ref() {
+                    "tray_quit" => {
+                        app.exit(0);
+                    }
+                    "tray_show" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.unminimize();
+                            let _ = w.set_focus();
+                        }
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        if let Some(w) = tray.app_handle().get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.unminimize();
+                            let _ = w.set_focus();
+                        }
+                    }
+                });
+            tray.build(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // 关闭窗口 → 隐藏到托盘（托盘菜单“退出”才真正结束进程）
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_programs,
+            get_values,
+            save_values,
+            get_status,
+            install,
+            start_program,
+            stop_program,
+            restart_program,
+            stop_all,
+            batch_status,
+            set_autostart,
+            reveal_logs,
+            get_registries,
+            get_manifest,
+            get_merged_manifest,
+            import_template
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

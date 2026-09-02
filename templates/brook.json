@@ -1,0 +1,35 @@
+{
+  "id": "brook",
+  "name": "brook",
+  "description": "brook — 轻量内网穿透/代理工具，单裸二进制，支持多种协议（link/server/wsserver…）。",
+  "repo": "txthinking/brook",
+  "binary": "brook",
+  "category": "proxy",
+  "assets": {
+    "darwin": {
+      "candidates": ["brook_darwin_arm64", "brook_darwin_amd64"],
+      "format": "raw",
+      "mode": "raw"
+    },
+    "linux": {
+      "candidates": ["brook_linux_amd64", "brook_linux_arm64"],
+      "format": "raw",
+      "mode": "raw"
+    },
+    "windows": {
+      "candidates": ["brook_windows_amd64.exe"],
+      "format": "raw",
+      "mode": "raw"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "bind", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
+    { "key": "port", "kind": "string", "label": "端口", "default": "1080", "placeholder": "1080" },
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "server --listen …" }
+  ],
+  "args": ["{args_extra}"]
+}

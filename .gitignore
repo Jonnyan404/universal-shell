@@ -1,0 +1,23 @@
+.idea
+upload
+*.exe
+*.db
+*.pyc
+dist
+build
+*.spec
+.DS_Store
+*.ini
+__pycache*
+cloud-clipboard-go
+cloud-clipboard-go-launcher.ini
+config.json
+uploads
+staging
+venv
+*.dmg
+
+# Rust
+target/
+**/target/
+app-tauri/node_modules/

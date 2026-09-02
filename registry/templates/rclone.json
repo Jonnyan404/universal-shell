@@ -1,0 +1,42 @@
+{
+  "id": "rclone",
+  "name": "rclone (serve http)",
+  "description": "rclone — 云存储同步工具。此处用 `rclone serve http` 常驻模式，把远程/本地目录映射为可浏览的 HTTP 服务。默认只绑定 127.0.0.1。",
+  "repo": "rclone/rclone",
+  "binary": "rclone",
+  "category": "file-sharing",
+  "assets": {
+    "darwin": {
+      "candidates": ["rclone-v{version}-osx-arm64.zip", "rclone-v{version}-osx-amd64.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "rclone"
+    },
+    "linux": {
+      "candidates": ["rclone-v{version}-linux-amd64.zip", "rclone-v{version}-linux-arm64.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "rclone"
+    },
+    "windows": {
+      "candidates": ["rclone-v{version}-windows-amd64.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "rclone.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "os_map": {
+    "macos": "osx"
+  },
+  "fields": [
+    { "key": "bind", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
+    { "key": "port", "kind": "string", "label": "端口", "default": "8088", "placeholder": "8088" },
+    { "key": "src", "kind": "string", "label": "源 (本地路径或 remote:path)", "default": "" },
+    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+  ],
+  "args": ["serve", "http", "{src}", "--addr", "{bind}:{port}", "--vfs-cache-mode", "off"]
+}

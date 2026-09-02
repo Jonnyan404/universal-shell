@@ -1,0 +1,113 @@
+name: Release (universal-shell Rust)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: 0.1.0)'
+        required: true
+        default: '0.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: linux-x86_64
+            os: ubuntu-latest
+          - label: linux-arm64
+            os: ubuntu-24.04-arm
+          - label: macos-x86_64
+            os: macos-15
+          - label: macos-arm64
+            os: macos-15-arm64
+          - label: windows-x86_64
+            os: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Install Tauri frontend deps
+        run: |
+          cd app-tauri
+          npm install
+        shell: bash
+
+      - name: Install Linux egui runtime deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb x11-utils libxkbcommon0 libxcb1 libegl1
+        shell: bash
+
+      - name: Build + package
+        run: |
+          VERSION=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
+          VERSION=$(echo "$VERSION" | sed 's/^v//')
+          ./scripts/build-release.sh "$VERSION"
+        shell: bash
+
+      - name: Inspect artifacts
+        run: |
+          find dist -maxdepth 3 -type f
+        shell: bash
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-shell-${{ matrix.label }}
+          path: dist/
+          retention-days: 1
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: universal-shell-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          body: |
+            ## universal-shell ${{ github.ref_name }}
+
+            配置驱动的二进制程序管理壳（egui + Tauri 双前端）。
+
+            - `universal-shell-egui-<version>-<os>-<arch>` — egui 单二进制
+            - `bundle/...` — Tauri 系统原生安装包
+            - `sha256.txt` — 各产物 SHA256 核验
+
+            校验清单：见各产物旁 `sha256.txt`。
+          files: |
+            dist/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
