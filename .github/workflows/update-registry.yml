@@ -1,0 +1,59 @@
+name: Update Registry (universal-shell)
+
+# 当本地模板库(templates/**)变更时，自动重新生成静态注册表(registry/)
+# 并重新签名 manifests.sig，将生成产物提交回仓库。
+# 生成产物直接提交，供 GitHub raw 直连下载（registry/ 为单一事实来源的生成快照）。
+
+on:
+  push:
+    paths:
+      - 'templates/**'
+  workflow_dispatch:
+
+concurrency:
+  group: update-registry
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    name: generate + sign + commit registry
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Generate registry from templates
+        run: cargo run -p shared --example generate_registry
+
+      - name: Sign manifest
+        run: |
+          SEED="${REGISTRY_SEED:-0000000000000000000000000000000000000000000000000000000000000001}"
+          cd shared
+          cargo run --example sign_registry -- ../registry/manifests.json "$SEED"
+        env:
+          REGISTRY_SEED: ${{ secrets.REGISTRY_SEED }}
+
+      - name: Commit registry changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain registry/)" ]; then
+            git add registry/
+            git commit -m "Update static registry from templates"
+            git push
+            echo "registry updated & pushed"
+          else
+            echo "registry unchanged, nothing to commit"
+          fi
