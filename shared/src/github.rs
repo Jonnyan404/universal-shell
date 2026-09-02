@@ -19,6 +19,13 @@ fn global_cache() -> &'static Mutex<BTreeMap<String, (Instant, LatestRelease)>> 
     GLOBAL_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+/// 清空最新版本缓存（代理变更后调用，使新网络设置即时生效）
+pub fn clear_github_cache() {
+    if let Ok(mut c) = global_cache().lock() {
+        c.clear();
+    }
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct LatestRelease {
     pub tag_name: String,
@@ -60,6 +67,37 @@ impl Default for GitHub {
 }
 
 impl GitHub {
+    /// 应用网络设置：加速前缀会重写目标 URL；通用代理作用于所有请求。
+    pub fn apply_network(&mut self, accelerate_prefix: &str, http_proxy: &str) {
+        self.proxy_prefix = if accelerate_prefix.trim().is_empty() {
+            None
+        } else {
+            Some(accelerate_prefix.trim_end_matches('/').to_string())
+        };
+        if !http_proxy.trim().is_empty() {
+            if let Ok(proxy) = reqwest::Proxy::all(http_proxy.trim()) {
+                self.client = reqwest::blocking::Client::builder()
+                    .proxy(proxy)
+                    .timeout(Duration::from_secs(60))
+                    .build()
+                    .unwrap_or_else(|_| reqwest::blocking::Client::new());
+            }
+        } else {
+            self.client = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(15))
+                .build()
+                .unwrap_or_else(|_| reqwest::blocking::Client::new());
+        }
+    }
+
+    /// 计算加速后的目标 URL（仅当配置了加速前缀时）
+    fn accelerate(&self, url: &str) -> String {
+        match &self.proxy_prefix {
+            Some(p) => format!("{}/{}", p.trim_end_matches('/'), url),
+            None => url.to_string(),
+        }
+    }
+
     /// 查询最新版本，返回 (tag, published_at)。结果带 TTL 缓存。
     pub fn latest(&self, repo: &str) -> anyhow::Result<LatestRelease> {
         // 1. 命中全局缓存直接返回
@@ -70,8 +108,8 @@ impl GitHub {
                 }
             }
         }
-        // 2. 网络请求（已设 15 秒超时，不会无限挂起）
-        let api = format!("https://api.github.com/repos/{repo}/releases/latest");
+        // 2. 网络请求（已设超时，不会无限挂起）
+        let api = self.accelerate(&format!("https://api.github.com/repos/{repo}/releases/latest"));
         let mut req = self.client.get(&api).header("User-Agent", "universal-shell");
         if let Some(token) = &self.token {
             req = req.header("Authorization", format!("Bearer {token}"));
@@ -112,7 +150,7 @@ impl GitHub {
         Ok(raw)
     }
 
-    /// 下载资产到目标路径
+    /// 下载资产到目标路径（URL 已含加速前缀；仅通用代理作用于请求本身）
     pub fn download_to(&self, url: &str, dest: &PathBuf) -> anyhow::Result<()> {
         let mut resp = self
             .client

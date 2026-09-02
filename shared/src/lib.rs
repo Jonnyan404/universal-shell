@@ -13,8 +13,8 @@ pub mod runner;
 pub mod shell_manager;
 pub mod version;
 
-pub use config::{AssetRule, ExtractMode, Field, FieldKind, Program, ShellConfig};
-pub use github::GitHub;
+pub use config::{AssetRule, ExtractMode, Field, FieldKind, Program, ProxySettings, ShellConfig};
+pub use github::{clear_github_cache, GitHub};
 pub use registry::{
     load_merged_manifests, Manifest, MergedSource, RegistryClient, RegistryState, TemplateIndex,
 };

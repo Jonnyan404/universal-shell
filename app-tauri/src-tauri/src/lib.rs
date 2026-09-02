@@ -147,6 +147,13 @@ fn get_programs(state: State<AppState>) -> Vec<ProgramView> {
     mgr.programs.iter().map(to_view).collect()
 }
 
+/// 用当前网络设置(加速前缀 + 通用代理)构建 GitHub 客户端
+fn proxied_github(proxy: &shared::ProxySettings) -> shared::GitHub {
+    let mut gh = shared::GitHub::default();
+    gh.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+    gh
+}
+
 #[tauri::command]
 fn get_values(state: State<AppState>, program_id: String) -> BTreeMap<String, String> {
     let mgr = state.manager.lock().unwrap();
@@ -186,10 +193,13 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
         bin = mgr.bin_path(&p);
         local = mgr.status_local(&p);
         autostart = mgr.autostart.is_enabled(&p.id);
-    }
-    if let Ok(latest) = shared::GitHub::default().latest(&p.repo) {
-        local.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
-        local.latest_published = latest.published_at.clone();
+        let layout = mgr.proxy.clone();
+        let gh = proxied_github(&layout);
+        drop(mgr);
+        if let Ok(latest) = gh.latest(&p.repo) {
+            local.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
+            local.latest_published = latest.published_at.clone();
+        }
     }
     Ok(StatusView::from_status(&local, &bin, autostart))
 }
@@ -219,9 +229,11 @@ fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, 
 /// 批量管理：锁内取本地状态、锁外并行查最新版本（网络），最后合并返回
 #[tauri::command]
 fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String> {
+    let layout;
     let mut locals: Vec<(Program, PathBuf, shared::ProgramStatus, bool)> = {
         let mut mgr = state.manager.lock().unwrap();
         let progs = mgr.programs.clone();
+        layout = mgr.proxy.clone();
         progs
             .into_iter()
             .map(|p| {
@@ -238,8 +250,9 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             .iter()
             .map(|(p, _, _, _)| {
                 let repo = p.repo.clone();
+                let layout = layout.clone();
                 s.spawn(move || {
-                    let gh = shared::GitHub::default();
+                    let gh = proxied_github(&layout);
                     gh.latest(&repo)
                         .ok()
                         .map(|r| (r.tag_name.trim_start_matches('v').to_string(), r.published_at.clone()))
@@ -367,6 +380,46 @@ fn reveal_logs(state: State<AppState>, program_id: String) -> Result<(), String>
 }
 
 // ---------- 本地实例管理（编辑/删除/隐藏/日志） ----------
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct ProxyView {
+    accelerate_prefix: String,
+    http_proxy: String,
+}
+
+/// 读取当前网络代理/加速设置
+#[tauri::command]
+fn get_proxy(state: State<AppState>) -> ProxyView {
+    let mgr = state.manager.lock().unwrap();
+    ProxyView {
+        accelerate_prefix: mgr.proxy.accelerate_prefix.clone(),
+        http_proxy: mgr.proxy.http_proxy.clone(),
+    }
+}
+
+/// 保存网络代理/加速设置：持久化到 shell.json 并立即应用到请求客户端。
+/// 同时清空通用/版本缓存，使新代理对后续请求即时生效。
+#[tauri::command]
+fn set_proxy(
+    state: State<AppState>,
+    accelerate_prefix: String,
+    http_proxy: String,
+) -> Result<(), String> {
+    let mut mgr = state.manager.lock().unwrap();
+    mgr.proxy.accelerate_prefix = accelerate_prefix.trim().to_string();
+    mgr.proxy.http_proxy = http_proxy.trim().to_string();
+    // 应用到 GitHub 客户端（版本查询/下载）——先复制值再避免借用冲突
+    let (acc, hp) = (mgr.proxy.accelerate_prefix.clone(), mgr.proxy.http_proxy.clone());
+    mgr.github.apply_network(&acc, &hp);
+    // 清空全局最新版本缓存，避免旧网络结果残留
+    shared::clear_github_cache();
+    // 清空注册表本地缓存，使清单/模板走新代理重新拉取
+    let reg_cache = mgr.data_dir.join("cache/registry");
+    let _ = std::fs::remove_dir_all(&reg_cache);
+    mgr.save_config(&state.config_path)
+        .map_err(|e| format!("{e:#}"))?;
+    Ok(())
+}
 
 #[derive(serde::Serialize)]
 struct LogsView {
@@ -523,7 +576,13 @@ fn get_manifest(
 ) -> Result<ManifestView, String> {
     let mgr = state.manager.lock().unwrap();
     let cache = mgr.data_dir.join("cache/registry");
-    let client = shared::RegistryClient::new(&registry_url, cache);
+    let client = shared::RegistryClient::with_network(
+        &registry_url,
+        cache,
+        mgr.registry_pubkeys.clone(),
+        Some(&mgr.proxy.accelerate_prefix),
+        Some(&mgr.proxy.http_proxy),
+    );
     let (offline, manifest) = client
         .load_manifest()
         .map_err(|e| format!("{e:#}"))?;
@@ -555,7 +614,13 @@ fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<M
     if bases.is_empty() {
         return Err("未配置注册表".into());
     }
-    let merged = shared::load_merged_manifests(&bases, cache, mgr.registry_pubkeys.clone());
+    let merged = shared::load_merged_manifests(
+        &bases,
+        cache,
+        mgr.registry_pubkeys.clone(),
+        Some(&mgr.proxy.accelerate_prefix),
+        Some(&mgr.proxy.http_proxy),
+    );
     Ok(MergedManifestView {
         templates: merged
             .by_id
@@ -580,7 +645,13 @@ fn import_template(
 ) -> Result<ProgramView, String> {
     let mut mgr = state.manager.lock().unwrap();
     let cache = mgr.data_dir.join("cache/registry");
-    let client = shared::RegistryClient::new(&registry_url, cache);
+    let client = shared::RegistryClient::with_network(
+        &registry_url,
+        cache,
+        mgr.registry_pubkeys.clone(),
+        Some(&mgr.proxy.accelerate_prefix),
+        Some(&mgr.proxy.http_proxy),
+    );
     let (_offline, mut program) = client
         .load_template(&template_id)
         .map_err(|e| format!("{e:#}"))?;
@@ -730,7 +801,9 @@ pub fn run() {
             get_registries,
             get_manifest,
             get_merged_manifest,
-            import_template
+            import_template,
+            get_proxy,
+            set_proxy
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

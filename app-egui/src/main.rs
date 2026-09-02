@@ -257,9 +257,16 @@ impl ShellApp {
         self.registry_wait = true;
         let cache = self.manager.data_dir.join("cache/registry");
         let pubkeys = self.manager.registry_pubkeys.clone();
+        let proxy = self.manager.proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let merged = shared::load_merged_manifests(&bases, cache, pubkeys);
+            let merged = shared::load_merged_manifests(
+                &bases,
+                cache,
+                pubkeys,
+                Some(&proxy.accelerate_prefix),
+                Some(&proxy.http_proxy),
+            );
             tx.send(Msg::ManifestLoaded(Ok(merged))).ok();
         });
     }
@@ -268,9 +275,17 @@ impl ShellApp {
     fn spawn_import_template(&mut self, id: String, url: String) {
         self.imports.insert(id.clone(), "导入中…".into());
         let cache = self.manager.data_dir.join("cache/registry");
+        let pubkeys = self.manager.registry_pubkeys.clone();
+        let proxy = self.manager.proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let client = RegistryClient::new(&url, cache);
+            let client = RegistryClient::with_network(
+                &url,
+                cache,
+                pubkeys,
+                Some(&proxy.accelerate_prefix),
+                Some(&proxy.http_proxy),
+            );
             match client.load_template(&id) {
                 Ok((_, program)) => {
                     tx.send(Msg::TemplateFetched(id.clone(), Ok(program))).ok();

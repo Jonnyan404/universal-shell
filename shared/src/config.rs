@@ -331,6 +331,26 @@ pub struct ShellConfig {
     /// 各注册表 base(或前缀) -> Ed25519 公钥(hex)。命中即对该源强制验签。
     #[serde(default)]
     pub registry_pubkeys: BTreeMap<String, String>,
+    /// 网络代理设置（加速前缀 + 通用代理），应用于所有受限请求
+    #[serde(default, skip_serializing_if = "ProxySettings::is_empty")]
+    pub proxy: ProxySettings,
+}
+
+/// 网络代理/加速设置。
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct ProxySettings {
+    /// 加速前缀（重写 GitHub API / 下载 URL），如 "https://gh-proxy.com/"
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub accelerate_prefix: String,
+    /// 通用代理（HTTP/SOCKS5），如 "http://127.0.0.1:7890"
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub http_proxy: String,
+}
+
+impl ProxySettings {
+    pub fn is_empty(&self) -> bool {
+        self.accelerate_prefix.is_empty() && self.http_proxy.is_empty()
+    }
 }
 
 impl ShellConfig {

@@ -52,7 +52,7 @@ pub struct RegistryClient {
 
 impl RegistryClient {
     pub fn new(base: &str, cache_dir: PathBuf) -> Self {
-        Self::with_pubkeys(base, cache_dir, BTreeMap::new())
+        Self::with_network(base, cache_dir, BTreeMap::new(), None, None)
     }
 
     /// 带公钥映射创建。key 为 base URL（与配置里一致即可）。
@@ -61,10 +61,54 @@ impl RegistryClient {
         cache_dir: PathBuf,
         pubkeys: BTreeMap<String, String>,
     ) -> Self {
+        Self::with_network(base, cache_dir, pubkeys, None, None)
+    }
+
+    /// 完整构造：公钥 + 可选加速前缀（重写 base 用于下载）+ 可选通用代理。
+    /// `accelerate_prefix` 会用于改写 `base`（仅当 base 无法直接访问时）；
+    /// `http_proxy` 作用于该注册表的所有请求。
+    pub fn with_network(
+        base: &str,
+        cache_dir: PathBuf,
+        pubkeys: BTreeMap<String, String>,
+        accelerate_prefix: Option<&str>,
+        http_proxy: Option<&str>,
+    ) -> Self {
+        let mut client_builder = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(30));
+        if let Some(proxy) = http_proxy {
+            if !proxy.trim().is_empty() {
+                if let Ok(p) = reqwest::Proxy::all(proxy.trim()) {
+                    client_builder = client_builder.proxy(p);
+                }
+            }
+        }
+        let http = client_builder
+            .build()
+            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+        // 加速前缀：重写 base，使清单/模板请求走加速地址
+        let raw_base = base.trim_end_matches('/');
+        let effective_base = match accelerate_prefix {
+            Some(p) if !p.trim().is_empty() => {
+                let prefix = p.trim_end_matches('/');
+                let rewritten = if raw_base.starts_with("http") {
+                    // 替换 origin 为加速前缀（保留路径）
+                    let path = raw_base
+                        .splitn(4, '/')
+                        .nth(3)
+                        .map(|s| format!("/{s}"))
+                        .unwrap_or_else(|| "/".to_string());
+                    format!("{prefix}{}", path.trim_end_matches('/').to_string() + "/")
+                } else {
+                    format!("{prefix}/{}", raw_base)
+                };
+                rewritten
+            }
+            _ => raw_base.to_string() + "/",
+        };
         Self {
-            base: base.trim_end_matches('/').to_string() + "/",
+            base: effective_base,
             cache_dir,
-            http: reqwest::blocking::Client::new(),
+            http,
             pubkeys,
         }
     }
@@ -258,14 +302,23 @@ impl MergedSource {
 
 /// 拉取多个清单并合并。任一源失败不阻断其它：该源标记离线(缓存优先)。
 /// `pubkeys` 为 base(或前缀) -> Ed25519 公钥 hex，命中即强制验签。
+/// `accelerate_prefix` / `http_proxy` 为可选网络设置（见 [`RegistryClient::with_network`]）。
 pub fn load_merged_manifests(
     bases: &[String],
     cache_dir: PathBuf,
     pubkeys: BTreeMap<String, String>,
+    accelerate_prefix: Option<&str>,
+    http_proxy: Option<&str>,
 ) -> MergedSource {
     let mut merged = MergedSource::default();
     for base in bases {
-        let client = RegistryClient::with_pubkeys(base, cache_dir.clone(), pubkeys.clone());
+        let client = RegistryClient::with_network(
+            base,
+            cache_dir.clone(),
+            pubkeys.clone(),
+            accelerate_prefix,
+            http_proxy,
+        );
         let (offline, manifest) = client.load_manifest().unwrap_or((true, Manifest::default()));
         merged.sources.push((base.clone(), offline));
         merge_manifest_into(&mut merged, base, &manifest);

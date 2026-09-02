@@ -411,6 +411,18 @@ async function revealLogs() {
 
 // ---------- 批量管理 ----------
 
+// 仅本地状态（无网络）：定时器与“刷新状态”用它，避免自动联网
+async function refreshBatchLocal() {
+  try {
+    statuses = await invoke("batch_status_local");
+    renderSidebar();
+    renderBatch();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+// 本地 + 并行网络补全最新版本：用户主动操作后调用
 async function refreshBatch() {
   try {
     // 第一帧：本地状态（无网络），表格立即渲染
@@ -429,6 +441,34 @@ async function refreshBatch() {
     renderBatch();
   } catch {
     // 网络失败保留本地展示，静默忽略
+  }
+}
+
+// 手动“检查更新”：完整联网比对最新版本
+async function checkUpdates() {
+  const btn = document.querySelector("#batch-check-updates");
+  const refreshing = btn?.classList.contains("busy");
+  if (refreshing) return;
+  if (btn) {
+    btn.classList.add("busy");
+    btn.disabled = true;
+    btn.textContent = "检查中…";
+  }
+  showNotice("正在检查更新…");
+  try {
+    const full = await invoke("batch_status");
+    statuses = full;
+    renderSidebar();
+    renderBatch();
+    showNotice("检查完成");
+  } catch (e) {
+    showNotice(String(e), true);
+  } finally {
+    if (btn) {
+      btn.classList.remove("busy");
+      btn.disabled = false;
+      btn.textContent = "检查更新";
+    }
   }
 }
 
@@ -594,6 +634,39 @@ function makeOpBtn(label, fn) {
   b.className = "op-btn";
   b.onclick = fn;
   return b;
+}
+
+// ---------- 网络 / 代理设置 ----------
+
+function openSettings() {
+  const modal = document.querySelector("#settings-modal");
+  const acc = document.querySelector("#sett-accelerate");
+  const hp = document.querySelector("#sett-proxy");
+  acc.value = "";
+  hp.value = "";
+  invoke("get_proxy")
+    .then((p) => {
+      acc.value = p.accelerate_prefix || "";
+      hp.value = p.http_proxy || "";
+    })
+    .catch((e) => showNotice(String(e), true));
+  modal.hidden = false;
+}
+
+function closeSettings() {
+  document.querySelector("#settings-modal").hidden = true;
+}
+
+async function saveSettings() {
+  const acc = document.querySelector("#sett-accelerate").value;
+  const hp = document.querySelector("#sett-proxy").value;
+  try {
+    await invoke("set_proxy", { acceleratePrefix: acc, httpProxy: hp });
+    showNotice("网络设置已保存");
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+  closeSettings();
 }
 
 // ---------- 日志查看 ----------
@@ -1024,20 +1097,36 @@ window.addEventListener("DOMContentLoaded", async () => {
   const libraryLink = document.querySelector("#library-link");
   if (libraryLink) libraryLink.onclick = () => switchView("library");
   const refreshBtn = document.querySelector("#batch-refresh");
-  if (refreshBtn) refreshBtn.onclick = () => refreshBatch();
+  if (refreshBtn) refreshBtn.onclick = () => refreshBatchLocal();
+  const checkUpdatesBtn = document.querySelector("#batch-check-updates");
+  if (checkUpdatesBtn) checkUpdatesBtn.onclick = () => checkUpdates();
   const sa = document.querySelector("#batch-stop-all");
   if (sa)
     sa.onclick = async () => {
       try {
         await invoke("stop_all");
         showNotice("已停止所有程序");
-        await refreshBatch();
+        await refreshBatchLocal();
       } catch (e) {
         showNotice(String(e), true);
       }
     };
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) dlBtn.onclick = () => installProgram(current?.id, dlBtn);
+
+  // 网络设置模态
+  const settingsBtn = document.querySelector("#settings-btn");
+  if (settingsBtn) settingsBtn.onclick = openSettings;
+  const settModal = document.querySelector("#settings-modal");
+  document.querySelector("#settings-modal-close").onclick = closeSettings;
+  document.querySelector("#sett-cancel").onclick = closeSettings;
+  document.querySelector("#settings-form").onsubmit = (e) => {
+    e.preventDefault();
+    saveSettings();
+  };
+  settModal.addEventListener("click", (e) => {
+    if (e.target === settModal) closeSettings();
+  });
 
   // 日志模态
   const logModal = document.querySelector("#log-modal");
@@ -1091,9 +1180,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   registryUrl = registries[0] ?? "";
   renderRegistryBar();
   await refresh();
+  // 不自动联网检查版本：仅本地状态周期性刷新（批量管理）；版本更新走“检查更新”按钮
   setInterval(() => {
-    if (view === "manage" && current) refreshStatus();
-    if (view === "batch") refreshBatch();
+    if (view === "batch") refreshBatchLocal();
   }, 15000);
   // 运行日志跟随刷新：仅程序运行期间轮询，避免无谓 IPC
   setInterval(() => {

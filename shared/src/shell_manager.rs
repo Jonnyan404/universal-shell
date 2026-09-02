@@ -100,6 +100,8 @@ pub struct ShellManager {
     pub github: GitHub,
     pub runner: Runner,
     pub autostart: AutoStart,
+    /// 网络代理/加速设置（增量应用到 github 与注册表请求）
+    pub proxy: crate::config::ProxySettings,
 }
 
 impl ShellManager {
@@ -114,6 +116,7 @@ impl ShellManager {
             github: GitHub::default(),
             runner: Runner::new(),
             autostart: AutoStart::new(),
+            proxy: crate::config::ProxySettings::default(),
         })
     }
 
@@ -136,16 +139,23 @@ impl ShellManager {
             pubkeys.insert(DEFAULT_REGISTRY.to_string(), DEFAULT_REGISTRY_PUBKEY.to_string());
         }
         self.registry_pubkeys = pubkeys;
+        // 应用网络代理设置到 GitHub 客户端
+        self.github.apply_network(
+            &cfg.proxy.accelerate_prefix,
+            &cfg.proxy.http_proxy,
+        );
+        self.proxy = cfg.proxy;
         info!("已加载 {} 个受管程序", self.programs.len());
         Ok(())
     }
 
-    /// 将当前程序列表 + 注册表配置写回到 shell.json
+    /// 将当前程序列表 + 注册表/代理配置写回到 shell.json
     pub fn save_config(&self, path: &Path) -> anyhow::Result<()> {
         let cfg = ShellConfig {
             programs: self.programs.clone(),
             template_registries: self.template_registries.clone(),
             registry_pubkeys: self.registry_pubkeys.clone(),
+            proxy: self.proxy.clone(),
         };
         let json = serde_json::to_string_pretty(&cfg).context("序列化配置失败")?;
         if let Some(parent) = path.parent() {
@@ -282,7 +292,15 @@ impl ShellManager {
 
     /// 独立(data_dir + Program)的安装入口，供线程/CLI 使用。返回最新版本号。
     pub fn install_standalone(data_dir: &PathBuf, program: &Program) -> anyhow::Result<String> {
-        let mgr = ShellManager::new(data_dir.clone())?;
+        let mut mgr = ShellManager::new(data_dir.clone())?;
+        // 若存在 shell.json，则读取并应用其网络代理设置
+        let cfg_path = data_dir.join("shell.json");
+        if cfg_path.exists() {
+            if let Ok(cfg) = crate::config::ShellConfig::load(&cfg_path) {
+                mgr.github
+                    .apply_network(&cfg.proxy.accelerate_prefix, &cfg.proxy.http_proxy);
+            }
+        }
         let (version, _) = mgr.install_or_update(program, |_| {})?;
         Ok(version)
     }

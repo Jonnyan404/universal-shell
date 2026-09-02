@@ -12,6 +12,7 @@
       <div class="sidebar-head">
         <span class="dot"></span><span class="app-name">Universal Shell</span>
         <button id="theme-btn" class="theme-btn" title="切换深浅色"></button>
+        <button id="settings-btn" class="settings-btn" title="网络设置">⚙</button>
       </div>
       <nav id="program-tabs" class="room-list"></nav>
       <button id="batch-link" class="sidebar-settings">☰ <span class="app-btn-label">批量管理</span></button>
@@ -55,6 +56,7 @@
           <div class="batch-toolbar">
             <span class="batch-title">批量管理</span>
             <button id="batch-refresh">刷新状态</button>
+            <button id="batch-check-updates">检查更新</button>
             <button id="batch-stop-all">停止所有</button>
           </div>
           <table class="batch-table">
@@ -128,6 +130,30 @@
         <div class="edit-actions">
           <button type="submit" id="edit-save">保存</button>
           <button type="button" id="edit-cancel">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 模态：网络/代理设置 -->
+  <div id="settings-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span>网络设置</span>
+        <button id="settings-modal-close" class="modal-close" title="关闭">×</button>
+      </div>
+      <form id="settings-form" class="edit-form">
+        <div class="edit-row">
+          <label>加速地址</label>
+          <input id="sett-accelerate" placeholder="如 https://gh-proxy.com/（GitHub API/下载前缀）" />
+        </div>
+        <div class="edit-row">
+          <label>通用代理</label>
+          <input id="sett-proxy" placeholder="如 http://127.0.0.1:7890（作用于全部网络请求）" />
+        </div>
+        <div class="edit-actions">
+          <button type="submit" id="sett-save">保存</button>
+          <button type="button" id="sett-cancel">取消</button>
         </div>
       </form>
     </div>
