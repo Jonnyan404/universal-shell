@@ -142,6 +142,8 @@ struct ShellApp {
     /// 各程序的最新版本缓存（后台异步刷新，避免渲染时联网卡顿）
     /// key = 程序 id, value = (最新版本, 发布时间)
     latest_versions: BTreeMap<String, (Option<String>, String)>,
+    /// 待二次确认删除的程序 id（批量页「删除」按钮触发）
+    confirm_delete: Option<String>,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
     /// 是否已在托盘菜单里点了「退出」
@@ -198,6 +200,7 @@ impl ShellApp {
             dark_mode: true,
             op_logs: Vec::new(),
             latest_versions: BTreeMap::new(),
+            confirm_delete: None,
             tray: None,
             quit: Arc::new(AtomicBool::new(false)),
         }
@@ -1232,7 +1235,7 @@ impl ShellApp {
             return;
         }
 
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        egui::ScrollArea::both().show(ui, |ui| {
             egui::Grid::new("batch_grid")
                 .striped(true)
                 .min_col_width(60.0)
@@ -1264,9 +1267,10 @@ impl ShellApp {
                             t!("st.not_installed_bare").to_string()
                         });
                         // 最新版本
-                        match st.latest_version {
-                            Some(v) => { ui.label(v); }
-                            None => { ui.weak(t!("st.unknown")); }
+                        if let Some(v) = &st.latest_version {
+                            ui.label(v);
+                        } else {
+                            ui.weak(t!("st.unknown"));
                         }
                         // 状态
                         if !st.installed {
@@ -1297,9 +1301,29 @@ impl ShellApp {
                                 }
                             }
                         }
-                        // 操作
-                        ui.horizontal(|ui| {
+                        // 操作（紧凑按钮，自动换行避免超出可视区）
+                        let up_to_date = st.installed
+                            && st.latest_version.as_deref() == Some(st.local_version.as_str());
+                        let dl_label = if !st.installed {
+                            t!("dl.download").to_string()
+                        } else if up_to_date {
+                            t!("st.latest").to_string()
+                        } else {
+                            t!("dl.update").to_string()
+                        };
+                        ui.set_max_width(430.0);
+                        ui.horizontal_wrapped(|ui| {
+                            let dl_btn = ui.add_enabled(!up_to_date, egui::Button::new(dl_label));
+                            if dl_btn.clicked() {
+                                self.spawn_install(p.clone());
+                            }
                             if st.running {
+                                let restart = ui.small_button(t!("act.restart"));
+                                if restart.clicked() {
+                                    let values = self.values.get(&p.id).cloned().unwrap_or_default();
+                                    self.restart_program(p, &values);
+                                    self.log_op(&t!("op.restart", name = &p.name));
+                                }
                                 if ui.small_button(t!("act.stop")).clicked() {
                                     if let Ok(()) = self.manager.stop(&p.id) {
                                         self.log_op(&t!("op.stop", name = &p.name));
@@ -1312,17 +1336,20 @@ impl ShellApp {
                                     self.log_op(&t!("op.start", name = &p.name));
                                 }
                             }
-                            if ui.small_button(t!("act.open_app_dir")).on_hover_text(t!("act.open_app_dir")).clicked() {
-                                let d = self.manager.app_dir(p);
-                                let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
-                            }
                             if ui.small_button(t!("act.log")).clicked() {
                                 self.current_id = Some(p.id.clone());
                                 self.show_log = true;
                             }
+                            if ui.small_button(t!("act.open_app_dir")).on_hover_text(t!("act.open_app_dir")).clicked() {
+                                let d = self.manager.app_dir(p);
+                                let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
+                            }
                             if ui.small_button(t!("act.manage")).clicked() {
                                 self.current_id = Some(p.id.clone());
                                 self.view = View::Manage;
+                            }
+                            if ui.small_button(t!("act.delete")).clicked() {
+                                self.confirm_delete = Some(p.id.clone());
                             }
                         });
                         ui.end_row();
@@ -1375,6 +1402,70 @@ impl ShellApp {
             });
         self.show_log = open;
     }
+
+    /// 删除确认弹窗：二次确认后真正删除程序并清理数据目录。
+    fn show_delete_confirm(&mut self, ctx: &egui::Context, id: &str) {
+        let title = t!("act.delete").to_string();
+        let mut open = true;
+        let mut confirmed = false;
+        let mut closing = false;
+        let name = self
+            .manager
+            .programs
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| id.to_string());
+        egui::Window::new(title)
+            .id(egui::Id::new("delete_confirm"))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(t!("confirm.delete", name = name));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(t!("act.cancel")).clicked() {
+                        closing = true;
+                    }
+                    if ui.button(t!("act.delete")).clicked() {
+                        confirmed = true;
+                        closing = true;
+                    }
+                });
+            });
+        if !open || closing {
+            self.confirm_delete = None;
+        }
+        if confirmed {
+            if let Some(id) = self.confirm_delete.take() {
+                let name = self
+                    .manager
+                    .programs
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| p.name.clone());
+                match self.manager.delete_program(&id, &self.config_path) {
+                    Ok(()) => {
+                        // 取消选中/清理相关运行时状态
+                        if self.current_id.as_deref() == Some(id.as_str()) {
+                            self.current_id = None;
+                        }
+                        self.values.remove(&id);
+                        self.latest_versions.remove(&id);
+                        self.notice.insert(
+                            "__batch__".into(),
+                            t!("toast.deleted", name = name.unwrap_or(id)).to_string(),
+                        );
+                    }
+                    Err(e) => {
+                        let msg = format!("{e:#}");
+                        self.notice.insert("__batch__".into(), msg);
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for ShellApp {
@@ -1410,6 +1501,9 @@ impl eframe::App for ShellApp {
         }
         if self.show_settings {
             self.show_settings_window(ui.ctx());
+        }
+        if let Some(id) = self.confirm_delete.clone() {
+            self.show_delete_confirm(ui.ctx(), &id);
         }
     }
 }
