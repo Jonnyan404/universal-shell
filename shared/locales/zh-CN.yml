@@ -162,6 +162,8 @@ runner.x: 全部源（合并）
 check.title: 所有程序统一操作
 act.log: 日志
 act.open_log_dir: 打开日志目录
+act.open_log_dir_short: 日志目录
+act.open_app_dir: 打开应用目录
 act.manage: 管理
 act.delete_field: 删除字段
 st.autostart: 开机启动

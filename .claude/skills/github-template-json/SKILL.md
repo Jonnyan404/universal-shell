@@ -68,6 +68,11 @@ license: MIT
 - `boolean`：`{ key, kind:"boolean", label, default:false }`
 - `autostart`：`{ key, kind:"autostart", label, default:false }`（特殊：写系统 LoginItem/自启）
 - 任一字段可加 `"required": true` 标记为**必填**：值为空时启动前校验报错，**管理页表单会把必填字段标签标红显示**（末尾带 `*`）。
+  - **何时标 required（重点考虑）**：凡字段**缺省为空、且为空会导致程序启动失败或无意义运行**，都该标必填——
+    配置文件（sing-box `config`、mihomo `config`、frpc `config`）、必须指定的目录/路径（filebrowser `root`、miniserve `dir`、gitea `worktree`）、
+    必须的源/目标（rclone `src`、age `recipient`/`input`）等。
+  - **不要标**：给了合理 `default` 的 `bind`/`addr`/`port`；纯透传、空值只是显示帮助的 `args_extra`（如 croc/lazygit/syncthing）。
+  - 参照已有模板里的 required 用法：`dufs`(dir)、`cloud-clipboard-go`(host/port)、mihomo/sing-box/frpc(config)、age(recipient/input)。
 
 `args` 是字符串数组，`{key}` 会被对应字段值替换（参照现有模板）。
 

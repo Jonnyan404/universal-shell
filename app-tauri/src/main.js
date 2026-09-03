@@ -455,6 +455,12 @@ async function renderForm() {
   };
   el.actions.appendChild(restart);
 
+  const appDir = document.createElement("button");
+  appDir.textContent = t("act.open_app_dir");
+  appDir.title = t("act.open_app_dir");
+  appDir.onclick = () => revealAppDir(current.id);
+  el.actions.appendChild(appDir);
+
   // 有地址(/端口)字段时，提供「打开网站」「复制地址」
   if (webUrl(current.id)) {
     const open = document.createElement("button");
@@ -569,6 +575,14 @@ function renderStatus(st) {
 async function revealLogs(id) {
   try {
     await invoke("reveal_logs", { programId: id });
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+async function revealAppDir(id) {
+  try {
+    await invoke("reveal_app_dir", { programId: id });
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -796,7 +810,7 @@ function renderBatch() {
     const logs = makeOpBtn(t("act.log"), () => openLogModal(item.id));
     ops.appendChild(logs);
 
-    const openDir = makeOpBtn(t("act.open_log_dir"), () => revealLogs(item.id));
+    const openDir = makeOpBtn(t("act.open_app_dir"), () => revealAppDir(item.id));
     ops.appendChild(openDir);
 
     const edit = makeOpBtn(t("act.edit"), () => openEditModal(item.id));
@@ -1886,6 +1900,13 @@ window.addEventListener("DOMContentLoaded", async () => {
     shellLogModal.hidden = true;
   }
   document.querySelector("#shell-log-link").onclick = openShellLogModal;
+  document.querySelector("#open-log-dir-link").onclick = async () => {
+    try {
+      await invoke("reveal_logs_dir");
+    } catch (e) {
+      showNotice(String(e), true);
+    }
+  };
   document.querySelector("#shell-log-modal-close").onclick = closeShellLogModal;
   document.querySelector("#shell-log-refresh").onclick = loadShellLog;
   document.querySelector("#shell-log-clear").onclick = async () => {

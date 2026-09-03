@@ -632,6 +632,24 @@ fn reveal_logs(state: State<AppState>, program_id: String) -> Result<(), String>
     open_in_file_manager(log_dir)
 }
 
+/// 打开全局统一的日志目录（所有程序日志都集中在 <data>/logs/）。
+#[tauri::command]
+fn reveal_logs_dir(state: State<AppState>) -> Result<(), String> {
+    let mgr = state.manager.lock().unwrap();
+    let log_dir = mgr.data_dir.join("logs");
+    std::fs::create_dir_all(&log_dir).map_err(|e| format!("{e:#}"))?;
+    open_in_file_manager(log_dir)
+}
+
+/// 打开指定程序的安装/数据目录 (<data>/<id>/）。
+#[tauri::command]
+fn reveal_app_dir(state: State<AppState>, program_id: String) -> Result<(), String> {
+    let mgr = state.manager.lock().unwrap();
+    let dir = mgr.data_dir.join(&program_id);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{e:#}"))?;
+    open_in_file_manager(dir)
+}
+
 // ---------- 本地实例管理（编辑/删除/隐藏/日志） ----------
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -1302,6 +1320,8 @@ pub fn run() {
             set_shell_autostart,
             shell_autostart_enabled,
             reveal_logs,
+            reveal_logs_dir,
+            reveal_app_dir,
             get_logs,
             edit_program,
             delete_program,
