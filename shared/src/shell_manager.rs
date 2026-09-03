@@ -177,15 +177,21 @@ impl ShellManager {
         self.data_dir.join("shell.json")
     }
 
-    /// 程序对应的可执行入口路径(下载/运行位置)。固定在数据目录下 .bin/ 子目录，
-    /// 避免与 whole 模式的解包目录 (<data>/<id>/) 同名冲突。
+    /// 程序专属数据目录(下载的二进制、版本、字段值、整包解压都归于此，与其它应用隔离)。
+    /// 也是该程序以默认工作目录(working_dir=.)运行时的工作目录，避免各应用把配置文件
+    /// 都写到数据根目录、同名文件互相覆盖。
+    pub fn app_dir(&self, p: &Program) -> PathBuf {
+        self.data_dir.join(&p.id)
+    }
+
+    /// 单独可执行文件在程序目录 bin/ 子目录(与 whole 模式的解包目录 pkg/ 并存不冲突)。
     pub fn bin_path(&self, p: &Program) -> PathBuf {
         let name = if std::env::consts::OS == "windows" {
             format!("{}.exe", p.binary)
         } else {
             p.binary.clone()
         };
-        self.data_dir.join(".bin").join(&name)
+        self.app_dir(p).join("bin").join(&name)
     }
 
     fn log_dir(&self) -> PathBuf {
@@ -307,7 +313,10 @@ impl ShellManager {
         // 4. 若为 whole 模式则整包解到 <id> 目录，再令 bin 指向其中 member
         on_progress(&DownloadProgress::stage(DownloadStage::Extracting));
         let run_target = self.bin_path(program);
-        let package_dir = self.data_dir.join(&program.id);
+        let package_dir = self.app_dir(program).join("pkg");
+        if let Some(parent) = run_target.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         match rule.mode {
             ExtractMode::Single => {
                 // 直接抽单成员落盘为 run_target
@@ -386,7 +395,11 @@ impl ShellManager {
     }
 
     pub fn save_local_version(&self, program: &Program, version: &str) {
-        let vs_file = self.data_dir.join(format!("{}.version", program.id));
+        let dir = self.app_dir(program);
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let vs_file = dir.join("version");
         if let Ok(mut f) = std::fs::File::create(&vs_file) {
             use std::io::Write;
             let _ = f.write_all(version.as_bytes());
@@ -394,7 +407,7 @@ impl ShellManager {
     }
 
     pub fn local_version(&self, program: &Program) -> String {
-        let vs_file = self.data_dir.join(format!("{}.version", program.id));
+        let vs_file = self.app_dir(program).join("version");
         std::fs::read_to_string(vs_file)
             .map(|s| s.trim().trim_start_matches('v').to_string())
             .unwrap_or_else(|_| "-".to_string())
@@ -472,7 +485,9 @@ impl ShellManager {
         }
         let args = program.render_args(field_values);
         let wd: PathBuf = if program.working_dir == "." {
-            self.data_dir.clone()
+            let dir = self.app_dir(program);
+            let _ = std::fs::create_dir_all(&dir);
+            dir
         } else {
             PathBuf::from(&program.working_dir)
         };
@@ -511,7 +526,7 @@ impl ShellManager {
     /// 读取程序上次保存的字段值(合并运行时默认)
     pub fn load_field_values(&self, program: &Program) -> BTreeMap<String, String> {
         let mut map = program.runtime_defaults();
-        let fv_file = self.data_dir.join(format!("{}.values.json", program.id));
+        let fv_file = self.app_dir(program).join("values.json");
         if let Ok(raw) = std::fs::read_to_string(&fv_file) {
             if let Ok(extra) = serde_json::from_str::<BTreeMap<String, String>>(&raw) {
                 map.extend(extra);
@@ -522,7 +537,11 @@ impl ShellManager {
 
     /// 保存字段值
     pub fn save_field_values(&self, program: &Program, values: &BTreeMap<String, String>) {
-        let fv_file = self.data_dir.join(format!("{}.values.json", program.id));
+        let dir = self.app_dir(program);
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let fv_file = dir.join("values.json");
         if let Ok(raw) = serde_json::to_string_pretty(values) {
             let _ = std::fs::write(&fv_file, raw);
         }
@@ -701,13 +720,13 @@ impl ShellManager {
         if let Err(e) = self.runner.stop(&id) {
             log::warn!("{}", t!("log.stop_failed", id = id, err = format!("{e:#}")));
         }
-        // 清理磁盘数据
-        for f in [id.to_string() + ".version", id.to_string() + ".values.json"] {
-            let _ = std::fs::remove_file(self.data_dir.join(&f));
+        // 清理该程序专属数据目录（二进制/版本/字段值/整包解压都在一处）
+        let removed = std::fs::remove_dir_all(self.app_dir(&p));
+        if removed.is_err() {
+            let _ = std::fs::remove_file(&self.bin_path(&p));
+            let _ = std::fs::remove_file(self.app_dir(&p).join("version"));
+            let _ = std::fs::remove_file(self.app_dir(&p).join("values.json"));
         }
-        let _ = std::fs::remove_file(&self.bin_path(&p));
-        // 整包解压目录（若存在）
-        let _ = std::fs::remove_dir_all(self.data_dir.join(&p.id));
         self.save_config(path)
     }
 

@@ -1843,6 +1843,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   const logModal = document.querySelector("#log-modal");
   document.querySelector("#log-modal-close").onclick = closeLogModal;
   document.querySelector("#log-refresh").onclick = refreshLog;
+  document.querySelector("#log-open-dir").onclick = async () => {
+    try {
+      await invoke("reveal_logs_dir");
+    } catch (e) {
+      showNotice(String(e), true);
+    }
+  };
   document.querySelector("#log-copy").onclick = () => {
     const content = document.querySelector("#log-content");
     copyLogText(content.textContent);
@@ -1900,13 +1907,6 @@ window.addEventListener("DOMContentLoaded", async () => {
     shellLogModal.hidden = true;
   }
   document.querySelector("#shell-log-link").onclick = openShellLogModal;
-  document.querySelector("#open-log-dir-link").onclick = async () => {
-    try {
-      await invoke("reveal_logs_dir");
-    } catch (e) {
-      showNotice(String(e), true);
-    }
-  };
   document.querySelector("#shell-log-modal-close").onclick = closeShellLogModal;
   document.querySelector("#shell-log-refresh").onclick = loadShellLog;
   document.querySelector("#shell-log-clear").onclick = async () => {
