@@ -117,6 +117,8 @@ struct ShellApp {
     merged: Option<shared::MergedSource>,
     manifest_offline: bool,
     registry_wait: bool,
+    /// 首帧是否已触发过一次清单加载（启动即读离线缓存/联网，对齐 Tauri ensureLibraryFromCache）
+    manifest_initialized: bool,
     search: String,
     /// 模板库按来源过滤；None 表示「全部源」
     lib_source: Option<String>,
@@ -206,7 +208,7 @@ impl ShellApp {
             merged: None,
             manifest_offline: false,
             registry_wait: false,
-            search: String::new(),
+            manifest_initialized: false,            search: String::new(),
             lib_source: None,
             lib_page: 0,
             show_local_drawer: false,
@@ -1985,6 +1987,11 @@ impl eframe::App for ShellApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // 启动即加载清单（读离线缓存或联网刷新），避免重启后模板库为空、需手动刷新（对齐 Tauri ensureLibraryFromCache+refresh）
+        if !self.manifest_initialized {
+            self.manifest_initialized = true;
+            self.spawn_load_manifest();
+        }
         egui::Panel::left("sidebar")
             .resizable(true)
             .default_size(200.0)
