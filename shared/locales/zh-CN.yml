@@ -308,6 +308,7 @@ err.extract.open_zip: 打开 zip 失败
 err.extract.parse_zip: 解析 zip 失败
 err.extract.read_zip: 读取 zip 成员失败
 err.extract.no_zip_member: 'zip 中未找到目标成员 %{m}'
+err.extract.open_gz: 打开 gz 失败
 err.extract.no_zip_file: zip 中没有非目录成员
 err.extract.write_entry: 写入条目失败
 err.extract.illegal_path: '非法路径: %{rel}'

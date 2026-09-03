@@ -22,6 +22,7 @@ pub fn extract_file(
     match format {
         "tar.gz" | "tar" => extract_single_tar(archive, member, dest),
         "zip" => extract_single_zip(archive, member, dest),
+        "gz" => extract_single_gz(archive, dest),
         _ => {
             std::fs::copy(archive, dest).with_context(|| t!("err.extract.copy_bin").to_string())?;
             set_exec(dest);
@@ -91,6 +92,20 @@ fn extract_single_tar(archive: &PathBuf, want_member: Option<&str>, dest: &PathB
     let mut out = std::fs::File::create(dest)
         .with_context(|| t!("err.extract.create_dest", path = dest.display()).to_string())?;
     std::io::copy(&mut entry, &mut out).context(t!("err.extract.extract"))?;
+    drop(out);
+    set_exec(dest);
+    Ok(())
+}
+
+fn extract_single_gz(archive: &PathBuf, dest: &PathBuf) -> anyhow::Result<()> {
+    let f = std::fs::File::open(archive).context(t!("err.extract.open_gz"))?;
+    let gz = flate2::read::GzDecoder::new(f);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut out = std::fs::File::create(dest)
+        .with_context(|| t!("err.extract.create_dest", path = dest.display()).to_string())?;
+    std::io::copy(&mut std::io::BufReader::new(gz), &mut out).context(t!("err.extract.extract"))?;
     drop(out);
     set_exec(dest);
     Ok(())

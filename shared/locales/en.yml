@@ -308,6 +308,7 @@ err.extract.open_zip: Failed to open zip
 err.extract.parse_zip: Failed to parse zip
 err.extract.read_zip: Failed to read zip member
 err.extract.no_zip_member: 'Target member %{m} not found in zip'
+err.extract.open_gz: Failed to open gz
 err.extract.no_zip_file: Zip contains no non-directory members
 err.extract.write_entry: Failed to write entry
 err.extract.illegal_path: 'Illegal path: %{rel}'
