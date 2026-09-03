@@ -924,6 +924,15 @@ impl ShellApp {
             ui.label(t!("eg.no_program"));
             return;
         }
+        ui.horizontal(|ui| {
+            if ui.button(t!("batch.refresh")).clicked() {
+                self.refresh_status();
+            }
+            if ui.button(t!("batch.stop_all")).clicked() {
+                self.manager.stop_all();
+            }
+        });
+        ui.separator();
         egui::ScrollArea::vertical().show(ui, |ui| {
             for p in &programs {
                 let st = self.manager.status_local(p);
@@ -1050,12 +1059,6 @@ impl eframe::App for ShellApp {
                 self.view = View::Settings;
             }
             ui.separator();
-            if ui.button(t!("batch.refresh")).clicked() {
-                self.refresh_status();
-            }
-            if ui.button(t!("batch.stop_all")).clicked() {
-                self.manager.stop_all();
-            }
             // 语言切换：auto → zh-CN → en
             let lang_label = match self.manager.locale.as_str() {
                 "auto" => "文",
