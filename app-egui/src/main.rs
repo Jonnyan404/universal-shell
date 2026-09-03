@@ -248,6 +248,17 @@ impl ShellApp {
         let sources_rows = manager.template_registries.clone();
         // 壳启动后自动拉起所有开启了「自启动」的程序（方案 B：壳管理，对齐 Tauri）
         manager.start_autostart_programs();
+        // 启动即读版本检查缓存（曾经联网查过 → 回填最新版本与上次检查时间，对齐 Tauri from_local）
+        let vcheck = manager.load_version_check();
+        let mut latest_versions: BTreeMap<String, (Option<String>, String)> = BTreeMap::new();
+        let mut latest_checked_at: Option<i64> = None;
+        for p in &manager.programs {
+            if let Some((v, t)) = vcheck.get(&p.repo) {
+                latest_versions.insert(p.id.clone(), (Some(v.clone()), String::new()));
+                let t64 = *t as i64;
+                latest_checked_at = Some(latest_checked_at.map_or(t64, |m| m.max(t64)));
+            }
+        }
         Self {
             manager,
             values,
@@ -295,10 +306,10 @@ impl ShellApp {
             show_settings: false,
             dark_mode: true,
             op_logs: Vec::new(),
-            latest_versions: BTreeMap::new(),
+            latest_versions,
             confirm_delete: None,
             checking_updates: false,
-            latest_checked_at: None,
+            latest_checked_at,
             tray: None,
             tray_auto: None,
             quit: Arc::new(AtomicBool::new(false)),
@@ -603,12 +614,20 @@ impl ShellApp {
                         self.latest_versions.insert(id, (ver, ts));
                     }
                     self.checking_updates = false;
-                    self.latest_checked_at = Some(
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_secs() as i64)
-                            .unwrap_or(0),
-                    );
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    self.latest_checked_at = Some(now);
+                    // 落盘版本检查缓存（按 repo 缓存最新版本 + 检查时间，重启后再读）
+                    let checked = now.max(0) as u64;
+                    let mut vc: BTreeMap<String, (String, u64)> = BTreeMap::new();
+                    for p in &self.manager.programs {
+                        if let Some((Some(v), _)) = self.latest_versions.get(&p.id) {
+                            vc.insert(p.repo.clone(), (v.clone(), checked));
+                        }
+                    }
+                    self.manager.save_version_check(&vc);
                     self.notice.insert("__batch__".into(), t!("dl.done").to_string());
                 }
                 Msg::TrayAutoToggle => {
@@ -1301,7 +1320,7 @@ impl ShellApp {
         let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
         egui::ScrollArea::vertical()
             .id_salt("manage_log_scroll")
-            .max_height(120.0)
+            .max_height(ui.available_height().max(60.0))
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 for line in log.split('\n') {
