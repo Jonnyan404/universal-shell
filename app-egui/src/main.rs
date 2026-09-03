@@ -127,8 +127,6 @@ struct ShellApp {
     manager: ShellManager,
     /// program id -> 表单字段运行时值
     values: BTreeMap<String, BTreeMap<String, String>>,
-    /// program id -> 提示消息
-    notice: BTreeMap<String, String>,
     /// 右上角悬浮提示（操作日志的可见反馈）
     toasts: Vec<Toast>,
     tx: Sender<Msg>,
@@ -231,10 +229,6 @@ impl ShellApp {
         for (id, v) in info_for_values {
             values.insert(id, v);
         }
-        let mut notice = BTreeMap::new();
-        for p in &manager.programs {
-            notice.insert(p.id.clone(), String::new());
-        }
         let registry_url = manager
             .template_registries
             .first()
@@ -262,7 +256,6 @@ impl ShellApp {
         Self {
             manager,
             values,
-            notice,
             toasts: Vec::new(),
             tx,
             rx,
@@ -425,8 +418,7 @@ impl ShellApp {
             bases.push(typed);
         }
         if bases.is_empty() {
-            self.notice
-                .insert("__registry__".into(), t!("err.registry_not_configured").to_string());
+            self.show_toast(t!("err.registry_not_configured").to_string());
             return;
         }
         self.registry_wait = true;
@@ -488,8 +480,7 @@ impl ShellApp {
             return;
         }
         let Some(base) = self.registry_base_from_source(&program) else {
-            self.notice
-                .insert(program.id.clone(), t!("eg.no_source_registry").to_string());
+            self.show_toast(t!("eg.no_source_registry").to_string());
             return;
         };
         self.update_checks.insert(program.id.clone(), t!("dl.checking_short").to_string());
@@ -521,14 +512,14 @@ impl ShellApp {
                     let frac = p.fraction().unwrap_or(0.0);
                     self.progress = Some((pid, frac, label));
                 }
-                Msg::InstallDone(pid, version, err) => {
+                Msg::InstallDone(_pid, version, err) => {
                     self.busy = false;
                     self.progress = None;
                     let text = match version {
                         Some(v) => t!("toast.updated_short", ver = v).to_string(),
                         None => t!("toast.download_fail", err = err.unwrap_or_default()).to_string(),
                     };
-                    self.notice.insert(pid, text);
+                    self.show_toast(text);
                 }
                 Msg::ManifestLoaded(result) => {
                     self.registry_wait = false;
@@ -544,12 +535,11 @@ impl ShellApp {
                                 t!("eg.loaded", n = n)
                             }
                             .to_string();
-                            self.notice.insert("__registry__".into(), msg);
+                            self.show_toast(msg);
                         }
                         Err(e) => {
                             self.merged = None;
-                            self.notice
-                                .insert("__registry__".into(), t!("toast.manifest_fail", err = e).to_string());
+                            self.show_toast(t!("toast.manifest_fail", err = e).to_string());
                         }
                     }
                 }
@@ -565,8 +555,7 @@ impl ShellApp {
                                 return;
                             }
                             self.imports.remove(&id);
-                            self.notice.insert(
-                                "__registry__".into(),
+                            self.show_toast(
                                 t!("eg.imported_snap", id = id, path = self.config_path.display())
                                     .to_string(),
                             );
@@ -585,14 +574,13 @@ impl ShellApp {
                                 self.manager.programs.iter().find(|p| p.id == pid).clone()
                             });
                             let Some(cur) = cur else {
-                                self.notice.insert(pid.clone(), t!("eg.not_found_instance").to_string());
+                                self.show_toast(t!("eg.not_found_instance").to_string());
                                 return;
                             };
                             let diff = self.manager.template_diff(cur, &remote);
                             if diff.is_empty() {
                                 self.pending_updates.remove(&pid);
-                                self.notice
-                                    .insert(pid.clone(), t!("eg.no_diff").to_string());
+                                self.show_toast(t!("eg.no_diff").to_string());
                             } else {
                                 self.pending_updates.insert(pid.clone(), (remote, diff));
                                 let summary = self
@@ -600,12 +588,11 @@ impl ShellApp {
                                     .get(&pid)
                                     .map(|(_, d)| d.summary())
                                     .unwrap_or_default();
-                                self.notice
-                                    .insert(pid.clone(), t!("eg.update_found", summary = summary).to_string());
+                                self.show_toast(t!("eg.update_found", summary = summary).to_string());
                             }
                         }
                         Err(e) => {
-                            self.notice.insert(pid.clone(), t!("eg.check_update_fail", err = e).to_string());
+                            self.show_toast(t!("eg.check_update_fail", err = e).to_string());
                         }
                     }
                 }
@@ -628,7 +615,7 @@ impl ShellApp {
                         }
                     }
                     self.manager.save_version_check(&vc);
-                    self.notice.insert("__batch__".into(), t!("dl.done").to_string());
+                    self.show_toast(t!("dl.done").to_string());
                 }
                 Msg::TrayAutoToggle => {
                     let next = !self.manager.autostart.shell_is_enabled();
@@ -702,13 +689,12 @@ impl ShellApp {
         }
         match self.manager.save_config(&self.config_path) {
             Ok(()) => {
-                self.notice.insert(
-                    cur.id.clone(),
+                self.show_toast(
                     t!("eg.updated_written", path = self.config_path.display()).to_string(),
                 );
             }
             Err(e) => {
-                self.notice.insert(cur.id.clone(), t!("eg.write_fail", err = format!("{e:#}")).to_string());
+                self.show_toast(t!("eg.write_fail", err = format!("{e:#}")).to_string());
             }
         }
         self.pending_updates.remove(&cur.id);
@@ -725,9 +711,6 @@ impl ShellApp {
             // 写入用户运行时值（默认值）
             let defaults = self.manager.load_field_values(program);
             self.values.insert(program.id.clone(), defaults);
-            self.notice
-                .entry(program.id.clone())
-                .or_default();
             if self.current_id.is_none() {
                 self.current_id = Some(program.id.clone());
             }
@@ -805,26 +788,8 @@ impl ShellApp {
                         *v = if b { "true" } else { "false" }.to_string();
                     }
                 }
-                FieldKind::AutoStart { label, .. } => {
-                    let v = values.entry(field.key.clone()).or_default();
-                    let mut b = v == "true";
-                    if ui.checkbox(&mut b, label).changed() {
-                        *v = if b { "true" } else { "false" }.to_string();
-                        // 立即应用开机启动
-                        let snapshot = values.clone();
-                        let target = self
-                            .manager
-                            .programs
-                            .iter()
-                            .find(|p| p.id == pid.clone())
-                            .cloned();
-                        if let Some(p) = target {
-                            if let Err(e) = self.manager.apply_key_autostart(&p, &snapshot) {
-                                self.notice.insert(pid.clone(), t!("eg.autostart_fail", err = format!("{e:#}")).to_string());
-                            }
-                        }
-                    }
-                }
+                // 开机启动统一由批量管理页管理（外层已 continue），此臂仅为满足 match 穷尽性
+                FieldKind::AutoStart { .. } => {}
             }
         }
     }
@@ -1078,18 +1043,13 @@ impl ShellApp {
                                 self.manager.autostart.set_shell_enabled(shell_auto),
                                 self.manager.save_config(&self.config_path),
                             ) {
-                                self.notice.insert("__settings__".into(), format!("{e:#}"));
+                                self.show_toast(format!("{e:#}"));
                             } else {
-                                self.notice.insert("__settings__".into(), t!("toast.saved").to_string());
+                                self.show_toast(t!("toast.saved").to_string());
                             }
                         }
                     });
                 });
-                if let Some(n) = self.notice.get("__settings__") {
-                    if !n.is_empty() {
-                        ui.colored_label(egui::Color32::from_rgb(90, 180, 90), n);
-                    }
-                }
             });
         self.show_settings = open;
     }
@@ -1124,7 +1084,6 @@ impl ShellApp {
                     let dl_btn = ui.add_enabled(!self.busy, egui::Button::new(dl_text));
                     if dl_btn.clicked() {
                         self.spawn_install(p.clone());
-                        self.notice.insert(p.id.clone(), String::new());
                     }
                 }
             });
@@ -1143,7 +1102,7 @@ impl ShellApp {
             if status.latest_version.is_some() {
                 ui.label(t!("eg.latest_ver_fmt", ver = status.latest_version.as_deref().unwrap_or("")));
             }
-            if self.manager.runner.is_running(&p.id) {
+            if self.manager.is_program_running(&p) {
                 ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
             } else {
                 ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.stopped"));
@@ -1162,20 +1121,16 @@ impl ShellApp {
                 );
                 if btn.clicked() {
                     self.spawn_check_template_update(p.clone());
-                    self.notice.insert(p.id.clone(), String::new());
                 }
                 if let Some((_, diff)) = self.pending_updates.get(&p.id).cloned() {
                     let mut detail = diff.changed_fields_detail.clone();
                     ui.label(diff.summary());
                     if ui.button(t!("eg.view_changes")).clicked() {
-                        self.notice.insert(
-                            p.id.clone(),
-                            if detail.is_empty() {
-                                diff.summary()
-                            } else {
-                                detail.drain(..).collect::<Vec<_>>().join("；")
-                            },
-                        );
+                        self.show_toast(if detail.is_empty() {
+                            diff.summary()
+                        } else {
+                            detail.drain(..).collect::<Vec<_>>().join("；")
+                        });
                     }
                     if ui.button(t!("eg.apply_update")).clicked() {
                         if let Some((remote, _)) = self.pending_updates.get(&p.id).cloned() {
@@ -1215,7 +1170,7 @@ impl ShellApp {
         // 操作区：启动/停止/重启（对齐 Tauri renderActions，处于运行态时停/重启可用、启动禁用）+ 图标按钮
         let values = self.values.get(&p.id).cloned().unwrap_or_default();
         let url = web_url(&p, &values);
-        let running = self.manager.runner.is_running(&p.id);
+        let running = self.manager.is_program_running(&p);
         ui.horizontal(|ui| {
             let values_for_start = values;
             let running_now = running;
@@ -1225,10 +1180,9 @@ impl ShellApp {
                 match self.manager.start(&p, &values_for_start) {
                     Ok(()) => {
                         self.log_op(&t!("op.start", name = &p.name));
-                        self.notice.insert(p.id.clone(), String::new());
                     }
                     Err(e) => {
-                        self.notice.insert(p.id.clone(), t!("toast.start_fail", err = format!("{e:#}")).to_string());
+                        self.show_toast(t!("toast.start_fail", err = format!("{e:#}")).to_string());
                     }
                 }
             }
@@ -1237,10 +1191,9 @@ impl ShellApp {
                 match self.manager.stop(&p.id) {
                     Ok(()) => {
                         self.log_op(&t!("op.stop", name = &p.name));
-                        self.notice.insert(p.id.clone(), String::new());
                     }
                     Err(e) => {
-                        self.notice.insert(p.id.clone(), format!("{e:#}"));
+                        self.show_toast(format!("{e:#}"));
                     }
                 }
             }
@@ -1257,7 +1210,7 @@ impl ShellApp {
             if url.is_some() {
                 if ui.button("📋").on_hover_text(t!("act.copy_addr")).clicked() {
                     ui.ctx().copy_text(url.as_deref().unwrap().to_string());
-                    self.notice.insert(p.id.clone(), t!("toast.addr_copied").to_string());
+                    self.show_toast(t!("toast.addr_copied").to_string());
                 }
                 if ui.button("↗").on_hover_text(t!("act.open_site")).clicked() {
                     let cmd = open_cmd();
@@ -1265,13 +1218,6 @@ impl ShellApp {
                 }
             }
         });
-
-        if let Some(n) = self.notice.get(&p.id) {
-            if !n.is_empty() {
-                ui.add_space(6.0);
-                ui.colored_label(egui::Color32::from_rgb(200, 90, 90), n);
-            }
-        }
 
         // 操作日志条（op-log）
         if !self.op_logs.is_empty() {
@@ -1293,7 +1239,7 @@ impl ShellApp {
 
     /// 内嵌程序日志终端：显示当前程序日志（stderr 行以 \x1F 开头标红）。
     fn show_manage_log(&mut self, ui: &mut egui::Ui, p: &shared::config::Program) {
-        if !self.manager.runner.is_running(&p.id) {
+        if !self.manager.is_program_running(p) {
             return;
         }
         ui.add_space(4.0);
@@ -1307,8 +1253,7 @@ impl ShellApp {
             if ui.small_button("📋").on_hover_text(t!("act.copy")).clicked() {
                 let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
                 ui.ctx().copy_text(log);
-                self.notice
-                    .insert(p.id.clone(), t!("toast.copied").to_string());
+                self.show_toast(t!("toast.copied").to_string());
             }
             if ui.small_button("↻").on_hover_text(t!("act.refresh")).clicked() {
                 ui.ctx().request_repaint();
@@ -1382,14 +1327,14 @@ impl ShellApp {
     /// 重启程序：停止 → 保存字段值 → 启动（与 Tauri restart_program 一致）。
     fn restart_program(&mut self, p: &shared::config::Program, values: &BTreeMap<String, String>) {
         if let Err(e) = self.manager.stop(&p.id) {
-            self.notice.insert(p.id.clone(), t!("toast.restart_fail", err = format!("{e:#}")).to_string());
+            self.show_toast(t!("toast.restart_fail", err = format!("{e:#}")).to_string());
             return;
         }
         self.manager.save_field_values(p, values);
         if let Err(e) = self.manager.start(p, values) {
-            self.notice.insert(p.id.clone(), t!("toast.restart_fail", err = format!("{e:#}")).to_string());
+            self.show_toast(t!("toast.restart_fail", err = format!("{e:#}")).to_string());
         } else {
-            self.notice.insert(p.id.clone(), t!("toast.restarted").to_string());
+            self.show_toast(t!("toast.restarted").to_string());
         }
     }
 
@@ -1732,8 +1677,7 @@ impl ShellApp {
         let text = match std::fs::read_to_string(&path) {
             Ok(t) => t,
             Err(e) => {
-                self.notice.insert(
-                    "__registry__".into(),
+                self.show_toast(
                     t!("err.read_template_fail", err = e.to_string()).to_string(),
                 );
                 return;
@@ -1742,8 +1686,7 @@ impl ShellApp {
         let mut program: shared::config::Program = match serde_json::from_str(&text) {
             Ok(p) => p,
             Err(e) => {
-                self.notice.insert(
-                    "__registry__".into(),
+                self.show_toast(
                     t!("err.parse_template_fail", err = e.to_string()).to_string(),
                 );
                 return;
@@ -1762,12 +1705,10 @@ impl ShellApp {
         } else {
             match self.commit_import(&program, false) {
                 Ok(()) => {
-                    self.notice
-                        .insert("__registry__".into(), t!("lib.imported_local").to_string());
+                    self.show_toast(t!("lib.imported_local").to_string());
                 }
                 Err(e) => {
-                    self.notice
-                        .insert("__registry__".into(), format!("{e:#}"));
+                    self.show_toast(format!("{e:#}"));
                 }
             }
         }
@@ -1830,12 +1771,10 @@ impl ShellApp {
             if confirmed {
                 match self.commit_import(&program, true) {
                     Ok(()) => {
-                        self.notice
-                            .insert("__registry__".into(), t!("lib.imported_local").to_string());
+                        self.show_toast(t!("lib.imported_local").to_string());
                     }
                     Err(e) => {
-                        self.notice
-                            .insert("__registry__".into(), format!("{e:#}"));
+                        self.show_toast(format!("{e:#}"));
                     }
                 }
             }
@@ -1870,12 +1809,12 @@ impl ShellApp {
             .filter(|s| !s.is_empty() && s != "/")
             .collect();
         if cleaned.is_empty() {
-            self.notice.insert("__sources__".into(), t!("lib.keep_one").to_string());
+            self.show_toast(t!("lib.keep_one").to_string());
             return false;
         }
         self.manager.template_registries = cleaned.clone();
         if let Err(e) = self.manager.save_config(&self.config_path) {
-            self.notice.insert("__sources__".into(), format!("{e:#}"));
+            self.show_toast(format!("{e:#}"));
             return false;
         }
         self.manager.log_op(&t!("op.update_sources", list = cleaned.join(", ")));
@@ -1885,7 +1824,7 @@ impl ShellApp {
         // 源已变更：清空清单缓存，回到「尚未拉取」状态，待用户刷新重拉
         self.merged = None;
         self.show_sources = false;
-        self.notice.insert("__registry__".into(), t!("toast.sources_saved").to_string());
+        self.show_toast(t!("toast.sources_saved").to_string());
         true
     }
 
@@ -1977,7 +1916,6 @@ impl ShellApp {
                     ui.add_enabled(false, egui::Button::new(t!("dl.checking_short")));
                 } else if ui.button(t!("batch.check")).clicked() {
                     self.checking_updates = true;
-                    self.notice.insert("__batch__".into(), t!("dl.checking").to_string());
                     self.refresh_status();
                     ui.ctx().request_repaint();
                 }
@@ -2092,7 +2030,7 @@ impl ShellApp {
                                 }
                             }
                             Err(e) => {
-                                self.notice.insert(p.id.clone(), format!("{e:#}"));
+                                self.show_toast(format!("{e:#}"));
                             }
                         }
                     }
@@ -2154,13 +2092,6 @@ impl ShellApp {
                 ui.separator();
             }
         });
-
-        if let Some(n) = self.notice.get("__batch__") {
-            if !n.is_empty() {
-                ui.add_space(4.0);
-                ui.weak(n);
-            }
-        }
     }
 
     /// 切换程序开机自启（写入该程序 AutoStart 字段值持久化）。
@@ -2242,8 +2173,7 @@ impl ShellApp {
         }
         self.show_log = open;
         if copied {
-            self.notice
-                .insert("__log__".into(), t!("toast.copied").to_string());
+            self.show_toast(t!("toast.copied").to_string());
         }
     }
 
@@ -2510,11 +2440,10 @@ impl ShellApp {
         match self.manager.update_program(&id, &updated, &self.config_path) {
             Ok(()) => {
                 self.manager.log_op(&t!("op.edit_template", name = &base.name));
-                self.notice.insert(id.clone(), t!("toast.saved").to_string());
                 self.values.remove(&id);
             }
             Err(e) => {
-                self.notice.insert(id.clone(), format!("{e:#}"));
+                self.show_toast(format!("{e:#}"));
             }
         }
     }
@@ -2569,14 +2498,13 @@ impl ShellApp {
                         }
                         self.values.remove(&id);
                         self.latest_versions.remove(&id);
-                        self.notice.insert(
-                            "__batch__".into(),
+                        self.show_toast(
                             t!("toast.deleted", name = name.unwrap_or(id)).to_string(),
                         );
                     }
                     Err(e) => {
                         let msg = format!("{e:#}");
-                        self.notice.insert("__batch__".into(), msg);
+                        self.show_toast(msg);
                     }
                 }
             }

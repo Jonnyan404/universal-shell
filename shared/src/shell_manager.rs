@@ -427,13 +427,17 @@ impl ShellManager {
         st
     }
 
+    /// 该程序是否在运行：壳持有子进程句柄，或系统上仍有该程序的进程
+    /// （壳上次退出后残留、仍在后台运行）。避免只查句柄而漏判孤儿进程。
+    pub fn is_program_running(&mut self, program: &Program) -> bool {
+        self.runner.is_running(&program.id) || self.runner.is_process_alive(&self.bin_path(program))
+    }
+
     /// 仅本地状态（不发网络请求）：安装、运行、本地版本。
     /// 供 UI 在不持锁情况下先渲染，再异步补全最新版本。
     pub fn status_local(&mut self, program: &Program) -> ProgramStatus {
         let installed = self.bin_path(program).exists();
-        let bin = self.bin_path(program);
-        // 壳持有句柄，或该系统上仍有该程序的进程（壳重启后残留）→ 视为运行中
-        let running = self.runner.is_running(&program.id) || self.runner.is_process_alive(&bin);
+        let running = self.is_program_running(program);
         let local_version = self.local_version(program);
         ProgramStatus {
             installed,
