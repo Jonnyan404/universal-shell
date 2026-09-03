@@ -132,6 +132,8 @@ struct ShellApp {
     show_settings: bool,
     /// 暗色主题
     dark_mode: bool,
+    /// 会话内操作日志（本程序页底部滚动条显示，最多保留 200 条）
+    op_logs: Vec<String>,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
     /// 是否已在托盘菜单里点了「退出」
@@ -185,6 +187,7 @@ impl ShellApp {
             show_log: false,
             show_settings: false,
             dark_mode: true,
+            op_logs: Vec::new(),
             tray: None,
             quit: Arc::new(AtomicBool::new(false)),
         }
@@ -548,6 +551,10 @@ impl ShellApp {
         let values = self.values.entry(pid.clone()).or_default();
 
         for field in &p.fields {
+            // 开机启动统一由批量管理页管理，程序页不再显示该字段
+            if matches!(field.kind, FieldKind::AutoStart { .. }) {
+                continue;
+            }
             match &field.kind {
                 FieldKind::String { label, placeholder, .. } => {
                     ui.horizontal(|ui| {
@@ -805,6 +812,9 @@ impl ShellApp {
             } else {
                 ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.not_installed_bare"));
             }
+            if self.manager.program_autostart(&p) {
+                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.autostart"));
+            }
             ui.label(t!("eg.latest_ver_fmt", ver = status.latest_version.as_deref().unwrap_or("未知")));
             if self.manager.runner.is_running(&p.id) {
                 ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
@@ -872,41 +882,63 @@ impl ShellApp {
             }
         }
 
-        // 操作区：启动/停止/重启 + 打开目录/网站/复制地址（匹配 Tauri actions）
+        // 操作区：启动/停止/重启 + 右对齐图标按钮（匹配 Tauri actions）
         let values = self.values.get(&p.id).cloned().unwrap_or_default();
         let url = web_url(&p, &values);
+        let running = self.manager.runner.is_running(&p.id);
         ui.horizontal(|ui| {
             let values_for_start = values;
-            if self.manager.runner.is_running(&p.id) {
-                if ui.button(t!("act.stop")).clicked() {
-                    if let Err(e) = self.manager.stop(&p.id) {
-                        self.notice.insert(p.id.clone(), format!("{e:#}"));
-                    } else {
-                        self.notice.insert(p.id.clone(), String::new());
+            let running_now = running;
+            if running_now {
+                let stop = ui.add_enabled(true, egui::Button::new(format!("■ {}", t!("act.stop"))));
+                if stop.clicked() {
+                    match self.manager.stop(&p.id) {
+                        Ok(()) => {
+                            self.log_op(&t!("op.stop", name = &p.name));
+                            self.notice.insert(p.id.clone(), String::new());
+                        }
+                        Err(e) => {
+                            self.notice.insert(p.id.clone(), format!("{e:#}"));
+                        }
                     }
                 }
-            } else if ui.button(t!("act.start")).clicked() {
-                self.manager.save_field_values(&p, &values_for_start);
-                match self.manager.start(&p, &values_for_start) {
-                    Ok(()) => {
-                        self.notice.insert(p.id.clone(), String::new());
-                    }
-                    Err(e) => {
-                        self.notice.insert(p.id.clone(), t!("toast.start_fail", err = format!("{e:#}")).to_string());
+                let restart = ui.add_enabled(
+                    true,
+                    egui::Button::new(format!("↻ {}", t!("act.restart"))),
+                );
+                if restart.clicked() {
+                    self.restart_program(&p, &values_for_start);
+                    self.log_op(&t!("op.restart", name = &p.name));
+                }
+            } else {
+                let start = ui.add_enabled(
+                    true,
+                    egui::Button::new(format!("▶ {}", t!("act.start"))),
+                );
+                if start.clicked() {
+                    self.manager.save_field_values(&p, &values_for_start);
+                    match self.manager.start(&p, &values_for_start) {
+                        Ok(()) => {
+                            self.log_op(&t!("op.start", name = &p.name));
+                            self.notice.insert(p.id.clone(), String::new());
+                        }
+                        Err(e) => {
+                            self.notice.insert(p.id.clone(), t!("toast.start_fail", err = format!("{e:#}")).to_string());
+                        }
                     }
                 }
             }
             // 右对齐操作按钮
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(t!("act.open_app_dir")).clicked() {
+                if ui.button(t!("act.open_app_dir")).on_hover_text(t!("act.open_app_dir")).clicked() {
                     let app_dir = self.manager.app_dir(&p);
                     let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
                 }
-                if ui.button(t!("act.open_log_dir")).clicked() {
+                if ui.button(t!("act.open_log_dir")).on_hover_text(t!("act.open_log_dir_short")).clicked() {
                     let log_dir = self.manager.data_dir.join("logs");
                     let _ = std::process::Command::new(&open_cmd()).arg(&log_dir).spawn();
                 }
-                if ui.button(t!("act.log")).clicked() {
+                if ui.button(t!("act.log")).on_hover_text(t!("act.log")).clicked() {
                     self.show_log = true;
                 }
                 if url.is_some() {
@@ -927,6 +959,70 @@ impl ShellApp {
                 ui.add_space(6.0);
                 ui.colored_label(egui::Color32::from_rgb(200, 90, 90), n);
             }
+        }
+
+        // 操作日志条（op-log）
+        if !self.op_logs.is_empty() {
+            ui.add_space(4.0);
+            ui.separator();
+            egui::ScrollArea::vertical()
+                .id_salt("op_log_scroll")
+                .max_height(90.0)
+                .show(ui, |ui| {
+                    for line in &self.op_logs {
+                        ui.monospace(format!("▪ {line}"));
+                    }
+                });
+        }
+
+        // 内嵌程序日志终端（manage-log，仅运行中显示日志内容）
+        self.show_manage_log(ui, &p);
+    }
+
+    /// 内嵌程序日志终端：显示当前程序日志（stderr 行以 \x1F 开头标红）。
+    fn show_manage_log(&mut self, ui: &mut egui::Ui, p: &shared::config::Program) {
+        if !self.manager.runner.is_running(&p.id) {
+            return;
+        }
+        ui.add_space(4.0);
+        ui.separator();
+        let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
+        egui::ScrollArea::vertical()
+            .id_salt("manage_log_scroll")
+            .max_height(120.0)
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for line in log.split('\n') {
+                    if let Some(rest) = line.strip_prefix('\u{1f}') {
+                        ui.colored_label(egui::Color32::from_rgb(220, 90, 90), rest);
+                    } else {
+                        ui.monospace(line);
+                    }
+                }
+            });
+    }
+
+    /// 记录一条会话操作日志（推入 UI 数组 + 持久化到壳日志），最多保留 200 条。
+    fn log_op(&mut self, msg: &str) {
+        self.manager.log_op(msg);
+        self.op_logs.push(msg.to_string());
+        if self.op_logs.len() > 200 {
+            let over = self.op_logs.len() - 200;
+            self.op_logs.drain(..over);
+        }
+    }
+
+    /// 重启程序：停止 → 保存字段值 → 启动（与 Tauri restart_program 一致）。
+    fn restart_program(&mut self, p: &shared::config::Program, values: &BTreeMap<String, String>) {
+        if let Err(e) = self.manager.stop(&p.id) {
+            self.notice.insert(p.id.clone(), t!("toast.restart_fail", err = format!("{e:#}")).to_string());
+            return;
+        }
+        self.manager.save_field_values(p, values);
+        if let Err(e) = self.manager.start(p, values) {
+            self.notice.insert(p.id.clone(), t!("toast.restart_fail", err = format!("{e:#}")).to_string());
+        } else {
+            self.notice.insert(p.id.clone(), t!("toast.restarted").to_string());
         }
     }
 
