@@ -867,10 +867,13 @@ impl ShellApp {
 
         ui.separator();
 
-        // 配置驱动表单
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            self.show_form(ui);
-        });
+        // 配置驱动表单（预留下方操作区/日志空间，避免把按钮挤出可视区）
+        let form_height = (ui.available_height() - 220.0).max(60.0);
+        egui::ScrollArea::vertical()
+            .max_height(form_height)
+            .show(ui, |ui| {
+                self.show_form(ui);
+            });
 
         ui.add_space(8.0);
 
