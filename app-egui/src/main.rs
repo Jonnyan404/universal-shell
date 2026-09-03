@@ -144,6 +144,10 @@ struct ShellApp {
     latest_versions: BTreeMap<String, (Option<String>, String)>,
     /// 待二次确认删除的程序 id（批量页「删除」按钮触发）
     confirm_delete: Option<String>,
+    /// 批量页「检查更新」是否进行中（按钮置灰 + 显示检查中）
+    checking_updates: bool,
+    /// 最近一次「检查更新」完成时间（unix 秒），用于「上次检查更新」提示
+    latest_checked_at: Option<i64>,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
     /// 是否已在托盘菜单里点了「退出」
@@ -201,6 +205,8 @@ impl ShellApp {
             op_logs: Vec::new(),
             latest_versions: BTreeMap::new(),
             confirm_delete: None,
+            checking_updates: false,
+            latest_checked_at: None,
             tray: None,
             quit: Arc::new(AtomicBool::new(false)),
         }
@@ -495,6 +501,14 @@ impl ShellApp {
                     for (id, ver, ts) in list {
                         self.latest_versions.insert(id, (ver, ts));
                     }
+                    self.checking_updates = false;
+                    self.latest_checked_at = Some(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs() as i64)
+                            .unwrap_or(0),
+                    );
+                    self.notice.insert("__batch__".into(), t!("dl.done").to_string());
                 }
             }
         }
@@ -1217,15 +1231,27 @@ impl ShellApp {
                     // 仅重读本地状态（不含网络请求，避免卡顿）
                     ui.ctx().request_repaint();
                 }
-                if ui.button(t!("batch.check")).clicked() {
+                // 检查更新：检查中置灰 + 显示「检查中…」，完成恢复（对齐 Tauri checkUpdates）
+                if self.checking_updates {
+                    ui.add_enabled(false, egui::Button::new(t!("dl.checking_short")));
+                } else if ui.button(t!("batch.check")).clicked() {
+                    self.checking_updates = true;
                     self.notice.insert("__batch__".into(), t!("dl.checking").to_string());
                     self.refresh_status();
-                    self.notice.insert("__batch__".into(), t!("dl.done").to_string());
+                    ui.ctx().request_repaint();
                 }
                 if ui.button(t!("batch.stop_all")).clicked() {
                     self.manager.stop_all();
                     self.log_op(&t!("op.stop_all"));
                 }
+            });
+        });
+        // 「上次检查更新」提示（对齐 Tauri #batch-checked-at）
+        ui.horizontal(|ui| {
+            ui.weak(if let Some(at) = self.latest_checked_at {
+                t!("check.last_checked", ago = time_ago(at)).to_string()
+            } else {
+                t!("check.not_checked").to_string()
             });
         });
         ui.separator();
@@ -1236,124 +1262,150 @@ impl ShellApp {
         }
 
         egui::ScrollArea::both().show(ui, |ui| {
-            egui::Grid::new("batch_grid")
-                .striped(true)
-                .min_col_width(60.0)
-                .spacing([12.0, 6.0])
-                .show(ui, |ui| {
-                    // 表头
-                    ui.strong(t!("th.program"));
-                    ui.strong(t!("th.local_ver"));
-                    ui.strong(t!("th.latest_ver"));
-                    ui.strong(t!("th.status"));
-                    ui.strong(t!("th.autostart"));
-                    ui.strong(t!("th.hidden"));
-                    ui.strong(t!("th.actions"));
-                    ui.end_row();
+            // 表头（固定列宽对齐信息行）
+            ui.horizontal(|ui| {
+                ui.add_sized(
+                    [160.0, 0.0],
+                    egui::Label::new(egui::RichText::new(t!("th.program")).strong()),
+                );
+                ui.add_sized(
+                    [80.0, 0.0],
+                    egui::Label::new(egui::RichText::new(t!("th.local_ver")).strong()),
+                );
+                ui.add_sized(
+                    [80.0, 0.0],
+                    egui::Label::new(egui::RichText::new(t!("th.latest_ver")).strong()),
+                );
+                ui.add_sized(
+                    [90.0, 0.0],
+                    egui::Label::new(egui::RichText::new(t!("th.status")).strong()),
+                );
+                ui.strong(t!("th.autostart"));
+                ui.strong(t!("th.hidden"));
+            });
+            ui.separator();
 
-                    for p in &programs {
-                        let st = self.display_status(p);
-                        // 程序名 + 隐藏徽标
-                        ui.horizontal(|ui| {
-                            ui.label(&p.name);
-                            if p.hidden {
-                                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.hidden"));
-                            }
-                        });
-                        // 本地版本
-                        ui.label(if st.installed {
+            for p in &programs {
+                let st = self.display_status(p);
+                // 第一行：程序信息
+                ui.horizontal(|ui| {
+                    ui.add_sized([160.0, 0.0], egui::Label::new(&p.name));
+                    if p.hidden {
+                        ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.hidden"));
+                    }
+                    ui.add_sized(
+                        [80.0, 0.0],
+                        egui::Label::new(if st.installed {
                             st.local_version.clone()
                         } else {
                             t!("st.not_installed_bare").to_string()
-                        });
-                        // 最新版本
-                        if let Some(v) = &st.latest_version {
-                            ui.label(v);
-                        } else {
-                            ui.weak(t!("st.unknown"));
-                        }
-                        // 状态
-                        if !st.installed {
-                            ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.not_installed_bare"));
-                        } else if st.running {
-                            ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
-                        } else {
-                            ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.stopped"));
-                        }
-                        // 开机启动 checkbox
-                        let mut auto = self.manager.program_autostart(p);
-                        if ui.checkbox(&mut auto, "").changed() {
-                            self.set_autostart(p, auto);
-                        }
-                        // 隐藏 checkbox
-                        let mut hidden = p.hidden;
-                        if ui.checkbox(&mut hidden, "").changed() {
-                            match self.manager.set_hidden(&p.id, hidden, &self.config_path) {
-                                Ok(()) => {
-                                    self.log_op(&t!(
-                                        "op.toggle_visibility",
-                                        showhide = t!(if hidden { "op.hide" } else { "op.show" }),
-                                        name = &p.name
-                                    ));
-                                }
-                                Err(e) => {
-                                    self.notice.insert(p.id.clone(), format!("{e:#}"));
-                                }
+                        }),
+                    );
+                    ui.add_sized(
+                        [80.0, 0.0],
+                        egui::Label::new(
+                            st.latest_version.clone().unwrap_or_else(|| t!("st.unknown").to_string()),
+                        ),
+                    );
+                    if !st.installed {
+                        ui.add_sized(
+                            [90.0, 0.0],
+                            egui::Label::new(
+                                egui::RichText::new(t!("st.not_installed_bare"))
+                                    .color(egui::Color32::from_rgb(150, 150, 150)),
+                            ),
+                        );
+                    } else if st.running {
+                        ui.add_sized(
+                            [90.0, 0.0],
+                            egui::Label::new(
+                                egui::RichText::new(t!("st.running"))
+                                    .color(egui::Color32::from_rgb(90, 180, 90)),
+                            ),
+                        );
+                    } else {
+                        ui.add_sized(
+                            [90.0, 0.0],
+                            egui::Label::new(
+                                egui::RichText::new(t!("st.stopped"))
+                                    .color(egui::Color32::from_rgb(150, 150, 150)),
+                            ),
+                        );
+                    }
+                    let mut auto = self.manager.program_autostart(p);
+                    if ui.checkbox(&mut auto, "").changed() {
+                        self.set_autostart(p, auto);
+                    }
+                    let mut hidden = p.hidden;
+                    if ui.checkbox(&mut hidden, "").changed() {
+                        match self.manager.set_hidden(&p.id, hidden, &self.config_path) {
+                            Ok(()) => {
+                                self.log_op(&t!(
+                                    "op.toggle_visibility",
+                                    showhide = t!(if hidden { "op.hide" } else { "op.show" }),
+                                    name = &p.name
+                                ));
+                            }
+                            Err(e) => {
+                                self.notice.insert(p.id.clone(), format!("{e:#}"));
                             }
                         }
-                        // 操作（横向排列：超宽时随外层 ScrollArea::both 横向滚动）
-                        let up_to_date = st.installed
-                            && st.latest_version.as_deref() == Some(st.local_version.as_str());
-                        let dl_label = if !st.installed {
-                            t!("dl.download").to_string()
-                        } else if up_to_date {
-                            t!("st.latest").to_string()
-                        } else {
-                            t!("dl.update").to_string()
-                        };
-                        ui.horizontal(|ui| {
-                            let dl_btn = ui.add_enabled(!up_to_date, egui::Button::new(dl_label));
-                            if dl_btn.clicked() {
-                                self.spawn_install(p.clone());
-                            }
-                            if st.running {
-                                let restart = ui.small_button(t!("act.restart"));
-                                if restart.clicked() {
-                                    let values = self.values.get(&p.id).cloned().unwrap_or_default();
-                                    self.restart_program(p, &values);
-                                    self.log_op(&t!("op.restart", name = &p.name));
-                                }
-                                if ui.small_button(t!("act.stop")).clicked() {
-                                    if let Ok(()) = self.manager.stop(&p.id) {
-                                        self.log_op(&t!("op.stop", name = &p.name));
-                                    }
-                                }
-                            } else if ui.small_button(t!("act.start")).clicked() {
-                                let values = self.values.get(&p.id).cloned().unwrap_or_default();
-                                self.manager.save_field_values(p, &values);
-                                if let Ok(()) = self.manager.start(p, &values) {
-                                    self.log_op(&t!("op.start", name = &p.name));
-                                }
-                            }
-                            if ui.small_button(t!("act.log")).clicked() {
-                                self.current_id = Some(p.id.clone());
-                                self.show_log = true;
-                            }
-                            if ui.small_button(t!("act.open_app_dir")).on_hover_text(t!("act.open_app_dir")).clicked() {
-                                let d = self.manager.app_dir(p);
-                                let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
-                            }
-                            if ui.small_button(t!("act.manage")).clicked() {
-                                self.current_id = Some(p.id.clone());
-                                self.view = View::Manage;
-                            }
-                            if ui.small_button(t!("act.delete")).clicked() {
-                                self.confirm_delete = Some(p.id.clone());
-                            }
-                        });
-                        ui.end_row();
                     }
                 });
+                // 第二行：操作按钮横向铺开
+                let up_to_date = st.installed
+                    && st.latest_version.as_deref() == Some(st.local_version.as_str());
+                let dl_label = if !st.installed {
+                    t!("dl.download").to_string()
+                } else if up_to_date {
+                    t!("st.latest").to_string()
+                } else {
+                    t!("dl.update").to_string()
+                };
+                ui.horizontal(|ui| {
+                    ui.label(t!("th.actions"));
+                    ui.add_space(4.0);
+                    let dl_btn = ui.add_enabled(!up_to_date, egui::Button::new(dl_label));
+                    if dl_btn.clicked() {
+                        self.spawn_install(p.clone());
+                    }
+                    if st.running {
+                        let restart = ui.small_button(t!("act.restart"));
+                        if restart.clicked() {
+                            let values = self.values.get(&p.id).cloned().unwrap_or_default();
+                            self.restart_program(p, &values);
+                            self.log_op(&t!("op.restart", name = &p.name));
+                        }
+                        if ui.small_button(t!("act.stop")).clicked() {
+                            if let Ok(()) = self.manager.stop(&p.id) {
+                                self.log_op(&t!("op.stop", name = &p.name));
+                            }
+                        }
+                    } else if ui.small_button(t!("act.start")).clicked() {
+                        let values = self.values.get(&p.id).cloned().unwrap_or_default();
+                        self.manager.save_field_values(p, &values);
+                        if let Ok(()) = self.manager.start(p, &values) {
+                            self.log_op(&t!("op.start", name = &p.name));
+                        }
+                    }
+                    if ui.small_button(t!("act.log")).clicked() {
+                        self.current_id = Some(p.id.clone());
+                        self.show_log = true;
+                    }
+                    if ui.small_button(t!("act.open_app_dir")).on_hover_text(t!("act.open_app_dir")).clicked() {
+                        let d = self.manager.app_dir(p);
+                        let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
+                    }
+                    if ui.small_button(t!("act.manage")).clicked() {
+                        self.current_id = Some(p.id.clone());
+                        self.view = View::Manage;
+                    }
+                    if ui.small_button(t!("act.delete")).clicked() {
+                        self.confirm_delete = Some(p.id.clone());
+                    }
+                });
+                ui.separator();
+            }
         });
 
         if let Some(n) = self.notice.get("__batch__") {
@@ -1470,8 +1522,12 @@ impl ShellApp {
 impl eframe::App for ShellApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_msgs();
-        // 崩溃恢复/运行态轮询：3s 一次（不发网络请求，仅读本地进程/文件）
-        ctx.request_repaint_after(Duration::from_secs(3));
+        // 检查更新进行中或崩溃恢复/运行态轮询：3s 一次（不发网络请求，仅读本地进程/文件）
+        ctx.request_repaint_after(if self.checking_updates {
+            Duration::from_millis(200)
+        } else {
+            Duration::from_secs(3)
+        });
         // 关闭窗口 → 隐藏到托盘（托盘「退出」才真正退出）
         if ctx.input(|i| i.viewport().close_requested()) {
             if self.quit.load(Ordering::SeqCst) {
@@ -1515,6 +1571,51 @@ fn open_cmd() -> String {
     } else {
         "xdg-open".into()
     }
+}
+
+/// 相对时间（对齐 Tauri `timeAgo`）：刚刚 / N 分钟前 / N 小时前 / N 天前 / 绝对日期。
+fn time_ago(secs: i64) -> String {
+    if secs <= 0 {
+        return t!("st.never").to_string();
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let diff = (now - secs).max(0);
+    if diff < 60 {
+        t!("st.just").to_string()
+    } else if diff < 3600 {
+        t!("time.min_ago", n = diff / 60).to_string()
+    } else if diff < 86400 {
+        t!("time.hour_ago", n = diff / 3600).to_string()
+    } else if diff < 86400 * 30 {
+        t!("time.day_ago", n = diff / 86400).to_string()
+    } else {
+        fmt_datetime(secs)
+    }
+}
+
+/// 将 unix 秒格式化为 `YYYY-MM-DD HH:MM:SS`（Hinnant 的 civil_from_days，无 chrono 依赖）。
+fn fmt_datetime(secs: i64) -> String {
+    let days = secs.div_euclid(86400);
+    let secs_of_day = secs.rem_euclid(86400);
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}",
+        secs_of_day / 3600,
+        secs_of_day % 3600 / 60,
+        secs_of_day % 60
+    )
 }
 
 /// 字段标签；必填且当前为空时标红并加红色 `*`。
