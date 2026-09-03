@@ -6,3 +6,28 @@ lang.auto: Follow system
 lang.zh: 中文
 lang.en: English
 toast.locale.applied: Language changed
+tmpl.assets: Asset rules
+tmpl.args: Launch args
+tmpl.fields: UI fields
+tmpl.arch_os: Arch/OS mapping
+tmpl.workdir: Working dir
+tmpl.version_pin: Version pin
+tmpl.none: No material changes
+tmpl.changed: 'Changed: %{parts}'
+log.autostart.launch: 'Autostart: launching "%{name}"'
+log.autostart.fail: 'Autostart: launching "%{name}" failed - %{err}'
+err.datadir: 'Cannot create data dir %{path}'
+err.serialize_config: Failed to serialize config
+err.write_config: 'Failed to write config %{path}'
+err.asset_validate: 'Asset verification failed, removed cache: %{path}'
+err.extract: 'Failed to extract asset %{path}'
+err.copy_exe: Failed to copy executable
+err.copy_bin: 'Failed to copy raw binary: %{path}'
+err.not_installed: '%{name} is not installed. Please download first.'
+err.already_running: '%{name} is already running'
+err.running_bg: '%{name} is running in background. Stop it first or click "Restart" in the action.'
+err.missing_required: '%{name} is missing required fields: %{missing}'
+err.program_not_found: 'Program not found: %{id}'
+diff.add_field: 'Added field %{key} "%{label}" (default: %{def})'
+diff.field_changed: 'Field %{key} type/default changed "%{label}"'
+diff.remove_field: 'Removed field %{key} "%{label}"'

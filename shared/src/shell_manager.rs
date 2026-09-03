@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use log::info;
+use rust_i18n::t;
 
 use crate::autostart::AutoStart;
 use crate::config::{ExtractMode, FieldKind, Program, ShellConfig};
@@ -64,27 +65,27 @@ impl TemplateDiff {
             parts.push("repo".to_string());
         }
         if self.changed_assets {
-            parts.push("资产规则".to_string());
+            parts.push(t!("tmpl.assets").to_string());
         }
         if self.changed_args {
-            parts.push("启动参数".to_string());
+            parts.push(t!("tmpl.args").to_string());
         }
         if self.changed_fields {
-            parts.push("UI 字段".to_string());
+            parts.push(t!("tmpl.fields").to_string());
         }
         if self.changed_arch_map || self.changed_os_map {
-            parts.push("架构/OS 映射".to_string());
+            parts.push(t!("tmpl.arch_os").to_string());
         }
         if self.changed_working_dir {
-            parts.push("工作目录".to_string());
+            parts.push(t!("tmpl.workdir").to_string());
         }
         if self.changed_version_pin {
-            parts.push("版本钉住".to_string());
+            parts.push(t!("tmpl.version_pin").to_string());
         }
         if parts.is_empty() {
-            "无实质变化".to_string()
+            t!("tmpl.none").to_string()
         } else {
-            format!("变化: {}", parts.join("、"))
+            t!("tmpl.changed", parts = parts.join("、")).to_string()
         }
     }
 }
@@ -109,7 +110,7 @@ pub struct ShellManager {
 impl ShellManager {
     pub fn new(data_dir: PathBuf) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&data_dir)
-            .with_context(|| format!("无法创建数据目录 {}", data_dir.display()))?;
+            .with_context(|| t!("err.datadir", path = data_dir.display().to_string()))?;
         Ok(Self {
             data_dir,
             programs: vec![],
@@ -162,12 +163,12 @@ impl ShellManager {
             proxy: self.proxy.clone(),
             locale: self.locale.clone(),
         };
-        let json = serde_json::to_string_pretty(&cfg).context("序列化配置失败")?;
+        let json = serde_json::to_string_pretty(&cfg).context(t!("err.serialize_config"))?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, json)
-            .with_context(|| format!("写入配置 {} 失败", path.display()))?;
+            .with_context(|| t!("err.write_config", path = path.display().to_string()))?;
         info!("已保存配置 {}", path.display());
         Ok(())
     }
@@ -287,9 +288,9 @@ impl ShellManager {
         if let Some(expect) = expect {
             if let Err(e) = crate::checksum::verify_download(&dl_path, &expect) {
                 let _ = std::fs::remove_file(&dl_path);
-                return Err(e.context(format!(
-                    "资产校验失败，已删除缓存: {}",
-                    dl_path.display()
+                return Err(e.context(t!(
+                    "err.asset_validate",
+                    path = dl_path.display().to_string()
                 )));
             }
             info!("{} 资产 sha256 校验通过", program.id);
@@ -308,7 +309,7 @@ impl ShellManager {
                 }
                 let member = rule.member.as_deref();
                 extract::extract_file(&dl_path, &rule.format, member, &run_target)
-                    .with_context(|| format!("解压资产 {} 失败", dl_path.display()))?;
+                    .with_context(|| t!("err.extract", path = dl_path.display().to_string()))?;
             }
             ExtractMode::Whole => {
                 // 清空旧解包目录(避免残留旧版多余文件)
@@ -316,7 +317,7 @@ impl ShellManager {
                     let _ = std::fs::remove_dir_all(&package_dir);
                 }
                 extract::extract_whole(&dl_path, &rule.format, &package_dir)
-                    .with_context(|| format!("解压资产 {} 失败", dl_path.display()))?;
+                    .with_context(|| t!("err.extract", path = dl_path.display().to_string()))?;
                 // 在壳数据目录生成指向包内成员的可执行入口(与壳不同名，防覆盖壳自身)
                 let member_tpl = rule.member.as_deref().unwrap_or(&program.binary);
                 let inner = program.render_template(member_tpl, &version, &rule, &arch);
@@ -327,7 +328,7 @@ impl ShellManager {
                 }
                 if std::fs::hard_link(&inner_real, &run_target).is_err() {
                     std::fs::copy(&inner_real, &run_target)
-                        .with_context(|| "复制可执行文件失败")?;
+                        .with_context(|| t!("err.copy_exe"))?;
                 }
                 set_exec(run_target.as_path());
             }
@@ -338,7 +339,7 @@ impl ShellManager {
                     let _ = std::fs::rename(&run_target, &old);
                 }
                 std::fs::copy(&dl_path, &run_target)
-                    .with_context(|| format!("复制裸二进制失败: {}", dl_path.display()))?;
+                    .with_context(|| t!("err.copy_bin", path = dl_path.display().to_string()))?;
                 set_exec(run_target.as_path());
             }
         }
@@ -418,7 +419,7 @@ impl ShellManager {
     ) -> anyhow::Result<()> {
         let bin = self.bin_path(program);
         if !bin.exists() {
-            return Err(anyhow::anyhow!("{} 尚未安装，请先下载", program.name));
+            return Err(anyhow::anyhow!(t!("err.not_installed", name = &program.name)));
         }
         // 若壳持有句柄 → 已在运行，直接报错
         // 若壳无句柄但系统仍有该程序进程（壳上次退出后残留、仍在后台运行）→
@@ -426,13 +427,13 @@ impl ShellManager {
         let held = self.runner.is_running(&program.id);
         let orphan = !held && self.runner.is_process_alive(&bin);
         if held {
-            return Err(anyhow::anyhow!("{} 已在运行", program.name));
+            return Err(anyhow::anyhow!(t!("err.already_running", name = &program.name)));
         }
         if orphan {
-            return Err(anyhow::anyhow!(
-                "{} 正在后台运行，请先停止或在操作中点击「重启」",
-                program.name
-            ));
+            return Err(anyhow::anyhow!(t!(
+                "err.running_bg",
+                name = &program.name
+            )));
         }
         let missing: Vec<&str> = program
             .fields
@@ -445,11 +446,11 @@ impl ShellManager {
             .map(|f| f.label())
             .collect();
         if !missing.is_empty() {
-            return Err(anyhow::anyhow!(
-                "{} 缺少必填项：{}",
-                program.name,
-                missing.join("、")
-            ));
+            return Err(anyhow::anyhow!(t!(
+                "err.missing_required",
+                name = &program.name,
+                missing = missing.join("、")
+            )));
         }
         let args = program.render_args(field_values);
         let wd: PathBuf = if program.working_dir == "." {
@@ -557,11 +558,11 @@ impl ShellManager {
             match self.start(p, &values) {
                 Ok(()) => {
                     log::info!("开机自启已拉起 {}", p.name);
-                    self.log_op(&format!("应用自启动：拉起「{}」", p.name));
+                    self.log_op(&t!("log.autostart.launch", name = &p.name));
                 }
                 Err(e) => {
                     log::warn!("开机自启拉起 {} 失败: {}", p.name, e);
-                    self.log_op(&format!("应用自启动：拉起「{}」失败 - {e}", p.name));
+                    self.log_op(&t!("log.autostart.fail", name = &p.name, err = e.to_string()));
                 }
             }
         }
@@ -592,20 +593,21 @@ impl ShellManager {
         }
         for key in rem.keys() {
             match cur.get(key) {
-                None => d.changed_fields_detail.push(format!(
-                    "新增字段 {key}「{}」(默认: {})",
-                    rem[key].label(),
-                    rem[key].default_raw()
-                )),
+                None => d.changed_fields_detail.push(t!(
+                    "diff.add_field",
+                    key = key,
+                    label = rem[key].label(),
+                    def = rem[key].default_raw()
+                ).to_string()),
                 Some(cf) if !eqkv(&serde_json::to_value(&cf.kind).unwrap_or_default(), &serde_json::to_value(&rem[key].kind).unwrap_or_default()) => {
-                    d.changed_fields_detail.push(format!("字段 {key} 类型/默认值变化「{}」", rem[key].label()));
+                    d.changed_fields_detail.push(t!("diff.field_changed", key = key, label = rem[key].label()).to_string());
                 }
                 _ => {}
             }
         }
         for key in cur.keys() {
             if !rem.contains_key(key) {
-                d.changed_fields_detail.push(format!("移除字段 {key}「{}」", cur[key].label()));
+                d.changed_fields_detail.push(t!("diff.remove_field", key = key, label = cur[key].label()).to_string());
             }
         }
         d
@@ -659,7 +661,7 @@ impl ShellManager {
         path: &Path,
     ) -> anyhow::Result<()> {
         let Some(idx) = self.programs.iter().position(|p| p.id == id) else {
-            anyhow::bail!("程序不存在: {id}");
+            anyhow::bail!(t!("err.program_not_found", id = &id));
         };
         let old_values = self.load_field_values(&self.programs[idx]);
         let hidden = self.programs[idx].hidden;
@@ -675,7 +677,7 @@ impl ShellManager {
     /// 删除实例：从配置移除程序，并清理其二进制/版本/字段值文件。
     pub fn delete_program(&mut self, id: &str, path: &Path) -> anyhow::Result<()> {
         let Some(idx) = self.programs.iter().position(|p| p.id == id) else {
-            anyhow::bail!("程序不存在: {id}");
+            anyhow::bail!(t!("err.program_not_found", id = &id));
         };
         let p = self.programs.remove(idx);
         if let Err(e) = self.runner.stop(&id) {
@@ -695,7 +697,7 @@ impl ShellManager {
     /// 批量管理始终可见，故不会出现「全部程序失联」的情况。
     pub fn set_hidden(&mut self, id: &str, hidden: bool, path: &Path) -> anyhow::Result<()> {
         let Some(p) = self.programs.iter_mut().find(|p| p.id == id) else {
-            anyhow::bail!("程序不存在: {id}");
+            anyhow::bail!(t!("err.program_not_found", id = &id));
         };
         p.hidden = hidden;
         self.save_config(path)
@@ -794,7 +796,7 @@ mod tests {
         assert!(diff.changed_args);
         assert!(diff.changed_fields);
         assert!(!diff.is_empty());
-        assert!(diff.changed_fields_detail.iter().any(|d| d.contains("新增字段 bind")));
+        assert!(diff.changed_fields_detail.iter().any(|d| d.contains("bind")));
 
         // 用户填过 port,apply 后应保留 port 值并补 bind 默认
         let mut values = BTreeMap::new();

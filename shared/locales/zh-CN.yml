@@ -6,3 +6,28 @@ lang.auto: 跟随系统（自动）
 lang.zh: 中文
 lang.en: English
 toast.locale.applied: 语言已切换
+tmpl.assets: 资产规则
+tmpl.args: 启动参数
+tmpl.fields: UI 字段
+tmpl.arch_os: 架构/OS 映射
+tmpl.workdir: 工作目录
+tmpl.version_pin: 版本钉住
+tmpl.none: 无实质变化
+tmpl.changed: '变化: %{parts}'
+log.autostart.launch: '应用自启动：拉起「%{name}」'
+log.autostart.fail: '应用自启动：拉起「%{name}」失败 - %{err}'
+err.datadir: '无法创建数据目录 %{path}'
+err.serialize_config: 序列化配置失败
+err.write_config: '写入配置 %{path} 失败'
+err.asset_validate: '资产校验失败，已删除缓存: %{path}'
+err.extract: '解压资产 %{path} 失败'
+err.copy_exe: 复制可执行文件失败
+err.copy_bin: '复制裸二进制失败: %{path}'
+err.not_installed: '%{name} 尚未安装，请先下载'
+err.already_running: '%{name} 已在运行'
+err.running_bg: '%{name} 正在后台运行，请先停止或在操作中点击「重启」'
+err.missing_required: '%{name} 缺少必填项：%{missing}'
+err.program_not_found: '程序不存在: %{id}'
+diff.add_field: '新增字段 %{key}「%{label}」(默认: %{def})'
+diff.field_changed: '字段 %{key} 类型/默认值变化「%{label}」'
+diff.remove_field: '移除字段 %{key}「%{label}」'
