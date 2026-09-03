@@ -653,7 +653,7 @@ function renderBatch() {
   if (!statuses.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 7;
+    td.colSpan = 6;
     td.textContent = t("side.empty");
     tr.appendChild(td);
     el.batchBody.appendChild(tr);
@@ -740,7 +740,6 @@ function renderBatch() {
     tdHide.appendChild(hide);
     tr.appendChild(tdHide);
 
-    const tdOps = document.createElement("td");
     const ops = document.createElement("span");
     ops.className = "batch-ops";
 
@@ -822,9 +821,16 @@ function renderBatch() {
     del.className = "op-btn op-danger";
     ops.appendChild(del);
 
-    tdOps.appendChild(ops);
-    tr.appendChild(tdOps);
     el.batchBody.appendChild(tr);
+
+    // 第二行：操作按钮横向铺满整行
+    const opsRow = document.createElement("tr");
+    opsRow.className = "batch-ops-row";
+    const opsCell = document.createElement("td");
+    opsCell.colSpan = 6;
+    opsCell.appendChild(ops);
+    opsRow.appendChild(opsCell);
+    el.batchBody.appendChild(opsRow);
   }
 }
 
