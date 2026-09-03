@@ -1147,59 +1147,154 @@ impl ShellApp {
     /// 批量管理视图：列出所有受管程序，每行 start/stop + 打开应用目录，统一刷新/停止。
     fn show_batch(&mut self, ui: &mut egui::Ui) {
         let programs = self.manager.programs.clone();
+        // 工具栏：刷新状态 / 检查更新 / 停止所有（匹配 Tauri batch-toolbar）
+        ui.horizontal(|ui| {
+            ui.heading(t!("batch.title"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(t!("batch.refresh")).clicked() {
+                    self.refresh_status();
+                }
+                if ui.button(t!("batch.check")).clicked() {
+                    self.notice.insert("__batch__".into(), t!("dl.checking").to_string());
+                    self.refresh_status();
+                    self.notice.insert("__batch__".into(), t!("dl.done").to_string());
+                }
+                if ui.button(t!("batch.stop_all")).clicked() {
+                    self.manager.stop_all();
+                    self.log_op(&t!("op.stop_all"));
+                }
+            });
+        });
+        ui.separator();
+
         if programs.is_empty() {
             ui.label(t!("eg.no_program"));
             return;
         }
-        ui.horizontal(|ui| {
-            if ui.button(t!("batch.refresh")).clicked() {
-                self.refresh_status();
-            }
-            if ui.button(t!("batch.stop_all")).clicked() {
-                self.manager.stop_all();
-            }
-        });
-        ui.separator();
+
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for p in &programs {
-                let st = self.manager.status_local(p);
-                ui.horizontal(|ui| {
-                    ui.add_sized([180.0, 0.0], egui::Label::new(&p.name));
-                    ui.label(if st.installed {
-                        t!("st.local_ver", ver = st.local_version).to_string()
-                    } else {
-                        t!("st.not_installed_bare").to_string()
-                    });
-                    if st.running {
-                        ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
-                    } else {
-                        ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.stopped"));
-                    }
-                    if st.running {
-                        if ui.button(t!("act.stop")).clicked() {
-                            let _ = self.manager.stop(&p.id);
+            egui::Grid::new("batch_grid")
+                .striped(true)
+                .min_col_width(60.0)
+                .spacing([12.0, 6.0])
+                .show(ui, |ui| {
+                    // 表头
+                    ui.strong(t!("th.program"));
+                    ui.strong(t!("th.local_ver"));
+                    ui.strong(t!("th.latest_ver"));
+                    ui.strong(t!("th.status"));
+                    ui.strong(t!("th.autostart"));
+                    ui.strong(t!("th.hidden"));
+                    ui.strong(t!("th.actions"));
+                    ui.end_row();
+
+                    for p in &programs {
+                        let st = self.manager.status(p);
+                        // 程序名 + 隐藏徽标
+                        ui.horizontal(|ui| {
+                            ui.label(&p.name);
+                            if p.hidden {
+                                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.hidden"));
+                            }
+                        });
+                        // 本地版本
+                        ui.label(if st.installed {
+                            st.local_version.clone()
+                        } else {
+                            t!("st.not_installed_bare").to_string()
+                        });
+                        // 最新版本
+                        match st.latest_version {
+                            Some(v) => { ui.label(v); }
+                            None => { ui.weak(t!("st.unknown")); }
                         }
-                    } else if ui.button(t!("act.start")).clicked() {
-                        let values = self.values.get(&p.id).cloned().unwrap_or_default();
-                        self.manager.save_field_values(p, &values);
-                        let _ = self.manager.start(p, &values);
-                    }
-                    if ui.button(t!("act.open_app_dir")).clicked() {
-                        let d = self.manager.app_dir(p);
-                        let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
-                    }
-                    if ui.selectable_label(
-                        self.current_id.as_deref() == Some(p.id.as_str()),
-                        t!("act.manage"),
-                    )
-                    .clicked()
-                    {
-                        self.current_id = Some(p.id.clone());
-                        self.view = View::Manage;
+                        // 状态
+                        if !st.installed {
+                            ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.not_installed_bare"));
+                        } else if st.running {
+                            ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
+                        } else {
+                            ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.stopped"));
+                        }
+                        // 开机启动 checkbox
+                        let mut auto = self.manager.program_autostart(p);
+                        if ui.checkbox(&mut auto, "").changed() {
+                            self.set_autostart(p, auto);
+                        }
+                        // 隐藏 checkbox
+                        let mut hidden = p.hidden;
+                        if ui.checkbox(&mut hidden, "").changed() {
+                            match self.manager.set_hidden(&p.id, hidden, &self.config_path) {
+                                Ok(()) => {
+                                    self.log_op(&t!(
+                                        "op.toggle_visibility",
+                                        showhide = t!(if hidden { "op.hide" } else { "op.show" }),
+                                        name = &p.name
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.notice.insert(p.id.clone(), format!("{e:#}"));
+                                }
+                            }
+                        }
+                        // 操作
+                        ui.horizontal(|ui| {
+                            if st.running {
+                                if ui.small_button(t!("act.stop")).clicked() {
+                                    if let Ok(()) = self.manager.stop(&p.id) {
+                                        self.log_op(&t!("op.stop", name = &p.name));
+                                    }
+                                }
+                            } else if ui.small_button(t!("act.start")).clicked() {
+                                let values = self.values.get(&p.id).cloned().unwrap_or_default();
+                                self.manager.save_field_values(p, &values);
+                                if let Ok(()) = self.manager.start(p, &values) {
+                                    self.log_op(&t!("op.start", name = &p.name));
+                                }
+                            }
+                            if ui.small_button(t!("act.open_app_dir")).on_hover_text(t!("act.open_app_dir")).clicked() {
+                                let d = self.manager.app_dir(p);
+                                let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
+                            }
+                            if ui.small_button(t!("act.log")).clicked() {
+                                self.current_id = Some(p.id.clone());
+                                self.show_log = true;
+                            }
+                            if ui.small_button(t!("act.manage")).clicked() {
+                                self.current_id = Some(p.id.clone());
+                                self.view = View::Manage;
+                            }
+                        });
+                        ui.end_row();
                     }
                 });
-            }
         });
+
+        if let Some(n) = self.notice.get("__batch__") {
+            if !n.is_empty() {
+                ui.add_space(4.0);
+                ui.weak(n);
+            }
+        }
+    }
+
+    /// 切换程序开机自启（写入该程序 AutoStart 字段值持久化）。
+    fn set_autostart(&mut self, p: &shared::config::Program, enabled: bool) {
+        let key = p
+            .fields
+            .iter()
+            .find(|f| matches!(f.kind, FieldKind::AutoStart { .. }))
+            .map(|f| f.key.clone());
+        if let Some(key) = key {
+            let mut values = self.manager.load_field_values(p);
+            values.insert(key, if enabled { "true".into() } else { "false".into() });
+            self.manager.save_field_values(p, &values);
+            self.log_op(&t!(
+                "op.toggle_autostart",
+                onoff = t!(if enabled { "op.enable" } else { "op.disable" }),
+                name = &p.name
+            ));
+        }
     }
 
     /// 程序日志查看器：浮窗展示当前程序日志尾部。
