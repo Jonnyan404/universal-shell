@@ -55,11 +55,15 @@
         <div class="panel">
           <div class="batch-toolbar">
             <span class="batch-title" data-i18n="batch.title">批量管理</span>
-            <button id="batch-refresh" data-i18n="batch.refresh">刷新状态</button>
-            <button id="batch-check-updates" data-i18n="batch.check">检查更新</button>
-            <button id="batch-stop-all" data-i18n="batch.stop_all">停止所有</button>
+            <div class="batch-actions">
+              <div class="batch-btns">
+                <button id="batch-refresh" data-i18n="batch.refresh">刷新状态</button>
+                <button id="batch-check-updates" data-i18n="batch.check">检查更新</button>
+                <button id="batch-stop-all" data-i18n="batch.stop_all">停止所有</button>
+              </div>
+              <div id="batch-checked-at" class="batch-checked-at"></div>
+            </div>
           </div>
-          <div id="batch-checked-at" class="batch-checked-at"></div>
           <table class="batch-table">
             <thead>
               <tr>
