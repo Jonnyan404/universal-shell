@@ -629,7 +629,8 @@ impl ShellApp {
         // 顶部按钮行：主题 / 语言 / 设置
         ui.horizontal(|ui| {
             let theme_label = if self.dark_mode { "☀" } else { "☾" };
-            if ui.small_button(theme_label).on_hover_text(t!("ui.theme")).clicked() {
+            let theme_hint = if self.dark_mode { t!("ui.theme.light") } else { t!("ui.theme.dark") };
+            if ui.small_button(theme_label).on_hover_text(theme_hint).clicked() {
                 self.dark_mode = !self.dark_mode;
                 let visuals = if self.dark_mode {
                     egui::Visuals::dark()
