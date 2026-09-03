@@ -87,6 +87,8 @@ enum Msg {
     TemplateUpdateChecked(String, Result<shared::config::Program, String>),
     /// 后台刷新各程序最新版本完成：携带 (id, 最新版本, 发布时间)
     StatusRefreshed(Vec<(String, Option<String>, String)>),
+    /// 托盘菜单「开机自启」被点击：请求主线程切换壳自身自启
+    TrayAutoToggle,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -105,12 +107,30 @@ struct EditFieldDraft {
     required: bool,
 }
 
+/// 右上角悬浮提示（toast）：操作日志的可见反馈。
+#[derive(Clone)]
+struct Toast {
+    text: String,
+    expire: f64,
+}
+
+const TOAST_LIFETIME: f64 = 4.0;
+
+fn now_secs() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
 struct ShellApp {
     manager: ShellManager,
     /// program id -> 表单字段运行时值
     values: BTreeMap<String, BTreeMap<String, String>>,
     /// program id -> 提示消息
     notice: BTreeMap<String, String>,
+    /// 右上角悬浮提示（操作日志的可见反馈）
+    toasts: Vec<Toast>,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
     busy: bool,
@@ -194,12 +214,14 @@ struct ShellApp {
     latest_checked_at: Option<i64>,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
+    /// 托盘菜单「开机自启」CheckMenuItem 句柄（用于同步勾选状态）
+    tray_auto: Option<tray_icon::menu::CheckMenuItem>,
     /// 是否已在托盘菜单里点了「退出」
     quit: Arc<AtomicBool>,
 }
 
 impl ShellApp {
-    fn new(manager: ShellManager, config_path: PathBuf) -> Self {
+    fn new(mut manager: ShellManager, config_path: PathBuf) -> Self {
         let (tx, rx) = mpsc::channel();
         let mut info_for_values = vec![];
         let mut values = BTreeMap::new();
@@ -224,10 +246,13 @@ impl ShellApp {
             parse_proxy(&manager.proxy.http_proxy);
         let settings_shell_auto = manager.autostart.shell_is_enabled();
         let sources_rows = manager.template_registries.clone();
+        // 壳启动后自动拉起所有开启了「自启动」的程序（方案 B：壳管理，对齐 Tauri）
+        manager.start_autostart_programs();
         Self {
             manager,
             values,
             notice,
+            toasts: Vec::new(),
             tx,
             rx,
             busy: false,
@@ -275,12 +300,13 @@ impl ShellApp {
             checking_updates: false,
             latest_checked_at: None,
             tray: None,
+            tray_auto: None,
             quit: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// D1: 创建托盘图标（macOS 要求主线程创建，此处在 eframe AppCreator 内调用）。
-    /// 菜单：显示主窗口 / 退出；左键单击托盘唤出窗口；点窗口关闭按钮→隐藏到托盘。
+    /// 菜单：显示主窗口 / 壳开机自启 / 退出；左键单击托盘唤出窗口；点窗口关闭按钮→隐藏到托盘。
     fn install_tray(&mut self, ctx: eframe::egui::Context) {
         let tray = match self.build_tray() {
             Some(t) => t,
@@ -291,6 +317,7 @@ impl ShellApp {
         };
         self.tray = Some(tray);
         let quit = self.quit.clone();
+        let tx = self.tx.clone();
         std::thread::spawn(move || loop {
             // 菜单事件
             while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
@@ -302,6 +329,10 @@ impl ShellApp {
                     "tray_quit" => {
                         quit.store(true, Ordering::SeqCst);
                         let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    "tray_auto" => {
+                        // 走消息通道回主线程切换，避免跨线程访问 ShellManager
+                        let _ = tx.send(Msg::TrayAutoToggle);
                     }
                     _ => {}
                 }
@@ -322,13 +353,16 @@ impl ShellApp {
         });
     }
 
-    fn build_tray(&self) -> Option<tray_icon::TrayIcon> {
-        use tray_icon::menu::{Menu, MenuItem};
+    fn build_tray(&mut self) -> Option<tray_icon::TrayIcon> {
+        use tray_icon::menu::{CheckMenuItem, Menu, MenuItem};
         use tray_icon::{Icon, TrayIconBuilder};
 
         let show = MenuItem::with_id("tray_show", t!("tray.show"), true, None);
         let quit = MenuItem::with_id("tray_quit", t!("tray.quit"), true, None);
-        let menu = Menu::with_items(&[&show, &quit]).ok()?;
+        let checked = self.manager.autostart.shell_is_enabled();
+        let auto = CheckMenuItem::with_id("tray_auto", t!("tray.auto_start"), true, checked, None);
+        self.tray_auto = Some(auto.clone());
+        let menu = Menu::with_items(&[&show, &auto, &quit]).ok()?;
 
         // 做一个 32×32 的纯色图标（避免引入 image 依赖）
         let icon = Icon::from_rgba(solid_icon_rgba(), 32, 32).ok()?;
@@ -576,6 +610,31 @@ impl ShellApp {
                             .unwrap_or(0),
                     );
                     self.notice.insert("__batch__".into(), t!("dl.done").to_string());
+                }
+                Msg::TrayAutoToggle => {
+                    let next = !self.manager.autostart.shell_is_enabled();
+                    match self.manager.autostart.set_shell_enabled(next) {
+                        Ok(()) => {
+                            if let Some(a) = &self.tray_auto {
+                                a.set_checked(next);
+                            }
+                            self.manager.log_op(&t!(
+                                "op.toggle_shell_autostart",
+                                onoff = t!(if next { "op.enable" } else { "op.disable" })
+                            ));
+                            self.show_toast(
+                                t!(if next {
+                                    "toast.autostart_enabled"
+                                } else {
+                                    "toast.autostart_disabled"
+                                })
+                                .to_string(),
+                            );
+                        }
+                        Err(e) => {
+                            self.show_toast(t!("eg.autostart_fail", err = format!("{e:#}")).to_string());
+                        }
+                    }
                 }
             }
         }
@@ -825,8 +884,9 @@ impl ShellApp {
                         t!("st.stopped_ver", ver = st.local_version).to_string()
                     };
                     let mut edit_req = false;
+                    let mut nav_req = false;
 
-                    let response = egui::Frame::group(ui.style())
+                    egui::Frame::group(ui.style())
                         .inner_margin(egui::Margin::symmetric(8, 4))
                         .fill(if active {
                             ui.visuals().selection.bg_fill
@@ -845,7 +905,7 @@ impl ShellApp {
                                     if st.running { "●" } else { "○" },
                                 );
                                 // 首字母图标
-                                ui.monospace(initial);
+                                ui.monospace(&initial);
                                 // 名称 + 副标题
                                 ui.vertical(|ui| {
                                     let name_color = if active {
@@ -858,20 +918,36 @@ impl ShellApp {
                                     );
                                     ui.small(sub);
                                 });
-                                // 编辑按钮（✎，对齐 Tauri prog-edit-ico）
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if ui.small_button("✎").on_hover_text(t!("act.edit")).clicked() {
-                                            edit_req = true;
-                                        }
-                                    },
+                                // 编辑按钮（✏，对齐 Tauri prog-edit-ico；交互优先于整行选中）
+                                let (btn_clicked, btn_rect) = ui
+                                    .with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            let r = ui
+                                                .small_button("✏")
+                                                .on_hover_text(t!("act.edit"));
+                                            (r.clicked(), r.rect)
+                                        },
+                                    )
+                                    .inner;
+                                if btn_clicked {
+                                    edit_req = true;
+                                }
+                                // 行选中：点击区去掉编辑按钮区域，避免整行 interact 抢占按钮点击
+                                let row_min = ui.min_rect().min;
+                                let row_max = ui.max_rect().max;
+                                let click_rect = egui::Rect::from_min_max(
+                                    row_min,
+                                    egui::pos2(btn_rect.left().min(row_max.x), row_max.y),
                                 );
+                                let id =
+                                    ui.make_persistent_id(("sidebar_row", p.id.as_str()));
+                                if ui.interact(click_rect, id, egui::Sense::click()).clicked() {
+                                    nav_req = true;
+                                }
                             });
-                        })
-                        .response
-                        .interact(egui::Sense::click());
-                    if response.clicked() {
+                        });
+                    if nav_req {
                         self.current_id = Some(p.id.clone());
                         self.view = View::Manage;
                     }
@@ -1246,6 +1322,42 @@ impl ShellApp {
             let over = self.op_logs.len() - 200;
             self.op_logs.drain(..over);
         }
+        // 操作日志同样以右上角 toast 呈现，给用户可见反馈
+        self.show_toast(msg.to_string());
+    }
+
+    /// 追加一条右上角悬浮提示（自动过期消失）
+    fn show_toast(&mut self, text: impl Into<String>) {
+        self.toasts.push(Toast {
+            text: text.into(),
+            expire: now_secs() + TOAST_LIFETIME,
+        });
+        if self.toasts.len() > 8 {
+            self.toasts.remove(0);
+        }
+    }
+
+    /// 渲染并清理右上角悬浮提示（toast 堆叠，最后 1 秒淡出）
+    fn show_toasts(&mut self, ctx: &egui::Context) {
+        let now = now_secs();
+        self.toasts.retain(|t| now < t.expire);
+        if self.toasts.is_empty() {
+            return;
+        }
+        let toasts = self.toasts.clone();
+        egui::Area::new(egui::Id::new("toast_area"))
+            .anchor(egui::Align2::RIGHT_TOP, [-12.0, 12.0])
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                for t in &toasts {
+                    let fade = ((t.expire - now).min(1.0).max(0.0)) as f32;
+                    ui.set_opacity(fade);
+                    egui::Frame::window(ui.style()).show(ui, |ui| {
+                        ui.label(&t.text);
+                    });
+                    ui.add_space(6.0);
+                }
+            });
     }
 
     /// 重启程序：停止 → 保存字段值 → 启动（与 Tauri restart_program 一致）。
@@ -2065,6 +2177,7 @@ impl ShellApp {
         egui::Window::new(title)
             .id(egui::Id::new("program_log_window"))
             .open(&mut open)
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-8.0, -8.0])
             .default_size([640.0, 360.0])
             .show(ctx, |ui| {
                 // 操作栏：复制 / 刷新 / 打开日志目录 / 关闭
@@ -2123,6 +2236,7 @@ impl ShellApp {
         egui::Window::new(t!("shell_log.title"))
             .id(egui::Id::new("shell_log_window"))
             .open(&mut open)
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-8.0, -8.0])
             .default_size([560.0, 320.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -2487,6 +2601,9 @@ impl eframe::App for ShellApp {
             .show(ui, |ui| {
                 self.show_main(ui);
             });
+
+        // 右上角操作日志 toast（悬浮在最上层）
+        self.show_toasts(ui.ctx());
 
         if self.show_log {
             self.show_log_window(ui.ctx());
