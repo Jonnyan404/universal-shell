@@ -102,6 +102,8 @@ pub struct ShellManager {
     pub autostart: AutoStart,
     /// 网络代理/加速设置（增量应用到 github 与注册表请求）
     pub proxy: crate::config::ProxySettings,
+    /// 界面语言：`auto`（跟随系统）/ `zh-CN` / `en`
+    pub locale: String,
 }
 
 impl ShellManager {
@@ -117,6 +119,7 @@ impl ShellManager {
             runner: Runner::new(),
             autostart: AutoStart::new(),
             proxy: crate::config::ProxySettings::default(),
+            locale: "auto".to_string(),
         })
     }
 
@@ -145,6 +148,7 @@ impl ShellManager {
             &cfg.proxy.http_proxy,
         );
         self.proxy = cfg.proxy;
+        self.locale = if cfg.locale.is_empty() { "auto".to_string() } else { cfg.locale };
         info!("已加载 {} 个受管程序", self.programs.len());
         Ok(())
     }
@@ -156,6 +160,7 @@ impl ShellManager {
             template_registries: self.template_registries.clone(),
             registry_pubkeys: self.registry_pubkeys.clone(),
             proxy: self.proxy.clone(),
+            locale: self.locale.clone(),
         };
         let json = serde_json::to_string_pretty(&cfg).context("序列化配置失败")?;
         if let Some(parent) = path.parent() {

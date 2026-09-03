@@ -549,6 +549,62 @@ fn set_proxy(
 }
 
 #[derive(serde::Serialize)]
+struct LocaleView {
+    /// 当前生效语言（已解析）：zh-CN / en
+    effective: String,
+    /// 手动设置：auto（跟随系统）/ zh-CN / en
+    manual: String,
+    /// 支持的语言列表
+    available: Vec<String>,
+}
+
+/// 系统语言提示（用于 `auto` 跟随系统）。
+fn system_hint() -> String {
+    sys_locale::get_locale().unwrap_or_else(|| "en".to_string())
+}
+
+/// 读取当前语言设置与生效语言。
+#[tauri::command]
+fn get_locale(state: State<AppState>) -> LocaleView {
+    let mgr = state.manager.lock().unwrap();
+    let manual = mgr.locale.clone();
+    let effective = shared::locale::apply(
+        if manual == "auto" { None } else { Some(&manual) },
+        &system_hint(),
+    )
+    .to_string();
+    LocaleView {
+        effective,
+        manual,
+        available: shared::locale::LOCALES.iter().map(|s| s.to_string()).collect(),
+    }
+}
+
+/// 设置语言并立即生效（持久化到 shell.json）。不传则按 `auto=跟随系统`。
+#[tauri::command]
+fn set_locale(state: State<AppState>, locale: String) -> Result<LocaleView, String> {
+    let manual = if locale.is_empty() || locale == "auto" {
+        "auto".to_string()
+    } else if shared::locale::LOCALES.contains(&locale.as_str()) {
+        locale
+    } else {
+        "auto".to_string()
+    };
+    let mut mgr = state.manager.lock().unwrap();
+    mgr.locale = manual.clone();
+    let effective =
+        shared::locale::apply(if manual == "auto" { None } else { Some(&manual) }, &system_hint())
+            .to_string();
+    mgr.save_config(&state.config_path)
+        .map_err(|e| format!("{e:#}"))?;
+    Ok(LocaleView {
+        effective,
+        manual,
+        available: shared::locale::LOCALES.iter().map(|s| s.to_string()).collect(),
+    })
+}
+
+#[derive(serde::Serialize)]
 struct LogsView {
     text: String,
 }
@@ -1005,6 +1061,16 @@ pub fn run() {
         }
     }
 
+    // 应用界面语言（auto=跟随系统 或 手动覆写），供 shared/托盘等在启动早期取用
+    shared::locale::apply(
+        if manager.locale == "auto" {
+            None
+        } else {
+            Some(&manager.locale)
+        },
+        &system_hint(),
+    );
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1126,6 +1192,8 @@ pub fn run() {
             import_template,
             get_proxy,
             set_proxy,
+            get_locale,
+            set_locale,
             get_shell_log,
             log_shell_op,
             clear_shell_log

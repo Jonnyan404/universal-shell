@@ -18,3 +18,4 @@ auto-launch = "0.6"
 sha2 = { workspace = true }
 ed25519-dalek = { workspace = true }
 time = { workspace = true }
+rust-i18n = "4"

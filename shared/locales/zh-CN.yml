@@ -1,0 +1,8 @@
+_version: 1
+hello: 你好
+app.name: Universal Shell
+lang.title: 切换语言
+lang.auto: 跟随系统（自动）
+lang.zh: 中文
+lang.en: English
+toast.locale.applied: 语言已切换

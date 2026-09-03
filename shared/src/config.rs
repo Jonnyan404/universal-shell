@@ -341,6 +341,9 @@ pub struct ShellConfig {
     /// 网络代理设置（加速前缀 + 通用代理），应用于所有受限请求
     #[serde(default, skip_serializing_if = "ProxySettings::is_empty")]
     pub proxy: ProxySettings,
+    /// 界面语言：`auto`（跟随系统）/ `zh-CN` / `en`
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub locale: String,
 }
 
 /// 网络代理/加速设置。

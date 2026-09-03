@@ -7,11 +7,14 @@ pub mod checksum;
 pub mod config;
 pub mod extract;
 pub mod github;
+pub mod locale;
 pub mod registry;
 pub mod registry_sign;
 pub mod runner;
 pub mod shell_manager;
 pub mod version;
+
+rust_i18n::i18n!("locales");
 
 pub use config::{AssetRule, ExtractMode, Field, FieldKind, Program, ProxySettings, ShellConfig};
 pub use github::{clear_github_cache, GitHub};

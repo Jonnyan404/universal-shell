@@ -33,6 +33,77 @@ let registries = [];
 let registryUrl = "";
 let manifest = null;
 let libSearchValue = "";
+let libLocalDirty = false;
+
+// ---------- 国际化 ----------
+const i18n = {
+  dict: {},
+  effective: "zh-CN",
+  manual: "auto",
+};
+
+async function loadLocale() {
+  const loc = await invoke("get_locale");
+  i18n.effective = loc.effective || "zh-CN";
+  i18n.manual = loc.manual || "auto";
+  try {
+    const resp = await fetch(`./locales/${i18n.effective}.json`);
+    i18n.dict = (await resp.json()) || {};
+  } catch {
+    i18n.dict = {};
+  }
+  return loc;
+}
+
+// 取当前语言文案；key 缺失时原样返回 key（便于发现漏翻）。
+function t(key, vars) {
+  let s = i18n.dict[key];
+  if (s === undefined) s = key;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      s = s.split(`%{${k}}`).join(String(v));
+    }
+  }
+  return s;
+}
+
+// 处理静态元素上的 data-i18n / data-i18n-title / data-i18n-placeholder
+function applyStaticI18n() {
+  document.querySelectorAll("[data-i18n]").forEach((n) => {
+    n.textContent = t(n.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((n) => {
+    n.setAttribute("title", t(n.dataset.i18nTitle));
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((n) => {
+    n.setAttribute("placeholder", t(n.dataset.i18nPlaceholder));
+  });
+  document.querySelector("html").setAttribute(
+    "lang",
+    i18n.effective === "en" ? "en" : "zh-CN"
+  );
+}
+
+// 切换语言：写后端 → 重载字典 → 全量重渲染
+async function changeLocale(locale) {
+  await invoke("set_locale", { locale });
+  await loadLocale();
+  applyStaticI18n();
+  const sw = document.querySelector("#lang-switcher");
+  if (sw) {
+    sw.querySelectorAll("option").forEach((o) => {
+      o.selected = o.value === i18n.manual;
+    });
+  }
+  await refreshAll();
+  showNotice(t("toast.locale.applied"));
+}
+
+async function refreshAll() {
+  await refresh();
+  if (view === "batch") await refreshBatchLocal();
+  else if (view === "library") renderLibrary();
+}
 
 // 全局 Toast 通知：右上角浮层，成功/失败着色，几秒后自动消失
 function showNotice(text, isError, duration = 3200) {
@@ -1547,6 +1618,28 @@ window.addEventListener("DOMContentLoaded", async () => {
     localStorage.getItem("theme") || "";
   applyTheme();
   applySidebar(localStorage.getItem("sidebarMode") || "full");
+  await loadLocale();
+  applyStaticI18n();
+  const langBtn = document.querySelector("#lang-btn");
+  if (langBtn) {
+    const updateLangBtn = () => {
+      const names = { auto: "文", "zh-CN": "中", en: "EN" };
+      langBtn.textContent = names[i18n.manual] || "文";
+      const hint = {
+        auto: t("lang.auto"),
+        "zh-CN": t("lang.zh"),
+        en: t("lang.en"),
+      };
+      langBtn.title = hint[i18n.manual] || t("lang.title");
+    };
+    updateLangBtn();
+    const seq = ["zh-CN", "en", "auto"];
+    langBtn.onclick = async () => {
+      const next = seq[(seq.indexOf(i18n.manual) + 1) % seq.length] || "auto";
+      await changeLocale(next);
+      updateLangBtn();
+    };
+  }
   const themeBtn = document.querySelector("#theme-btn");
   if (themeBtn) themeBtn.onclick = () => cycleTheme();
   const collapseBtn = document.querySelector("#collapse-btn");
