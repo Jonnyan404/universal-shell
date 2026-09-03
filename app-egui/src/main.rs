@@ -890,7 +890,7 @@ impl ShellApp {
             }
         }
 
-        // 操作区：启动/停止/重启 + 右对齐图标按钮（匹配 Tauri actions）
+        // 操作区：启动/停止/重启 + 图标按钮（匹配 Tauri actions）
         let values = self.values.get(&p.id).cloned().unwrap_or_default();
         let url = web_url(&p, &values);
         let running = self.manager.runner.is_running(&p.id);
@@ -936,23 +936,23 @@ impl ShellApp {
                     }
                 }
             }
-            // 右对齐图标操作按钮（匹配 Tauri actions）
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("📁").on_hover_text(t!("act.open_app_dir")).clicked() {
-                    let app_dir = self.manager.app_dir(&p);
-                    let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
+        });
+        // 第二行：图标按钮（右对齐，避免被窗口宽度裁剪）
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("📁").on_hover_text(t!("act.open_app_dir")).clicked() {
+                let app_dir = self.manager.app_dir(&p);
+                let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
+            }
+            if url.is_some() {
+                if ui.button("⧉").on_hover_text(t!("act.copy_addr")).clicked() {
+                    ui.ctx().copy_text(url.as_deref().unwrap().to_string());
+                    self.notice.insert(p.id.clone(), t!("toast.addr_copied").to_string());
                 }
-                if url.is_some() {
-                    if ui.button("⧉").on_hover_text(t!("act.copy_addr")).clicked() {
-                        ui.ctx().copy_text(url.as_deref().unwrap().to_string());
-                        self.notice.insert(p.id.clone(), t!("toast.addr_copied").to_string());
-                    }
-                    if ui.button("↗").on_hover_text(t!("act.open_site")).clicked() {
-                        let cmd = open_cmd();
-                        let _ = std::process::Command::new(&cmd).arg(url.as_deref().unwrap()).spawn();
-                    }
+                if ui.button("↗").on_hover_text(t!("act.open_site")).clicked() {
+                    let cmd = open_cmd();
+                    let _ = std::process::Command::new(&cmd).arg(url.as_deref().unwrap()).spawn();
                 }
-            });
+            }
         });
 
         if let Some(n) = self.notice.get(&p.id) {
