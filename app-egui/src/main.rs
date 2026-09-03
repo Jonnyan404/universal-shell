@@ -85,8 +85,11 @@ enum Msg {
     TemplateFetched(String, Result<shared::config::Program, String>),
     /// 模板更新检查完成：携带 (程序 id, 远端模板, diff 摘要)
     TemplateUpdateChecked(String, Result<shared::config::Program, String>),
+    /// 后台刷新各程序最新版本完成：携带 (id, 最新版本, 发布时间)
+    StatusRefreshed(Vec<(String, Option<String>, String)>),
 }
 
+#[derive(PartialEq, Clone, Copy)]
 enum View {
     Manage,
     Library,
@@ -136,6 +139,11 @@ struct ShellApp {
     dark_mode: bool,
     /// 会话内操作日志（本程序页底部滚动条显示，最多保留 200 条）
     op_logs: Vec<String>,
+    /// 各程序的最新版本缓存（后台异步刷新，避免渲染时联网卡顿）
+    /// key = 程序 id, value = (最新版本, 发布时间)
+    latest_versions: BTreeMap<String, (Option<String>, String)>,
+    /// 首次刷新各程序最新版本是否已触发
+    status_started: bool,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
     /// 是否已在托盘菜单里点了「退出」
@@ -191,6 +199,8 @@ impl ShellApp {
             show_settings: false,
             dark_mode: true,
             op_logs: Vec::new(),
+            latest_versions: BTreeMap::new(),
+            status_started: false,
             tray: None,
             quit: Arc::new(AtomicBool::new(false)),
         }
@@ -482,15 +492,43 @@ impl ShellApp {
                         }
                     }
                 }
+                Msg::StatusRefreshed(list) => {
+                    for (id, ver, ts) in list {
+                        self.latest_versions.insert(id, (ver, ts));
+                    }
+                }
             }
         }
     }
 
     fn refresh_status(&mut self) {
-        // 触发一次状态重读：每个程序读本地文件 + GitHub 最新版本
-        for p in self.manager.programs.clone() {
-            let _ = self.manager.status(&p);
+        // 后台异步刷新各程序最新版本（联网，避免主线程卡顿）
+        let programs = self.manager.programs.clone();
+        let proxy = self.manager.proxy.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let mut gh = shared::GitHub::default();
+            gh.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+            let mut out = Vec::with_capacity(programs.len());
+            for p in &programs {
+                let latest = gh
+                    .latest(&p.repo)
+                    .map(|l| (Some(l.tag_name.trim_start_matches('v').to_string()), l.published_at))
+                    .unwrap_or((None, String::new()));
+                out.push((p.id.clone(), latest.0, latest.1));
+            }
+            let _ = tx.send(Msg::StatusRefreshed(out));
+        });
+    }
+
+    /// 渲染用状态：本地状态 + 后台缓存的最新版本（不在渲染时联网）。
+    fn display_status(&mut self, p: &shared::config::Program) -> shared::ProgramStatus {
+        let mut st = self.manager.status_local(p);
+        if let Some((v, ts)) = self.latest_versions.get(&p.id) {
+            st.latest_version = v.clone();
+            st.latest_published = ts.clone();
         }
+        st
     }
 
     /// 应用远端模板更新到实例，保留用户已填字段值后写回配置
@@ -711,11 +749,15 @@ impl ShellApp {
 
         // 底部链接
         ui.separator();
+        let prev_view = self.view;
         if ui.selectable_label(matches!(self.view, View::Batch), t!("batch.title")).clicked() {
             self.view = View::Batch;
         }
         if ui.selectable_label(matches!(self.view, View::Library), t!("lib.title")).clicked() {
             self.view = View::Library;
+        }
+        if self.view != prev_view {
+            self.refresh_status();
         }
     }
 
@@ -792,7 +834,7 @@ impl ShellApp {
         };
 
         // 状态行：程序名 + 状态标签 + 下载按钮（匹配 Tauri statusbar）
-        let status = self.manager.status(&p);
+        let status = self.display_status(&p);
         ui.horizontal(|ui| {
             ui.heading(&p.name);
             ui.add_space(8.0);
@@ -1214,7 +1256,7 @@ impl ShellApp {
                     ui.end_row();
 
                     for p in &programs {
-                        let st = self.manager.status(p);
+                        let st = self.display_status(p);
                         // 程序名 + 隐藏徽标
                         ui.horizontal(|ui| {
                             ui.label(&p.name);
@@ -1344,6 +1386,11 @@ impl ShellApp {
 
 impl eframe::App for ShellApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 启动后首次异步刷新各程序最新版本（后台联网，不阻塞界面）
+        if !self.status_started {
+            self.status_started = true;
+            self.refresh_status();
+        }
         self.handle_msgs();
         // 崩溃恢复/运行态轮询：3s 一次（不发网络请求，仅读本地进程/文件）
         ctx.request_repaint_after(Duration::from_secs(3));
