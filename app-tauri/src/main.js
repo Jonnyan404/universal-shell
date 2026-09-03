@@ -127,7 +127,7 @@ async function refresh() {
   programs = await invoke("get_programs");
   const ml = document.querySelector("#manage-log");
   if (!programs.length) {
-    el.progTitle.textContent = "未导入任何程序";
+    el.progTitle.textContent = t("ui.not_imported");
     el.progSub.textContent = "";
     if (ml) ml.hidden = true;
     renderSidebar();
@@ -148,7 +148,7 @@ function renderSidebar() {
     const hint = document.createElement("div");
     hint.style.cssText =
       "font-size:12px;color:var(--sidebar-sub);padding:12px 6px;";
-    hint.textContent = "尚未导入任何程序\n(可在「模板库」导入)";
+    hint.textContent = t("side.empty_hint") + t("side.empty_suffix");
     el.tabs.appendChild(hint);
     return;
   }
@@ -161,7 +161,7 @@ function renderSidebar() {
     const on = st?.running ?? false;
     const dot = document.createElement("span");
     dot.className = "status-dot" + (on ? " on" : "");
-    dot.title = on ? "运行中" : "已停止";
+    dot.title = on ? t("st.running") : t("st.stopped");
 
     const ico = document.createElement("span");
     ico.className = "prog-ico";
@@ -177,7 +177,7 @@ function renderSidebar() {
     name.appendChild(nameText);
     const editIco = document.createElement("span");
     editIco.className = "prog-edit-ico";
-    editIco.title = "编辑";
+    editIco.title = t("act.edit");
     editIco.textContent = "✎";
     editIco.onclick = (e) => {
       e.stopPropagation();
@@ -189,10 +189,10 @@ function renderSidebar() {
     sub.textContent = !st
       ? p.repo || "—"
       : !st.installed
-        ? `未安装 · ${p.repo}`
+        ? t("st.not_installed", { repo: p.repo })
         : st.running
-          ? `运行中 · v${st.local_version}`
-          : `已停止 · v${st.local_version}`;
+          ? t("st.running_ver", { ver: st.local_version })
+          : t("st.stopped_ver", { ver: st.local_version });
     info.append(name, sub);
 
     item.append(dot, ico, info);
@@ -228,22 +228,22 @@ async function installProgram(id, btn) {
   installing.add(id);
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "下载中…";
+    btn.textContent = t("dl.downloading");
   }
   syncInstallBtns(id);
   try {
     const v = await invoke("install", { programId: id });
     const p = programs.find((x) => x.id === id);
-    showNotice(`已下载/更新「${p ? p.name : id}」，当前版本 ${v}`);
-    if (id === current?.id) logOp(`已下载/更新，当前版本 ${v}`);
+    showNotice(t("toast.updated", { name: p ? p.name : id, ver: v }));
+    if (id === current?.id) logOp(t("toast.updated_short", { ver: v }));
   } catch (e) {
     showNotice(String(e), true);
-    if (id === current?.id) logOp(`下载/更新失败: ${e}`);
+    if (id === current?.id) logOp(t("toast.download_fail", { err: e }));
   } finally {
     installing.delete(id);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = btn.dataset.installed === "1" ? "更新" : "下载";
+      btn.textContent = btn.dataset.installed === "1" ? t("dl.update") : t("dl.download");
     }
     syncInstallBtns(id);
     if (view === "batch") await refreshBatchLocal();
@@ -259,14 +259,14 @@ function syncInstallBtns(id) {
   if (!st?.installed) {
     dlBtn.hidden = false;
     dlBtn.disabled = busy;
-    dlBtn.textContent = busy ? "下载中…" : "下载";
+    dlBtn.textContent = busy ? t("dl.downloading") : t("dl.download");
   } else if (st.up_to_date || !st.latest_version) {
     // 已最新，或最新版本未知：不显示“更新”
     dlBtn.hidden = true;
   } else {
     dlBtn.hidden = false;
     dlBtn.disabled = busy;
-    dlBtn.textContent = busy ? "下载中…" : "更新";
+    dlBtn.textContent = busy ? t("dl.downloading") : t("dl.update");
   }
 }
 
@@ -297,8 +297,8 @@ async function renderForm() {
               programId: current.id,
               enabled: check.checked,
             });
-            showNotice("开机启动已设置");
-            logOp(check.checked ? "已开启开机启动" : "已关闭开机启动");
+            showNotice(t("toast.autostart_set"));
+            logOp(check.checked ? t("toast.autostart_enabled") : t("toast.autostart_disabled"));
           } catch (e) {
             showNotice(String(e), true);
           }
@@ -316,7 +316,7 @@ async function renderForm() {
       row.appendChild(input);
       if (f.kind === "file" || f.kind === "directory") {
         const btn = document.createElement("button");
-        btn.textContent = "浏览…";
+        btn.textContent = t("act.browse");
         btn.onclick = async () => {
           const picked = await open({
             multiple: false,
@@ -337,7 +337,7 @@ async function renderForm() {
   el.actions.innerHTML = "";
   const start = document.createElement("button");
   start.id = "start-btn";
-  start.textContent = "启动";
+  start.textContent = t("act.start");
   start.onclick = async () => {
     try {
       const st = await invoke("start_program", {
@@ -345,11 +345,11 @@ async function renderForm() {
       });
       renderStatus(st);
       await refreshStatusLocal();
-      logOp(`已启动`);
+      logOp(t("toast.started"));
       refreshManageLog();
     } catch (e) {
       showNotice(String(e), true);
-      logOp(`启动失败: ${e}`);
+      logOp(t("toast.start_fail", { err: e }));
     }
   };
   el.actions.appendChild(start);
@@ -357,17 +357,17 @@ async function renderForm() {
   const stop = document.createElement("button");
   stop.id = "stop-btn";
   stop.disabled = true;
-  stop.textContent = "停止";
+  stop.textContent = t("act.stop");
   stop.onclick = async () => {
     try {
       const st = await invoke("stop_program", { programId: current.id });
       renderStatus(st);
       await refreshStatusLocal();
-      logOp("已停止");
+      logOp(t("toast.stopped"));
       refreshManageLog();
     } catch (e) {
       showNotice(String(e), true);
-      logOp(`停止失败: ${e}`);
+      logOp(t("toast.stop_fail", { err: e }));
     }
   };
   el.actions.appendChild(stop);
@@ -375,7 +375,7 @@ async function renderForm() {
   const restart = document.createElement("button");
   restart.id = "restart-btn";
   restart.disabled = true;
-  restart.textContent = "重启";
+  restart.textContent = t("act.restart");
   restart.onclick = async () => {
     try {
       const st = await invoke("restart_program", {
@@ -383,11 +383,11 @@ async function renderForm() {
       });
       renderStatus(st);
       await refreshStatusLocal();
-      logOp("已重启");
+      logOp(t("toast.restarted"));
       refreshManageLog();
     } catch (e) {
       showNotice(String(e), true);
-      logOp(`重启失败: ${e}`);
+      logOp(t("toast.restart_fail", { err: e }));
     }
   };
   el.actions.appendChild(restart);
@@ -395,7 +395,7 @@ async function renderForm() {
   // 有地址(/端口)字段时，提供「打开网站」「复制地址」
   if (webUrl(current.id)) {
     const open = document.createElement("button");
-    open.textContent = "打开网站";
+    open.textContent = t("act.open_site");
     open.onclick = () => {
       const u = webUrl(current.id);
       if (u) openWeb(u);
@@ -403,7 +403,7 @@ async function renderForm() {
     el.actions.appendChild(open);
 
     const copy = document.createElement("button");
-    copy.textContent = "复制地址";
+    copy.textContent = t("act.copy_addr");
     copy.onclick = () => {
       const u = webUrl(current.id);
       if (u) copyLogText(u);
@@ -464,11 +464,11 @@ function renderStatus(st) {
   const stop = document.querySelector("#stop-btn");
   const restart = document.querySelector("#restart-btn");
   const chips = [
-    { text: `本地版本: ${st.local_version}`, cls: "" },
-    { text: st.installed ? "已安装" : "未安装", cls: "" },
+    { text: t("st.local_ver", { ver: st.local_version }), cls: "" },
+    { text: st.installed ? t("st.installed") : t("st.not_installed_bare"), cls: "" },
   ].filter((c) => c.text !== "");
   if (st.autostart) {
-    chips.push({ text: "开机启动", cls: "ok" });
+    chips.push({ text: t("st.autostart"), cls: "ok" });
   }
   el.chips.innerHTML = "";
   for (const c of chips) {
@@ -493,7 +493,7 @@ function renderStatus(st) {
       dlBtn.hidden = false;
       const busy = installing.has(current.id);
       dlBtn.disabled = busy;
-      dlBtn.textContent = busy ? "下载中…" : st.installed ? "更新" : "下载";
+      dlBtn.textContent = busy ? t("dl.downloading") : st.installed ? t("dl.update") : t("dl.download");
     }
   }
   renderSidebar();
@@ -528,22 +528,22 @@ async function checkUpdates() {
   if (btn) {
     btn.classList.add("busy");
     btn.disabled = true;
-    btn.textContent = "检查中…";
+    btn.textContent = t("dl.checking_short");
   }
-  showNotice("正在检查更新…");
+  showNotice(t("dl.checking"));
   try {
     const full = await invoke("batch_status");
     statuses = full;
     renderSidebar();
     renderBatch();
-    showNotice("检查完成");
+    showNotice(t("dl.done"));
   } catch (e) {
     showNotice(String(e), true);
   } finally {
     if (btn) {
       btn.classList.remove("busy");
       btn.disabled = false;
-      btn.textContent = "检查更新";
+      btn.textContent = t("batch.check");
     }
   }
 }
@@ -561,17 +561,17 @@ function renderBatch() {
   const updLine = document.querySelector("#batch-checked-at");
   if (updLine) {
     updLine.textContent = checkedAt
-      ? `▲ 上次检查更新：${timeAgo(checkedAt)}`
-      : "▲ 尚未检查更新";
+      ? t("check.last_checked", { ago: timeAgo(checkedAt) })
+      : t("check.not_checked");
     updLine.title = checkedAt
-      ? `最近一次联网检查：${fmtDate(checkedAt)}`
-      : "点击「检查更新」联网比对最新版本";
+      ? t("check.last_online", { date: fmtDate(checkedAt) })
+      : t("lib.latest_checked_hint");
   }
   if (!statuses.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 7;
-    td.textContent = "尚未导入任何程序";
+    td.textContent = t("side.empty");
     tr.appendChild(td);
     el.batchBody.appendChild(tr);
     return;
@@ -585,7 +585,7 @@ function renderBatch() {
     if (item.hidden) {
       const tag = document.createElement("span");
       tag.className = "batch-hidden";
-      tag.textContent = "已隐藏";
+      tag.textContent = t("st.hidden");
       tdName.appendChild(tag);
     }
     tr.appendChild(tdName);
@@ -595,11 +595,11 @@ function renderBatch() {
     tr.appendChild(tdLocal);
 
     const tdLatest = document.createElement("td");
-    tdLatest.textContent = s.latest_version ?? "未知";
+    tdLatest.textContent = s.latest_version ?? t("st.unknown");
     tr.appendChild(tdLatest);
 
     const tdState = document.createElement("td");
-    tdState.textContent = !s.installed ? "未安装" : s.running ? "运行中" : "已停止";
+    tdState.textContent = !s.installed ? t("st.not_installed_bare") : s.running ? t("st.running") : t("st.stopped");
     tdState.className = !s.installed ? "missing" : s.running ? "running" : "stopped";
     tr.appendChild(tdState);
 
@@ -614,7 +614,7 @@ function renderBatch() {
           programId: item.id,
           enabled: auto.checked,
         });
-        showNotice(`已更新「${item.name}」开机启动`);
+        showNotice(t("toast.autostart_updated", { name: item.name }));
       } catch (e) {
         auto.checked = !auto.checked;
         showNotice(String(e), true);
@@ -637,7 +637,9 @@ function renderBatch() {
           hidden: hide.checked,
         });
         showNotice(
-          hide.checked ? `已隐藏「${item.name}」` : `已取消隐藏「${item.name}」`
+          hide.checked
+            ? t("toast.hidden", { name: item.name })
+            : t("toast.unhidden", { name: item.name })
         );
         if (item.id === current?.id && hide.checked) current = null;
         programs = await invoke("get_programs");
@@ -661,12 +663,12 @@ function renderBatch() {
 
     // 下载 / 更新（复用状态栏安装逻辑，防重复触发；已最新时置灰）
     const isUpToDate = s.installed && s.up_to_date;
-    const dl = makeOpBtn(s.installed ? (isUpToDate ? "最新" : "更新") : "下载", async () => {
+    const dl = makeOpBtn(s.installed ? (isUpToDate ? t("st.latest") : t("dl.update")) : t("dl.download"), async () => {
       dl.dataset.installed = s.installed ? "1" : "0";
       // 最新版本未知时先联网检查，避免不必要的覆盖安装
       if (s.installed && !s.latest_version) {
         dl.disabled = true;
-        dl.textContent = "检查中…";
+        dl.textContent = t("dl.checking_short");
         try {
           const full = await invoke("batch_status");
           statuses = full;
@@ -674,7 +676,7 @@ function renderBatch() {
           renderSidebar();
           if (fresh?.status?.up_to_date) {
             renderBatch();
-            showNotice("「" + item.name + "」已是最新版本");
+            showNotice(t("st.is_latest", { name: item.name }));
             return;
           }
         } catch (e) {
@@ -688,7 +690,7 @@ function renderBatch() {
     if (isUpToDate) dl.disabled = true;
     ops.appendChild(dl);
 
-    const start = makeOpBtn("启动", async () => {
+    const start = makeOpBtn(t("act.start"), async () => {
       try {
         await invoke("start_program", {
           payload: { program_id: item.id, values: {} },
@@ -700,7 +702,7 @@ function renderBatch() {
     });
     ops.appendChild(start);
 
-    const restart = makeOpBtn("重启", async () => {
+    const restart = makeOpBtn(t("act.restart"), async () => {
       try {
         await invoke("restart_program", {
           payload: { program_id: item.id, values: {} },
@@ -712,7 +714,7 @@ function renderBatch() {
     });
     ops.appendChild(restart);
 
-    const stop = makeOpBtn("停止", async () => {
+    const stop = makeOpBtn(t("act.stop"), async () => {
       try {
         await invoke("stop_program", { programId: item.id });
         await refreshBatchLocal();
@@ -722,16 +724,16 @@ function renderBatch() {
     });
     ops.appendChild(stop);
 
-    const logs = makeOpBtn("日志", () => openLogModal(item.id));
+    const logs = makeOpBtn(t("act.log"), () => openLogModal(item.id));
     ops.appendChild(logs);
 
-    const openDir = makeOpBtn("打开日志目录", () => revealLogs(item.id));
+    const openDir = makeOpBtn(t("act.open_log_dir"), () => revealLogs(item.id));
     ops.appendChild(openDir);
 
-    const edit = makeOpBtn("编辑", () => openEditModal(item.id));
+    const edit = makeOpBtn(t("act.edit"), () => openEditModal(item.id));
     ops.appendChild(edit);
 
-    const del = makeOpBtn("删除", () => confirmAndDelete(item.id, item.name));
+    const del = makeOpBtn(t("act.delete"), () => confirmAndDelete(item.id, item.name));
     del.className = "op-btn op-danger";
     ops.appendChild(del);
 
@@ -784,9 +786,9 @@ async function saveSettings() {
     try {
       await invoke("set_shell_autostart", { enabled: shellAuto });
     } catch (e) {
-      showNotice(`壳开机自启设置失败: ${e}`, true);
+      showNotice(t("toast.shell_autostart_fail", { err: e }), true);
     }
-    showNotice("设置已保存");
+    showNotice(t("toast.settings_saved"));
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -801,7 +803,7 @@ let logProgramId = null;
 function renderLogBody(container, text) {
   container.innerHTML = "";
   if (!text) {
-    container.textContent = "(空)";
+    container.textContent = t("st.empty");
     return;
   }
   const lines = text.split("\n");
@@ -828,7 +830,7 @@ async function refreshLog() {
   const content = document.querySelector("#log-content");
   const title = document.querySelector("#log-modal-title");
   const p = programs.find((x) => x.id === logProgramId);
-  title.textContent = `日志 · ${p ? p.name : logProgramId}`;
+  title.textContent = t("log.title_fmt", { name: p ? p.name : logProgramId });
   try {
     const logs = await invoke("get_logs", { programId: logProgramId });
     renderLogBody(content, logs.text);
@@ -846,7 +848,7 @@ function closeLogModal() {
 async function copyLogText(text) {
   try {
     await navigator.clipboard.writeText(text);
-    showNotice("已复制");
+    showNotice(t("toast.copied"));
     return;
   } catch {
     // 回退：隐藏 textarea + execCommand
@@ -858,9 +860,9 @@ async function copyLogText(text) {
     ta.select();
     try {
       document.execCommand("copy");
-      showNotice("已复制");
+      showNotice(t("toast.copied"));
     } catch {
-      showNotice("复制失败", true);
+      showNotice(t("toast.copy_fail"), true);
     }
     ta.remove();
   }
@@ -963,13 +965,13 @@ function setupManageLogResize() {
 
 async function confirmAndDelete(id, name) {
   const ok = window.confirm(
-    `确定删除程序「${name}」？\n将移除其配置、已下载二进制与日志，且不可恢复。`
+    t("confirm.delete", { name })
   );
   if (!ok) return;
   try {
     await invoke("delete_program", { programId: id });
-    showNotice(`已删除「${name}」`);
-    if (current?.id === id) logOp(`已删除「${name}」`);
+    showNotice(t("toast.deleted", { name }));
+    if (current?.id === id) logOp(t("toast.deleted", { name }));
     programs = await invoke("get_programs");
     if (current?.id === id) {
       current = null;
@@ -1013,11 +1015,11 @@ function editFieldRow(f) {
   row.className = "edit-field-row";
   const k = document.createElement("input");
   k.className = "k";
-  k.placeholder = "字段 key";
+  k.placeholder = t("lib.field_key");
   k.value = f.key;
   const l = document.createElement("input");
   l.className = "l";
-  l.placeholder = "标签";
+  l.placeholder = t("lib.labels");
   l.value = f.label || f.key;
   const sel = document.createElement("select");
   sel.className = "kind";
@@ -1031,16 +1033,16 @@ function editFieldRow(f) {
   }
   const d = document.createElement("input");
   d.className = "d";
-  d.placeholder = "默认值";
+  d.placeholder = t("lib.def_val");
   d.value = f.default ?? "";
   const reqWrap = document.createElement("label");
   reqWrap.className = "req";
-  reqWrap.title = "启动前必填";
+  reqWrap.title = t("lib.precheck");
   const req = document.createElement("input");
   req.type = "checkbox";
   req.checked = !!f.required;
   const reqTxt = document.createElement("span");
-  reqTxt.textContent = "必填";
+  reqTxt.textContent = t("lib.required");
   reqWrap.append(req, reqTxt);
   const reqMark = document.createElement("span");
   reqMark.className = "req-star";
@@ -1056,7 +1058,7 @@ function editFieldRow(f) {
   del.className = "edit-field-del";
   del.type = "button";
   del.textContent = "✕";
-  del.title = "删除字段";
+  del.title = t("act.delete_field");
   del.onclick = () => row.remove();
   row.append(k, l, sel, d, reqWrap, reqMark, del);
   return row;
@@ -1090,8 +1092,8 @@ async function saveEdit() {
   };
   try {
     await invoke("edit_program", { payload });
-    showNotice("已保存修改");
-    logOp("已保存配置修改");
+    showNotice(t("toast.saved"));
+    logOp(t("toast.settings_saved_alt"));
     const editedId = editProgramId;
     closeEditModal();
     programs = await invoke("get_programs");
@@ -1128,9 +1130,9 @@ function switchView(v) {
     if (ml) ml.hidden = true;
     const ope = document.querySelector("#op-log");
     if (ope) ope.hidden = true;
-    el.progTitle.textContent = v === "batch" ? "批量管理" : "模板库";
+    el.progTitle.textContent = v === "batch" ? t("batch.title") : t("lib.title");
     el.progSub.textContent =
-      v === "batch" ? "所有程序统一操作" : "从远程源导入程序模板";
+      v === "batch" ? t("check.title") : t("lib.select_local");
     el.chips.innerHTML = "";
     if (v === "batch") refreshBatchLocal();
     else {
@@ -1157,14 +1159,14 @@ function fmtDate(secs) {
 }
 
 function timeAgo(secs) {
-  if (!secs) return "从未";
+  if (!secs) return t("st.never");
   const diff = (
     (Date.now() / 1000) - secs
   );
-  if (diff < 60) return "刚刚";
-  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
-  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)} 天前`;
+  if (diff < 60) return t("st.just");
+  if (diff < 3600) return t("time.min_ago", { n: Math.floor(diff / 60) });
+  if (diff < 86400) return t("time.hour_ago", { n: Math.floor(diff / 3600) });
+  if (diff < 86400 * 30) return t("time.day_ago", { n: Math.floor(diff / 86400) });
   return fmtDate(secs);
 }
 
@@ -1190,13 +1192,13 @@ async function refreshLibrary() {
     libPage = 0;
     renderLibrary();
   } catch (e) {
-    el.libStatus.textContent = `清单拉取失败: ${e}`;
+    el.libStatus.textContent = t("toast.manifest_fail", { err: e });
   }
 }
 
 function renderLibrary() {
   if (!manifest) {
-    el.libList.innerHTML = "尚未加载清单。点击「刷新」从远程源拉取(离线时可查看上次刷新的列表)。";
+    el.libList.innerHTML = t("lib.empty_remote");
     renderSourceBar();
     renderLocalTemplates();
     return;
@@ -1206,8 +1208,12 @@ function renderLibrary() {
   const nOffline = (manifest.sources || []).filter(([, off]) => off).length;
   el.libStatus.textContent =
     (manifest.sources || []).length === 0
-      ? "未配置模板源"
-      : `${manifest.sources.length} 个源${nOffline ? ` · ${nOffline} 个离线(用缓存)` : ""} · 共 ${manifest.templates.length} 个模板`;
+      ? t("lib.no_sources")
+      : t("lib.summary", {
+          n: manifest.sources.length,
+          offline: nOffline ? t("lib.summary_offline", { n: nOffline }) : "",
+          m: manifest.templates.length,
+        });
 
   el.libSearch.innerHTML = "";
   const kw = libSearchValue.trim().toLowerCase();
@@ -1224,7 +1230,7 @@ function renderLibrary() {
 
   el.libList.innerHTML = "";
   if (!slice.length) {
-    el.libList.innerHTML = '<div class="lib-desc">没有匹配的模板。</div>';
+    el.libList.innerHTML = '<div class="lib-desc">' + t("lib.no_match") + "</div>";
   }
   for (const [id, t, base] of slice) {
     const card = document.createElement("div");
@@ -1246,13 +1252,13 @@ function renderLibrary() {
     if (conflict && conflict[1] > 1) {
       const mark = document.createElement("span");
       mark.className = "lib-cat lib-conflict";
-      mark.textContent = `⚠ 多源×${conflict[1]}`;
+      mark.textContent = t("lib.multi_source", { n: conflict[1] });
       top.append(mark);
     }
 
     const btn = document.createElement("button");
     // 已导入也可再次导入（doImport 内对已存在程序二次确认覆盖）
-    btn.textContent = importing.has(id) ? "导入中…" : "导入";
+    btn.textContent = importing.has(id) ? t("lib.importing") : t("act.import");
     btn.disabled = importing.has(id);
     btn.onclick = () => doImport(id, base, btn);
     top.append(h, cat, repo, btn);
@@ -1265,8 +1271,8 @@ function renderLibrary() {
     if (imported) {
       const local = document.createElement("span");
       local.className = "lib-local-badge";
-      local.textContent = "本地";
-      local.title = "已导入到本地程序库（含模板配置）";
+      local.textContent = t("lib.local_last");
+      local.title = t("lib.imported");
       meta.appendChild(local);
     }
     card.append(top, meta, desc);
@@ -1283,7 +1289,7 @@ function renderSourceBar() {
   const sel = document.createElement("select");
   const allOpt = document.createElement("option");
   allOpt.value = "__all__";
-  allOpt.textContent = "全部源（合并）";
+  allOpt.textContent = t("lib.all_sources");
   if (libSource === null) allOpt.selected = true;
   sel.appendChild(allOpt);
   for (const src of manifest?.sources || []) {
@@ -1291,7 +1297,7 @@ function renderSourceBar() {
     const opt = document.createElement("option");
     opt.value = base;
     opt.textContent =
-      (offline ? "（离线·缓存）" : "") + base + (fetched ? ` · ${fmtDate(fetched)}` : "");
+      (offline ? t("lib.offline") : "") + base + (fetched ? ` · ${fmtDate(fetched)}` : "");
     if (libSource === base) opt.selected = true;
     sel.appendChild(opt);
   }
@@ -1307,23 +1313,28 @@ function renderSourceBar() {
     updateSpan.className = "lib-fetch-compact";
     const srcs = manifest?.sources || [];
     if (!manifest) {
-      updateSpan.textContent = "远程源更新：尚未拉取（点击「刷新」）";
-      updateSpan.title = "点击「刷新」拉取远程源";
+      updateSpan.textContent = t("lib.remote_sources");
+      updateSpan.title = t("lib.no_sources_hint");
     } else if (!srcs.length) {
-      updateSpan.textContent = "远程源更新：未配置远程源";
+      updateSpan.textContent = t("lib.remote_none");
       updateSpan.title = "";
     } else {
       const parts = [];
       const titles = [];
       for (const [base, offline, fetched] of srcs) {
-        titles.push(base + (fetched ? ` · 上次拉取 ${fmtDate(fetched)}` : " · 尚未拉取"));
+        titles.push(
+          base +
+            (fetched
+              ? t("lib.last_pull", { date: fmtDate(fetched) })
+              : t("lib.not_pulled"))
+        );
         parts.push(
           offline
-            ? `离线·${fetched ? "缓存" + timeAgo(fetched) : "无缓存"}`
-            : `在线·${fetched ? "上次更新 " + timeAgo(fetched) : "刚刚"}`
+            ? `离线·${fetched ? t("lib.cache") + timeAgo(fetched) : t("lib.no_cache")}`
+            : `在线·${fetched ? t("log.equal_parts") + " " + timeAgo(fetched) : t("log.just")}`
         );
       }
-      updateSpan.textContent = "远程源更新：" + parts.join("　");
+      updateSpan.textContent = t("log.remote_ready") + parts.join("　");
       updateSpan.title = titles.join("；");
     }
     el.libFetchInfo.innerHTML = "";
@@ -1331,15 +1342,15 @@ function renderSourceBar() {
   }
 
   const refresh = document.createElement("button");
-  refresh.textContent = "刷新";
+  refresh.textContent = t("act.refresh");
   refresh.onclick = async () => {
     refresh.disabled = true;
-    refresh.textContent = "拉取中…";
+    refresh.textContent = t("lib.pull");
     try {
       await refreshLibrary();
     } finally {
       refresh.disabled = false;
-      refresh.textContent = "刷新";
+      refresh.textContent = t("act.refresh");
     }
   };
   el.libSourceBar.append(sel, refresh);
@@ -1350,7 +1361,7 @@ function renderPager(pages) {
   el.libPager.innerHTML = "";
   if (pages <= 1) return;
   const prev = document.createElement("button");
-  prev.textContent = "‹ 上一页";
+  prev.textContent = t("lib.prev");
   prev.disabled = libPage <= 0;
   prev.onclick = () => {
     libPage--;
@@ -1360,7 +1371,7 @@ function renderPager(pages) {
   info.className = "lib-page-info";
   info.textContent = `${libPage + 1} / ${pages}`;
   const next = document.createElement("button");
-  next.textContent = "下一页 ›";
+  next.textContent = t("lib.next");
   next.disabled = libPage >= pages - 1;
   next.onclick = () => {
     libPage++;
@@ -1372,18 +1383,18 @@ function renderPager(pages) {
 function renderLocalTemplates() {
   const list = programs || [];
   if (el.libCacheToggle) {
-    el.libCacheToggle.textContent = `本地模板(${list.length})`;
+    el.libCacheToggle.textContent = t("lib.local") + `(${list.length})`;
   }
   if (!el.libCacheDrawer) return;
   el.libCacheDrawer.innerHTML = "";
   const head = document.createElement("h3");
   head.className = "lib-cache-heading";
-  head.textContent = "本地已有模板";
+  head.textContent = t("lib.local_has");
   el.libCacheDrawer.appendChild(head);
   if (!list.length) {
     const d = document.createElement("div");
     d.className = "lib-desc";
-    d.textContent = "尚未导入任何模板。从上方远程源点击「导入」即可加入本地程序库。";
+    d.textContent = t("lib.empty_local");
     el.libCacheDrawer.appendChild(d);
     return;
   }
@@ -1400,7 +1411,7 @@ function renderLocalTemplates() {
     ops.className = "batch-ops";
     const show = document.createElement("button");
     show.className = "op-btn";
-    show.textContent = "管理";
+    show.textContent = t("act.manage");
     show.onclick = () => switchTo(p.id);
     ops.append(show);
     row.append(name, repo, ops);
@@ -1413,15 +1424,15 @@ async function doImport(id, base, btn) {
   importing.add(id);
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "导入中…";
+    btn.textContent = t("lib.importing");
   }
   try {
     const exists = programs.some((p) => p.id === id);
     let overwrite = false;
     if (exists) {
       const ok = await confirm(
-        `本地已存在程序「${id}」，是否用远程模板覆盖？\n覆盖会替换其模板配置，若已在运行请先停止。`,
-        { title: "覆盖模板", kind: "warning" }
+        t("confirm.overwrite_import", { id }),
+        { title: t("lib.overwrite"), kind: "warning" }
       );
       if (!ok) {
         importing.delete(id);
@@ -1435,7 +1446,7 @@ async function doImport(id, base, btn) {
       templateId: id,
       overwrite,
     });
-    showNotice(exists ? `已覆盖模板「${id}」` : `已导入模板「${id}」并快照到本地配置`);
+    showNotice(exists ? t("toast.import_overwritten", { id }) : t("toast.import_done", { id }));
     await afterImport(id);
     renderLibrary();
   } catch (e) {
@@ -1444,7 +1455,7 @@ async function doImport(id, base, btn) {
     importing.delete(id);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = "导入";
+      btn.textContent = t("act.import");
     }
   }
 }
@@ -1473,10 +1484,10 @@ async function importLocalFile() {
         overwrite: false,
       });
     } catch (e) {
-      if (/已存在/.test(String(e))) {
+      if (/已存在|already exists/i.test(String(e))) {
         const ok = await confirm(
-          "本地已存在同名程序，是否覆盖？",
-          { title: "覆盖模板", kind: "warning" }
+          t("lib.already_exists"),
+          { title: t("lib.overwrite"), kind: "warning" }
         );
         if (!ok) return;
         overwrite = true;
@@ -1488,7 +1499,7 @@ async function importLocalFile() {
         throw e;
       }
     }
-    showNotice("已从本地文件导入模板");
+    showNotice(t("lib.imported_local"));
     programs = await invoke("get_programs");
     renderSidebar();
   } catch (e) {
@@ -1524,17 +1535,17 @@ function sourceRowEl(url, isDefault) {
   row.className = "source-row" + (isDefault ? " default" : "");
   const input = document.createElement("input");
   input.value = url;
-  input.placeholder = "https://…/templates/";
+  input.placeholder = t("sources.placeholder");
   const tag = document.createElement("span");
   tag.className = "lib-cat";
-  tag.textContent = isDefault ? "默认(官方·不可删)" : "";
+  tag.textContent = isDefault ? t("lib.default_rule") : "";
   row.append(input, tag);
   if (!isDefault) {
     const del = document.createElement("button");
     del.className = "edit-field-del";
     del.type = "button";
     del.textContent = "✕";
-    del.title = "删除该源";
+    del.title = t("lib.delete_source");
     del.onclick = () => row.remove();
     row.append(del);
   }
@@ -1552,7 +1563,7 @@ async function saveSources() {
     .map((r) => r.querySelector("input").value.trim())
     .filter(Boolean);
   if (!list.length) {
-    showNotice("至少保留一个模板源（官方源不可删除）", true);
+    showNotice(t("lib.keep_one"), true);
     return;
   }
   try {
@@ -1560,7 +1571,7 @@ async function saveSources() {
     registries = await invoke("get_registries");
     registryUrl = registries[0] ?? "";
     libSource = registries[0] ?? null;
-    showNotice("模板源已保存");
+    showNotice(t("toast.sources_saved"));
     closeSourcesModal();
     manifest = null;
     renderLibrary();
@@ -1583,7 +1594,7 @@ function applyTheme() {
   const b = document.querySelector("#theme-btn");
   if (b) {
     b.textContent = dark ? "☀" : "☾";
-    b.title = dark ? "切换到浅色" : "切换到深色";
+    b.title = dark ? t("ui.theme.light") : t("ui.theme.dark");
   }
 }
 function cycleTheme() {
@@ -1600,7 +1611,7 @@ function applySidebar(mode) {
   const cb = document.querySelector("#collapse-btn");
   if (cb) {
     cb.textContent = mode === "full" ? "«" : "»";
-    cb.title = mode === "full" ? "收窄侧栏" : "展开侧栏";
+    cb.title = mode === "full" ? t("ui.collapse") : t("ui.expand");
   }
 }
 function cycleSidebar() {
@@ -1657,7 +1668,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     sa.onclick = async () => {
       try {
         await invoke("stop_all");
-        showNotice("已停止所有程序");
+        showNotice(t("toast.stop_all"));
         await refreshBatchLocal();
       } catch (e) {
         showNotice(String(e), true);
@@ -1727,7 +1738,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   async function loadShellLog() {
     try {
       const text = await invoke("get_shell_log");
-      shellLogContent.textContent = text || "(暂无壳操作日志)";
+      shellLogContent.textContent = text || t("shell_log.empty");
       shellLogContent.scrollTop = shellLogContent.scrollHeight;
     } catch (e) {
       showNotice(String(e), true);
@@ -1747,7 +1758,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     try {
       await invoke("clear_shell_log");
       shellLogContent.textContent = "";
-      showNotice("已清空壳操作日志");
+      showNotice(t("toast.op_log_cleared"));
     } catch (e) {
       showNotice(String(e), true);
     }
@@ -1785,7 +1796,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // 搜索框只创建一次，输入时仅刷新列表（避免重建导致光标跳走）
   const libSearchInput = document.createElement("input");
-  libSearchInput.placeholder = "搜索模板（名称 / 分类 / 描述）…";
+  libSearchInput.placeholder = t("lib.search_ph");
   libSearchInput.value = libSearchValue;
   libSearchInput.addEventListener("input", () => {
     libSearchValue = libSearchInput.value;

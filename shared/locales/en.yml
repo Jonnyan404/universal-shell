@@ -14,6 +14,181 @@ tmpl.workdir: Working dir
 tmpl.version_pin: Version pin
 tmpl.none: No material changes
 tmpl.changed: 'Changed: %{parts}'
+ui.theme.light: Switch to light mode
+ui.theme.dark: Switch to dark mode
+ui.lang: Switch language
+ui.settings: Network settings
+ui.batch: Batch management
+ui.library: Template library
+ui.shell_log: View shell operation log
+ui.collapse: Collapse sidebar
+ui.expand: Expand sidebar
+ui.log: Log
+lib.fullscreen: Fullscreen
+act.refresh: Refresh
+act.copy: Copy
+act.close: Close
+act.save: Save
+act.cancel: Cancel
+act.add: Add
+act.add_field: '+ Add field'
+act.clear: Clear log
+edit.title: Edit program
+edit.name: Name
+edit.desc: Description
+edit.repo: 'GitHub repo (owner/repo)'
+edit.binary: Binary name
+edit.args: 'Launch args (supports {key})'
+sett.title: Global settings
+sett.accelerate: Accelerate prefix
+sett.acc_placeholder: 'e.g. https://gh-proxy.com/ (GitHub API/download prefix)'
+sett.proxy: General proxy
+sett.proxy_placeholder: 'e.g. http://127.0.0.1:7890 (applies to all network requests)'
+sett.shell_auto: Shell autostart
+sett.shell_auto_label: 'Start this shell at login (and launch autostart programs)'
+sources.title: Template sources
+sources.placeholder: https://…/templates/
+shell_log.title: Shell operation log
+shell_log.hint: Records the shell''s own start/stop/autostart/import/settings operations
+side.empty: No programs imported yet
+side.empty_hint: No programs imported yet
+batch.title: Batch management
+batch.refresh: Refresh status
+batch.check: Check updates
+batch.stop_all: Stop all
+th.program: Program
+th.local_ver: Local version
+th.latest_ver: Latest version
+th.status: Status
+th.autostart: Autostart
+th.hidden: Hidden
+th.actions: Actions
+lib.title: Template library
+lib.local: Local templates
+lib.import: Import local template
+lib.sources: Manage sources
+st.running: Running
+st.stopped: Stopped
+st.not_installed: '%{repo} · not installed'
+st.running_ver: 'Running · v%{ver}'
+st.stopped_ver: 'Stopped · v%{ver}'
+st.installed: Installed
+st.not_installed_bare: Not installed
+st.unknown: Unknown
+st.latest: Latest
+st.never: Never
+st.just: Just now
+st.local_ver: 'Local version: %{ver}'
+ui.not_imported: No programs imported
+act.start: Start
+act.stop: Stop
+act.restart: Restart
+act.open_site: Open website
+act.copy_addr: Copy address
+act.browse: Browse…
+act.edit: Edit
+act.delete: Delete
+act.import: Import
+dl.download: Download
+dl.update: Update
+dl.downloading: Downloading…
+dl.checking: Checking updates…
+dl.checking_short: Checking…
+dl.done: Check complete
+log.just: Just now
+log.equal_parts: Last update
+log.remote_ready: 'Remote source update:'
+toast.updated: 'Downloaded/updated "%{name}", current version %{ver}'
+toast.download_fail: 'Download/update failed: %{err}'
+toast.autostart_set: Autostart set
+toast.autostart_enabled: Autostart enabled
+toast.autostart_disabled: Autostart disabled
+toast.started: Started
+toast.start_fail: 'Start failed: %{err}'
+toast.stopped: Stopped
+toast.stop_fail: 'Stop failed: %{err}'
+toast.restarted: Restarted
+toast.restart_fail: 'Restart failed: %{err}'
+toast.copied: Copied
+toast.copy_fail: Copy failed
+toast.saved: Changes saved
+toast.settings_saved: Settings saved
+toast.settings_saved_alt: Config changes saved
+toast.op_log_cleared: Shell operation log cleared
+lib.imported_local: Imported template from local file
+lib.imported: Imported into local program library (with template config)
+lib.already_exists: A program with the same name already exists locally. Overwrite?
+lib.overwrite: Overwrite template
+lib.local_has: Local template already exists
+lib.no_sources: No template sources configured
+lib.no_sources_hint: Click "Refresh" to pull from remote sources
+lib.latest_checked_hint: Click "Check updates" to compare latest versions online
+lib.search_ph: Search templates (name / category / description)…
+lib.empty_local: No templates imported yet. Click "Import" on a remote source above to add one.
+lib.empty_remote: Manifest not loaded yet. Click "Refresh" to pull from remote sources (offline shows last refreshed list).
+lib.pull: Pulling…
+lib.checked_at: Last update
+lib.prev: ‹ Prev
+lib.next: Next ›
+lib.offline: (offline · cache)
+lib.no_cache: No cache
+lib.cache: Cache
+lib.remote_sources: 'Remote source update: not pulled yet (click "Refresh")'
+lib.remote_none: 'Remote source update: no remote source configured'
+lib.remote_dirty: 'Remote source update: not pulled yet'
+lib.browse: Browse…
+lib.select_local: Import a program template from remote source
+lib.local_last: Local
+lib.all_sources: All sources (merged)
+lib.default_rule: Default (official · not deletable)
+lib.keep_one: Keep at least one template source (official source cannot be deleted)
+lib.labels: Labels
+lib.required: Required
+lib.precheck: Required before launch
+lib.field_key: Field key
+lib.def_val: Default value
+lib.add_source: Add
+lib.delete_source: Delete this source
+lib.fields: UI fields
+runner.x: All sources (merged)
+check.title: Operate all programs together
+act.log: Log
+act.open_log_dir: Open log directory
+act.manage: Manage
+act.delete_field: Delete field
+st.autostart: Autostart
+st.hidden: Hidden
+st.empty: (empty)
+st.is_latest: '"%{name}" is already up to date'
+side.empty_suffix: " (import via Template library)"
+toast.updated_short: 'Downloaded/updated, current version %{ver}'
+toast.autostart_updated: 'Updated autostart for "%{name}"'
+toast.hidden: 'Hidden "%{name}"'
+toast.unhidden: 'Unhidden "%{name}"'
+toast.deleted: 'Deleted "%{name}"'
+toast.shell_autostart_fail: 'Failed to set shell autostart: %{err}'
+toast.manifest_fail: 'Failed to pull manifest: %{err}'
+toast.import_overwritten: 'Overwrote template "%{id}"'
+toast.import_done: 'Imported template "%{id}" and snapshotted to local config'
+toast.sources_saved: Template sources saved
+toast.stop_all: Stopped all programs
+check.last_checked: '▲ Last checked: %{ago}'
+check.not_checked: ▲ Not checked yet
+check.last_online: 'Last online check: %{date}'
+log.title_fmt: 'Log · %{name}'
+confirm.delete: 'Delete program "%{name}"?\nThis removes its config, downloaded binaries and logs. This cannot be undone.'
+confirm.overwrite_import: 'Program "%{id}" already exists locally. Overwrite with remote template?\nThis replaces its template config. Stop it first if it is running.'
+time.min_ago: '%{n} min ago'
+time.hour_ago: '%{n} hr ago'
+time.day_ago: '%{n} days ago'
+lib.importing: Importing…
+lib.no_match: No matching templates.
+lib.summary: '%{n} sources%{offline} · %{m} templates total'
+lib.summary_offline: ' · %{n} offline (using cache)'
+lib.multi_source: '⚠ multi-source×%{n}'
+lib.last_pull: 'Last pulled %{date}'
+lib.not_pulled: not pulled yet
+shell_log.empty: (No shell operation logs yet)
 log.autostart.launch: 'Autostart: launching "%{name}"'
 log.autostart.fail: 'Autostart: launching "%{name}" failed - %{err}'
 err.datadir: 'Cannot create data dir %{path}'

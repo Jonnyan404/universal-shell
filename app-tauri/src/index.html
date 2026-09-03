@@ -10,18 +10,18 @@
   <div class="app">
     <aside class="sidebar">
       <div class="sidebar-head">
-        <button id="theme-btn" class="theme-btn" title="切换深浅色"></button>
-        <button id="lang-btn" class="lang-btn" title="切换语言">文</button>
-        <button id="settings-btn" class="settings-btn" title="网络设置">⚙</button>
+        <button id="theme-btn" class="theme-btn" data-i18n-title="ui.theme.dark"></button>
+        <button id="lang-btn" class="lang-btn" data-i18n-title="ui.lang">文</button>
+        <button id="settings-btn" class="settings-btn" data-i18n-title="ui.settings">⚙</button>
       </div>
       <nav id="program-tabs" class="room-list"></nav>
-      <button id="batch-link" class="sidebar-settings" title="批量管理">☰</button>
-      <button id="library-link" class="sidebar-settings" title="模板库">▤</button>
+      <button id="batch-link" class="sidebar-settings" data-i18n-title="ui.batch">☰</button>
+      <button id="library-link" class="sidebar-settings" data-i18n-title="ui.library">▤</button>
       <div class="sidebar-foot">
-        <button id="shell-log-link" class="sidebar-settings" title="查看壳自身操作日志">🗒</button>
+        <button id="shell-log-link" class="sidebar-settings" data-i18n-title="ui.shell_log">🗒</button>
       </div>
     </aside>
-    <div class="sidebar-edge"><button id="collapse-btn" class="edge" title="收窄侧栏">«</button></div>
+    <div class="sidebar-edge"><button id="collapse-btn" class="edge" data-i18n-title="ui.collapse">«</button></div>
 
     <main class="main">
       <div id="statusbar" class="statusbar">
@@ -40,11 +40,11 @@
         </div>
         <div id="op-log" class="op-log" hidden></div>
         <div id="manage-log" class="manage-log" hidden>
-          <div id="manage-log-resize" class="manage-log-resize" title="上下拖动调整日志高度"></div>
+          <div id="manage-log-resize" class="manage-log-resize" data-i18n-title="ui.collapse"></div>
           <div class="manage-log-actions">
-            <button id="manage-log-fullscreen" class="log-action" title="全屏">⛶</button>
-            <button id="manage-log-copy" class="log-action" title="复制">⧉</button>
-            <button id="manage-log-refresh" class="log-action" title="刷新">↻</button>
+            <button id="manage-log-fullscreen" class="log-action" data-i18n-title="lib.fullscreen">⛶</button>
+            <button id="manage-log-copy" class="log-action" data-i18n-title="act.copy">⧉</button>
+            <button id="manage-log-refresh" class="log-action" data-i18n-title="act.refresh">↻</button>
           </div>
           <pre id="manage-log-content" class="term-body"></pre>
         </div>
@@ -54,22 +54,22 @@
       <section id="batch-view" class="view" hidden>
         <div class="panel">
           <div class="batch-toolbar">
-            <span class="batch-title">批量管理</span>
-            <button id="batch-refresh">刷新状态</button>
-            <button id="batch-check-updates">检查更新</button>
-            <button id="batch-stop-all">停止所有</button>
+            <span class="batch-title" data-i18n="batch.title">批量管理</span>
+            <button id="batch-refresh" data-i18n="batch.refresh">刷新状态</button>
+            <button id="batch-check-updates" data-i18n="batch.check">检查更新</button>
+            <button id="batch-stop-all" data-i18n="batch.stop_all">停止所有</button>
           </div>
           <div id="batch-checked-at" class="batch-checked-at"></div>
           <table class="batch-table">
             <thead>
               <tr>
-                <th>程序</th>
-                <th>本地版本</th>
-                <th>最新版本</th>
-                <th>状态</th>
-                <th>开机启动</th>
-                <th>隐藏</th>
-                <th>操作</th>
+                <th data-i18n="th.program">程序</th>
+                <th data-i18n="th.local_ver">本地版本</th>
+                <th data-i18n="th.latest_ver">最新版本</th>
+                <th data-i18n="th.status">状态</th>
+                <th data-i18n="th.autostart">开机启动</th>
+                <th data-i18n="th.hidden">隐藏</th>
+                <th data-i18n="th.actions">操作</th>
               </tr>
             </thead>
             <tbody id="batch-body"></tbody>
@@ -82,11 +82,11 @@
       <section id="library-view" class="view" hidden>
         <div class="panel">
           <div class="batch-toolbar">
-            <span class="batch-title">模板库</span>
+            <span class="batch-title" data-i18n="lib.title">模板库</span>
             <span class="spacer"></span>
-            <button id="lib-cache-toggle">本地模板</button>
-            <button id="lib-import-local">导入本地模板</button>
-            <button id="lib-manage-sources">管理源</button>
+            <button id="lib-cache-toggle" data-i18n="lib.local">本地模板</button>
+            <button id="lib-import-local" data-i18n="lib.import">导入本地模板</button>
+            <button id="lib-manage-sources" data-i18n="lib.sources">管理源</button>
           </div>
           <div id="lib-source-bar"></div>
           <div id="lib-fetch-info"></div>
@@ -104,12 +104,12 @@
   <div id="log-modal" class="modal" hidden>
     <div class="modal-box term-modal">
       <div class="term-bar">
-        <span id="log-modal-title" class="term-title">日志</span>
+        <span id="log-modal-title" class="term-title" data-i18n="ui.log">日志</span>
         <span class="term-controls">
-          <button id="log-copy" class="log-action" title="复制">⧉</button>
-          <button id="log-refresh" class="log-refresh">刷新</button>
+          <button id="log-copy" class="log-action" data-i18n-title="act.copy">⧉</button>
+          <button id="log-refresh" class="log-refresh" data-i18n="act.refresh">刷新</button>
         </span>
-        <button id="log-modal-close" class="modal-close" title="关闭">×</button>
+        <button id="log-modal-close" class="modal-close" data-i18n-title="act.close">×</button>
       </div>
       <pre id="log-content" class="term-body"></pre>
     </div>
@@ -119,25 +119,25 @@
   <div id="edit-modal" class="modal" hidden>
     <div class="modal-box wide">
       <div class="modal-head">
-        <span>编辑程序</span>
-        <button id="edit-modal-close" class="modal-close" title="关闭">×</button>
+        <span data-i18n="edit.title">编辑程序</span>
+        <button id="edit-modal-close" class="modal-close" data-i18n-title="act.close">×</button>
       </div>
       <form id="edit-form" class="edit-form">
-        <div class="edit-row"><label>名称</label><input id="edit-name" /></div>
-        <div class="edit-row"><label>描述</label><input id="edit-desc" /></div>
-        <div class="edit-row"><label>GitHub 仓库 (owner/repo)</label><input id="edit-repo" /></div>
-        <div class="edit-row"><label>二进制名</label><input id="edit-binary" /></div>
-        <div class="edit-row"><label>启动参数 args（支持 {key}）</label><input id="edit-args" /></div>
+        <div class="edit-row"><label data-i18n="edit.name">名称</label><input id="edit-name" /></div>
+        <div class="edit-row"><label data-i18n="edit.desc">描述</label><input id="edit-desc" /></div>
+        <div class="edit-row"><label data-i18n="edit.repo">GitHub 仓库 (owner/repo)</label><input id="edit-repo" /></div>
+        <div class="edit-row"><label data-i18n="edit.binary">二进制名</label><input id="edit-binary" /></div>
+        <div class="edit-row"><label data-i18n="edit.args">启动参数 args（支持 {key}）</label><input id="edit-args" /></div>
         <div class="edit-fields">
           <div class="edit-fields-head">
-            <span>UI 字段</span>
-            <button type="button" id="edit-add-field">+ 添加字段</button>
+            <span data-i18n="lib.fields">UI 字段</span>
+            <button type="button" id="edit-add-field" data-i18n="act.add_field">+ 添加字段</button>
           </div>
           <div id="edit-fields-body"></div>
         </div>
         <div class="edit-actions">
-          <button type="submit" id="edit-save">保存</button>
-          <button type="button" id="edit-cancel">取消</button>
+          <button type="submit" id="edit-save" data-i18n="act.save">保存</button>
+          <button type="button" id="edit-cancel" data-i18n="act.cancel">取消</button>
         </div>
       </form>
     </div>
@@ -147,25 +147,25 @@
   <div id="settings-modal" class="modal" hidden>
     <div class="modal-box">
       <div class="modal-head">
-        <span>全局设置</span>
-        <button id="settings-modal-close" class="modal-close" title="关闭">×</button>
+        <span data-i18n="sett.title">全局设置</span>
+        <button id="settings-modal-close" class="modal-close" data-i18n-title="act.close">×</button>
       </div>
       <form id="settings-form" class="edit-form">
         <div class="edit-row">
-          <label>加速地址</label>
-          <input id="sett-accelerate" placeholder="如 https://gh-proxy.com/（GitHub API/下载前缀）" />
+          <label data-i18n="sett.accelerate">加速地址</label>
+          <input id="sett-accelerate" data-i18n-placeholder="sett.acc_placeholder" placeholder="如 https://gh-proxy.com/（GitHub API/下载前缀）" />
         </div>
         <div class="edit-row">
-          <label>通用代理</label>
-          <input id="sett-proxy" placeholder="如 http://127.0.0.1:7890（作用于全部网络请求）" />
+          <label data-i18n="sett.proxy">通用代理</label>
+          <input id="sett-proxy" data-i18n-placeholder="sett.proxy_placeholder" placeholder="如 http://127.0.0.1:7890（作用于全部网络请求）" />
         </div>
         <div class="edit-row">
-          <label>壳开机自启</label>
-          <span class="sett-check"><input type="checkbox" id="sett-shell-auto" /> 开机时自动启动本壳（并拉起开启了自启的程序）</span>
+          <label data-i18n="sett.shell_auto">壳开机自启</label>
+          <span class="sett-check"><input type="checkbox" id="sett-shell-auto" /> <span data-i18n="sett.shell_auto_label">开机时自动启动本壳（并拉起开启了自启的程序）</span></span>
         </div>
         <div class="edit-actions">
-          <button type="submit" id="sett-save">保存</button>
-          <button type="button" id="sett-cancel">取消</button>
+          <button type="submit" id="sett-save" data-i18n="act.save">保存</button>
+          <button type="button" id="sett-cancel" data-i18n="act.cancel">取消</button>
         </div>
       </form>
     </div>
@@ -177,19 +177,19 @@
   <div id="sources-modal" class="modal" hidden>
     <div class="modal-box">
       <div class="modal-head">
-        <span>模板源管理</span>
-        <button id="sources-modal-close" class="modal-close" title="关闭">×</button>
+        <span data-i18n="sources.title">模板源管理</span>
+        <button id="sources-modal-close" class="modal-close" data-i18n-title="act.close">×</button>
       </div>
       <div class="sources-edit">
         <div id="sources-list" class="sources-list"></div>
         <div class="sources-add">
-          <input id="sources-new" placeholder="https://…/templates/" />
-          <button id="sources-add-btn">添加</button>
+          <input id="sources-new" data-i18n-placeholder="sources.placeholder" placeholder="https://…/templates/" />
+          <button id="sources-add-btn" data-i18n="act.add">添加</button>
         </div>
       </div>
       <div class="edit-actions">
-        <button id="sources-save">保存</button>
-        <button id="sources-cancel">取消</button>
+        <button id="sources-save" data-i18n="act.save">保存</button>
+        <button id="sources-cancel" data-i18n="act.cancel">取消</button>
       </div>
     </div>
   </div>
@@ -198,12 +198,12 @@
   <div id="shell-log-modal" class="modal" hidden>
     <div class="modal-box shell-log-box">
       <div class="modal-head">
-        <span>壳操作日志</span>
-        <span class="shell-log-hint">记录壳自身的启动/停止/自启动/导入/设置等操作</span>
+        <span data-i18n="shell_log.title">壳操作日志</span>
+        <span class="shell-log-hint" data-i18n="shell_log.hint">记录壳自身的启动/停止/自启动/导入/设置等操作</span>
         <span class="spacer"></span>
-        <button id="shell-log-refresh" class="log-action" title="刷新">⟳</button>
-        <button id="shell-log-clear" class="log-action" title="清空日志">×</button>
-        <button id="shell-log-modal-close" class="modal-close" title="关闭">✕</button>
+        <button id="shell-log-refresh" class="log-action" data-i18n-title="act.refresh">⟳</button>
+        <button id="shell-log-clear" class="log-action" data-i18n-title="act.clear">×</button>
+        <button id="shell-log-modal-close" class="modal-close" data-i18n-title="act.close">✕</button>
       </div>
       <pre id="shell-log-content" class="term-body shell-log-content"></pre>
     </div>

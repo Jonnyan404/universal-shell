@@ -14,6 +14,181 @@ tmpl.workdir: 工作目录
 tmpl.version_pin: 版本钉住
 tmpl.none: 无实质变化
 tmpl.changed: '变化: %{parts}'
+ui.theme.light: 切换到浅色
+ui.theme.dark: 切换到深色
+ui.lang: 切换语言
+ui.settings: 网络设置
+ui.batch: 批量管理
+ui.library: 模板库
+ui.shell_log: 查看壳自身操作日志
+ui.collapse: 收窄侧栏
+ui.expand: 展开侧栏
+ui.log: 日志
+lib.fullscreen: 全屏
+act.refresh: 刷新
+act.copy: 复制
+act.close: 关闭
+act.save: 保存
+act.cancel: 取消
+act.add: 添加
+act.add_field: '+ 添加字段'
+act.clear: 清空日志
+edit.title: 编辑程序
+edit.name: 名称
+edit.desc: 描述
+edit.repo: GitHub 仓库 (owner/repo)
+edit.binary: 二进制名
+edit.args: 启动参数 args（支持 {key}）
+sett.title: 全局设置
+sett.accelerate: 加速地址
+sett.acc_placeholder: '如 https://gh-proxy.com/（GitHub API/下载前缀）'
+sett.proxy: 通用代理
+sett.proxy_placeholder: '如 http://127.0.0.1:7890（作用于全部网络请求）'
+sett.shell_auto: 壳开机自启
+sett.shell_auto_label: 开机时自动启动本壳（并拉起开启了自启的程序）
+sources.title: 模板源管理
+sources.placeholder: https://…/templates/
+shell_log.title: 壳操作日志
+shell_log.hint: 记录壳自身的启动/停止/自启动/导入/设置等操作
+side.empty: 尚未导入任何程序
+side.empty_hint: 尚未导入任何程序
+batch.title: 批量管理
+batch.refresh: 刷新状态
+batch.check: 检查更新
+batch.stop_all: 停止所有
+th.program: 程序
+th.local_ver: 本地版本
+th.latest_ver: 最新版本
+th.status: 状态
+th.autostart: 开机启动
+th.hidden: 隐藏
+th.actions: 操作
+lib.title: 模板库
+lib.local: 本地模板
+lib.import: 导入本地模板
+lib.sources: 管理源
+st.running: 运行中
+st.stopped: 已停止
+st.not_installed: '%{repo} · 未安装'
+st.running_ver: '运行中 · v%{ver}'
+st.stopped_ver: '已停止 · v%{ver}'
+st.installed: 已安装
+st.not_installed_bare: 未安装
+st.unknown: 未知
+st.latest: 最新
+st.never: 从未
+st.just: 刚刚
+st.local_ver: '本地版本: %{ver}'
+ui.not_imported: 未导入任何程序
+act.start: 启动
+act.stop: 停止
+act.restart: 重启
+act.open_site: 打开网站
+act.copy_addr: 复制地址
+act.browse: 浏览…
+act.edit: 编辑
+act.delete: 删除
+act.import: 导入
+dl.download: 下载
+dl.update: 更新
+dl.downloading: 下载中…
+dl.checking: 正在检查更新…
+dl.checking_short: 检查中…
+dl.done: 检查完成
+log.just: 刚刚
+log.equal_parts: 上次更新
+log.remote_ready: 远程源更新：
+toast.updated: '已下载/更新「%{name}」，当前版本 %{ver}'
+toast.download_fail: '下载/更新失败: %{err}'
+toast.autostart_set: 开机启动已设置
+toast.autostart_enabled: 已开启开机启动
+toast.autostart_disabled: 已关闭开机启动
+toast.started: 已启动
+toast.start_fail: '启动失败: %{err}'
+toast.stopped: 已停止
+toast.stop_fail: '停止失败: %{err}'
+toast.restarted: 已重启
+toast.restart_fail: '重启失败: %{err}'
+toast.copied: 已复制
+toast.copy_fail: 复制失败
+toast.saved: 已保存修改
+toast.settings_saved: 设置已保存
+toast.settings_saved_alt: 已保存配置修改
+toast.op_log_cleared: 已清空壳操作日志
+lib.imported_local: 已从本地文件导入模板
+lib.imported: 已导入到本地程序库（含模板配置）
+lib.already_exists: 本地已存在同名程序，是否覆盖？
+lib.overwrite: 覆盖模板
+lib.local_has: 本地已有模板
+lib.no_sources: 未配置模板源
+lib.no_sources_hint: 点击「刷新」拉取远程源
+lib.latest_checked_hint: 点击「检查更新」联网比对最新版本
+lib.search_ph: 搜索模板（名称 / 分类 / 描述）…
+lib.empty_local: 尚未导入任何模板。从上方远程源点击「导入」即可加入本地程序库。
+lib.empty_remote: 尚未加载清单。点击「刷新」从远程源拉取(离线时可查看上次刷新的列表)。
+lib.pull: 拉取中…
+lib.checked_at: 上次更新
+lib.prev: ‹ 上一页
+lib.next: 下一页 ›
+lib.offline: （离线·缓存）
+lib.no_cache: 无缓存
+lib.cache: 缓存
+lib.remote_sources: 远程源更新：尚未拉取（点击「刷新」）
+lib.remote_none: 远程源更新：未配置远程源
+lib.remote_dirty: 远程源更新：尚未拉取
+lib.browse: 浏览…
+lib.select_local: 从远程源导入程序模板
+lib.local_last: 本地
+lib.all_sources: 全部源（合并）
+lib.default_rule: 默认(官方·不可删)
+lib.keep_one: 至少保留一个模板源（官方源不可删除）
+lib.labels: 标签
+lib.required: 必填
+lib.precheck: 启动前必填
+lib.field_key: 字段 key
+lib.def_val: 默认值
+lib.add_source: 添加
+lib.delete_source: 删除该源
+lib.fields: UI 字段
+runner.x: 全部源（合并）
+check.title: 所有程序统一操作
+act.log: 日志
+act.open_log_dir: 打开日志目录
+act.manage: 管理
+act.delete_field: 删除字段
+st.autostart: 开机启动
+st.hidden: 已隐藏
+st.empty: '(空)'
+st.is_latest: '「%{name}」已是最新版本'
+side.empty_suffix: "(可在「模板库」导入)"
+toast.updated_short: '已下载/更新，当前版本 %{ver}'
+toast.autostart_updated: '已更新「%{name}」开机启动'
+toast.hidden: '已隐藏「%{name}」'
+toast.unhidden: '已取消隐藏「%{name}」'
+toast.deleted: '已删除「%{name}」'
+toast.shell_autostart_fail: '壳开机自启设置失败: %{err}'
+toast.manifest_fail: '清单拉取失败: %{err}'
+toast.import_overwritten: '已覆盖模板「%{id}」'
+toast.import_done: '已导入模板「%{id}」并快照到本地配置'
+toast.sources_saved: 模板源已保存
+toast.stop_all: 已停止所有程序
+check.last_checked: '▲ 上次检查更新：%{ago}'
+check.not_checked: ▲ 尚未检查更新
+check.last_online: '最近一次联网检查：%{date}'
+log.title_fmt: '日志 · %{name}'
+confirm.delete: '确定删除程序「%{name}」？\n将移除其配置、已下载二进制与日志，且不可恢复。'
+confirm.overwrite_import: '本地已存在程序「%{id}」，是否用远程模板覆盖？\n覆盖会替换其模板配置，若已在运行请先停止。'
+time.min_ago: '%{n} 分钟前'
+time.hour_ago: '%{n} 小时前'
+time.day_ago: '%{n} 天前'
+lib.importing: 导入中…
+lib.no_match: 没有匹配的模板。
+lib.summary: '%{n} 个源%{offline} · 共 %{m} 个模板'
+lib.summary_offline: ' · %{n} 个离线(用缓存)'
+lib.multi_source: '⚠ 多源×%{n}'
+lib.last_pull: '上次拉取 %{date}'
+lib.not_pulled: 尚未拉取
+shell_log.empty: (暂无壳操作日志)
 log.autostart.launch: '应用自启动：拉起「%{name}」'
 log.autostart.fail: '应用自启动：拉起「%{name}」失败 - %{err}'
 err.datadir: '无法创建数据目录 %{path}'
