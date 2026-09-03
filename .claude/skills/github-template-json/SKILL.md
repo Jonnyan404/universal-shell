@@ -67,7 +67,7 @@ license: MIT
 - `directory`：`{ key, kind:"directory", label, default:"" }`
 - `boolean`：`{ key, kind:"boolean", label, default:false }`
 - `autostart`：`{ key, kind:"autostart", label, default:false }`（特殊：写系统 LoginItem/自启）
-- 任一字段可加 `"required": true`（值为空时启动前报错）。
+- 任一字段可加 `"required": true` 标记为**必填**：值为空时启动前校验报错，**管理页表单会把必填字段标签标红显示**（末尾带 `*`）。
 
 `args` 是字符串数组，`{key}` 会被对应字段值替换（参照现有模板）。
 

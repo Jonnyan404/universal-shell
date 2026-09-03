@@ -114,7 +114,7 @@ cargo run -p shared --example sign_registry
       "fields": [
         { "key": "host",      "kind": "string",    "label": "监听地址", "default": "0.0.0.0" },
         { "key": "port",      "kind": "string",    "label": "端口",     "default": "9000" },
-        { "key": "config",    "kind": "file",      "label": "配置文件", "filter": "*.json,*.yaml,*.toml" },
+        { "key": "config",    "kind": "file",      "label": "配置文件", "filter": "*.json,*.yaml,*.toml", "required": true },
         { "key": "data_dir",  "kind": "directory", "label": "数据目录" },
         { "key": "verbose",   "kind": "boolean",   "label": "详细日志", "default": false },
         { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
@@ -126,6 +126,8 @@ cargo run -p shared --example sign_registry
 ```
 
 占位符：资产 `filename` 支持 `{name}` `{version}` `{arch}` `{ext}`；`args` 支持任意 `{fieldKey}`。
+
+任一字段可加 `"required": true` 标记为**必填**：值为空时启动前会校验报错（列出缺失字段名）。管理页表单会把必填字段的标签**标红显示**（标签末尾带 `*`）。
 
 ## 数据目录
 

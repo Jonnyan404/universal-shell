@@ -187,6 +187,7 @@ html[data-sidebar='narrow'] .program-list, html[data-sidebar='narrow'] nav#progr
 /* ---------- 程序管理：右栏配置 ---------- */
 .field-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .field-label { width: 140px; flex: none; color: var(--text); text-align: right; }
+.field-label.required { color: var(--danger); font-weight: 600; }
 .field-row input[type="text"] {
   flex: 1; background: var(--panel-2); border: 1px solid var(--border);
   color: var(--text); border-radius: 6px; padding: 7px 10px;
