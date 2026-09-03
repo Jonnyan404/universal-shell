@@ -17,6 +17,8 @@ tmpl.changed: '变化: %{parts}'
 log.autostart.launch: '应用自启动：拉起「%{name}」'
 log.autostart.fail: '应用自启动：拉起「%{name}」失败 - %{err}'
 err.datadir: '无法创建数据目录 %{path}'
+err.init_datadir: 初始化数据目录失败
+err.load_config: 加载配置失败
 err.serialize_config: 序列化配置失败
 err.write_config: '写入配置 %{path} 失败'
 err.asset_validate: '资产校验失败，已删除缓存: %{path}'
@@ -41,6 +43,36 @@ err.runner.not_running: '%{id} 未在运行'
 err.runner.wait: 等待子进程退出失败
 log.runner.started: '已启动 %{id} (pid=%{pid})'
 log.runner.nonzero: '%{id} 非零退出码: %{code}'
+err.registry_not_configured: 未配置注册表
+err.no_cache_manifest: 本地无缓存清单，请先联网刷新
+err.parse_cache_fail: '解析本地缓存清单失败: %{err}'
+err.read_template_fail: '读取模板失败: %{err}'
+err.parse_template_fail: '解析模板失败: %{err}'
+err.program_exists: '程序「%{id}」已存在'
+err.write_file_fail: '写入文件失败: %{err}'
+op.enable: 开启
+op.disable: 关闭
+op.hide: 隐藏
+op.show: 显示
+op.import_local: 从本地文件
+op.start: 启动程序「%{name}」
+op.stop: 停止程序「%{name}」
+op.restart: 重启程序「%{name}」
+op.stop_all: 批量停止所有程序
+op.toggle_autostart: '%{onoff}程序「%{name}」开机自启动'
+op.toggle_shell_autostart: '%{onoff}壳自身开机自启动'
+op.edit_template: 编辑程序「%{name}」模板
+op.delete: 删除程序「%{name}」
+op.toggle_visibility: '%{showhide}程序「%{name}」'
+op.update_sources: '更新模板源列表：%{list}'
+op.import_overwrite: '%{desc} 覆盖导入「%{id}」'
+op.import: '%{desc} 导入「%{name}」'
+op.export: 导出程序「%{name}」模板到本地
+log.autostart.set_fail: 'autostart 设置失败: %{err}'
+log.shell_autostart_fail: '切换壳开机自启失败: %{err}'
+tray.show: 显示主窗口
+tray.quit: 退出
+tray.auto_start: 开机自启
 err.registry.sig_rejected: '拒绝使用签名未通过的清单: %{base}'
 err.registry.parse_manifest: 解析清单失败
 err.registry.empty_offline: 清单为空且处于离线(缓存)状态

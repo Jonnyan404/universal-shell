@@ -283,6 +283,7 @@ dependencies = [
  "env_logger",
  "log",
  "once_cell",
+ "rust-i18n",
  "serde",
  "serde_json",
  "serde_yaml",

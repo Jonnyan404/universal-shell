@@ -17,6 +17,8 @@ tmpl.changed: 'Changed: %{parts}'
 log.autostart.launch: 'Autostart: launching "%{name}"'
 log.autostart.fail: 'Autostart: launching "%{name}" failed - %{err}'
 err.datadir: 'Cannot create data dir %{path}'
+err.init_datadir: Failed to initialize data directory
+err.load_config: Failed to load config
 err.serialize_config: Failed to serialize config
 err.write_config: 'Failed to write config %{path}'
 err.asset_validate: 'Asset verification failed, removed cache: %{path}'
@@ -41,6 +43,36 @@ err.runner.not_running: '%{id} is not running'
 err.runner.wait: Failed to wait for child process to exit
 log.runner.started: 'Started %{id} (pid=%{pid})'
 log.runner.nonzero: '%{id} nonzero exit code: %{code}'
+err.registry_not_configured: Registry not configured
+err.no_cache_manifest: No cached manifest locally. Please refresh online first.
+err.parse_cache_fail: 'Failed to parse local cache manifest: %{err}'
+err.read_template_fail: 'Failed to read template: %{err}'
+err.parse_template_fail: 'Failed to parse template: %{err}'
+err.program_exists: 'Program "%{id}" already exists'
+err.write_file_fail: 'Failed to write file: %{err}'
+op.enable: Enable
+op.disable: Disable
+op.hide: Hide
+op.show: Show
+op.import_local: from local file
+op.start: Start program "%{name}"
+op.stop: Stop program "%{name}"
+op.restart: Restart program "%{name}"
+op.stop_all: Stop all programs
+op.toggle_autostart: '%{onoff} autostart for program "%{name}"'
+op.toggle_shell_autostart: '%{onoff} autostart for the shell'
+op.edit_template: Edit template for program "%{name}"
+op.delete: Delete program "%{name}"
+op.toggle_visibility: '%{showhide} program "%{name}"'
+op.update_sources: 'Updated template sources: %{list}'
+op.import_overwrite: '%{desc} overwrote import "%{id}"'
+op.import: '%{desc} imported "%{name}"'
+op.export: Exported program "%{name}" template to local
+log.autostart.set_fail: 'autostart set failed: %{err}'
+log.shell_autostart_fail: 'Failed to toggle shell autostart: %{err}'
+tray.show: Show main window
+tray.quit: Quit
+tray.auto_start: Autostart
 err.registry.sig_rejected: 'Refusing unsigned-invalid manifest: %{base}'
 err.registry.parse_manifest: Failed to parse manifest
 err.registry.empty_offline: Manifest is empty and in offline (cache) state

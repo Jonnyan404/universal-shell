@@ -12,6 +12,18 @@ use shared::ShellManager;
 use tauri::Manager;
 use tauri::State;
 
+use rust_i18n::t;
+
+rust_i18n::i18n!("../../shared/locales");
+
+/// 解析并应用语言设置：同步 shared 与 Tauri 后端各自的 rust-i18n 状态。
+/// `override_locale` = None 表示跟随系统。返回最终生效语言。
+fn apply_locale(override_locale: Option<&str>) -> String {
+    let effective = shared::locale::apply(override_locale, &system_hint()).to_string();
+    rust_i18n::set_locale(&effective);
+    effective
+}
+
 struct AppState {
     manager: Mutex<ShellManager>,
     config_path: PathBuf,
@@ -201,7 +213,7 @@ fn save_values(
 ) -> Result<(), String> {
     let mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.programs.iter().find(|p| p.id == program_id) else {
-        return Err("程序不存在".into());
+        return Err(t!("err.program_not_found", id = program_id).into());
     };
     mgr.save_field_values(p, &values);
     Ok(())
@@ -218,7 +230,7 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
     {
         let mut mgr = state.manager.lock().unwrap();
         let Some(found) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
-            return Err("程序不存在".into());
+            return Err(t!("err.program_not_found", id = program_id).into());
         };
         p = found;
         bin = mgr.bin_path(&p);
@@ -248,7 +260,7 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
 fn get_status_local(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
     let mut mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
-        return Err("程序不存在".into());
+        return Err(t!("err.program_not_found", id = program_id).into());
     };
     let bin = mgr.bin_path(&p);
     let s = mgr.status_local(&p);
@@ -349,7 +361,7 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
 fn install(state: State<AppState>, program_id: String) -> Result<String, String> {
     let mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
-        return Err("程序不存在".into());
+        return Err(t!("err.program_not_found", id = program_id).into());
     };
     let data_dir = mgr.data_dir.clone();
     drop(mgr);
@@ -364,15 +376,15 @@ fn start_program(
 ) -> Result<StatusView, String> {
     let mut mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.programs.iter().find(|p| p.id == payload.program_id).cloned() else {
-        return Err("程序不存在".into());
+        return Err(t!("err.program_not_found", id = payload.program_id).into());
     };
     mgr.save_field_values(&p, &payload.values);
     // 应用开机启动字段（若配置了）
     if let Err(e) = mgr.apply_key_autostart(&p, &payload.values) {
-        log::info!("autostart 设置失败: {e:#}");
+        log::info!("{}", t!("log.autostart.set_fail", err = format!("{e:#}")));
     }
     mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
-    mgr.log_op(&format!("启动程序「{}」", p.name));
+    mgr.log_op(&t!("op.start", name = &p.name));
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
     Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
@@ -382,11 +394,11 @@ fn start_program(
 fn stop_program(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
     let mut mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
-        return Err("程序不存在".into());
+        return Err(t!("err.program_not_found", id = program_id).into());
     };
     mgr.stop(&program_id).map_err(|e| format!("{e:#}"))?;
     mgr.clear_log(&program_id);
-    mgr.log_op(&format!("停止程序「{}」", p.name));
+    mgr.log_op(&t!("op.stop", name = &p.name));
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
     Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
@@ -400,15 +412,15 @@ fn restart_program(
 ) -> Result<StatusView, String> {
     let mut mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.programs.iter().find(|p| p.id == payload.program_id).cloned() else {
-        return Err("程序不存在".into());
+        return Err(t!("err.program_not_found", id = payload.program_id).into());
     };
     mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
     mgr.save_field_values(&p, &payload.values);
     if let Err(e) = mgr.apply_key_autostart(&p, &payload.values) {
-        log::info!("autostart 设置失败: {e:#}");
+        log::info!("{}", t!("log.autostart.set_fail", err = format!("{e:#}")));
     }
     mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
-    mgr.log_op(&format!("重启程序「{}」", p.name));
+    mgr.log_op(&t!("op.restart", name = &p.name));
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
     Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
@@ -418,7 +430,7 @@ fn restart_program(
 fn stop_all(state: State<AppState>) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
     mgr.stop_all();
-    mgr.log_op("批量停止所有程序");
+    mgr.log_op(&t!("op.stop_all"));
     Ok(())
 }
 
@@ -459,7 +471,7 @@ fn set_autostart(
 ) -> Result<(), String> {
     let mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
-        return Err("程序不存在".into());
+        return Err(t!("err.program_not_found", id = program_id).into());
     };
     // 方案 B：把自启动状态写进该程序的字段值(壳启动时据此决定是否拉起)
     let mut values = mgr.load_field_values(&p);
@@ -472,7 +484,11 @@ fn set_autostart(
         values.insert(key, if enabled { "true".into() } else { "false".into() });
         mgr.save_field_values(&p, &values);
     }
-    mgr.log_op(&format!("{}程序「{}」开机自启动", if enabled { "开启" } else { "关闭" }, p.name));
+    mgr.log_op(&t!(
+        "op.toggle_autostart",
+        onoff = t!(if enabled { "op.enable" } else { "op.disable" }),
+        name = &p.name
+    ));
     Ok(())
 }
 
@@ -485,7 +501,10 @@ fn set_shell_autostart(state: State<AppState>, enabled: bool) -> Result<(), Stri
         .set_shell_enabled(enabled)
         .map_err(|e| format!("{e:#}"));
     if r.is_ok() {
-        mgr.log_op(&format!("{}壳自身开机自启动", if enabled { "开启" } else { "关闭" }));
+        mgr.log_op(&t!(
+            "op.toggle_shell_autostart",
+            onoff = t!(if enabled { "op.enable" } else { "op.disable" })
+        ));
     }
     r
 }
@@ -568,11 +587,7 @@ fn system_hint() -> String {
 fn get_locale(state: State<AppState>) -> LocaleView {
     let mgr = state.manager.lock().unwrap();
     let manual = mgr.locale.clone();
-    let effective = shared::locale::apply(
-        if manual == "auto" { None } else { Some(&manual) },
-        &system_hint(),
-    )
-    .to_string();
+    let effective = apply_locale(if manual == "auto" { None } else { Some(&manual) });
     LocaleView {
         effective,
         manual,
@@ -592,9 +607,7 @@ fn set_locale(state: State<AppState>, locale: String) -> Result<LocaleView, Stri
     };
     let mut mgr = state.manager.lock().unwrap();
     mgr.locale = manual.clone();
-    let effective =
-        shared::locale::apply(if manual == "auto" { None } else { Some(&manual) }, &system_hint())
-            .to_string();
+    let effective = apply_locale(if manual == "auto" { None } else { Some(&manual) });
     mgr.save_config(&state.config_path)
         .map_err(|e| format!("{e:#}"))?;
     Ok(LocaleView {
@@ -614,7 +627,7 @@ struct LogsView {
 fn get_logs(state: State<AppState>, program_id: String) -> Result<LogsView, String> {
     let mgr = state.manager.lock().unwrap();
     if !mgr.programs.iter().any(|p| p.id == program_id) {
-        return Err("程序不存在".into());
+        return Err(t!("err.program_not_found", id = program_id).into());
     }
     let (out, _err) = mgr.read_logs(&program_id, 64 * 1024);
     Ok(LogsView { text: out })
@@ -711,12 +724,12 @@ fn edit_program(
 ) -> Result<ProgramView, String> {
     let mut mgr = state.manager.lock().unwrap();
     let Some(base) = mgr.programs.iter().find(|p| p.id == payload.id).cloned() else {
-        return Err("程序不存在".into());
+        return Err(t!("err.program_not_found", id = payload.id).into());
     };
     let updated = build_program_from_edit(&payload, &base);
     mgr.update_program(&payload.id, &updated, &state.config_path)
         .map_err(|e| format!("{e:#}"))?;
-    mgr.log_op(&format!("编辑程序「{}」模板", base.name));
+    mgr.log_op(&t!("op.edit_template", name = &base.name));
     let view = to_view(&updated);
     Ok(view)
 }
@@ -732,7 +745,7 @@ fn delete_program(state: State<AppState>, program_id: String) -> Result<(), Stri
         .unwrap_or_else(|| program_id.clone());
     mgr.delete_program(&program_id, &state.config_path)
         .map_err(|e| format!("{e:#}"))?;
-    mgr.log_op(&format!("删除程序「{name}」"));
+    mgr.log_op(&t!("op.delete", name = &name));
     Ok(())
 }
 
@@ -751,7 +764,11 @@ fn set_program_hidden(
         .unwrap_or_else(|| program_id.clone());
     mgr.set_hidden(&program_id, hidden, &state.config_path)
         .map_err(|e| format!("{e:#}"))?;
-    mgr.log_op(&format!("{}程序「{name}」", if hidden { "隐藏" } else { "显示" }));
+    mgr.log_op(&t!(
+        "op.toggle_visibility",
+        showhide = t!(if hidden { "op.hide" } else { "op.show" }),
+        name = &name
+    ));
     Ok(())
 }
 
@@ -822,7 +839,7 @@ fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<M
         bases.push(typed);
     }
     if bases.is_empty() {
-        return Err("未配置注册表".into());
+        return Err(t!("err.registry_not_configured").into());
     }
     let merged = shared::load_merged_manifests(
         &bases,
@@ -859,9 +876,9 @@ fn get_merged_manifest_offline(state: State<AppState>) -> Result<MergedManifestV
     };
     let path = cache.join("manifest.json");
     let text =
-        std::fs::read_to_string(&path).map_err(|_| "本地无缓存清单，请先联网刷新".to_string())?;
+        std::fs::read_to_string(&path).map_err(|_| t!("err.no_cache_manifest").to_string())?;
     let m: shared::Manifest =
-        serde_json::from_str(&text).map_err(|e| format!("解析本地缓存清单失败: {e}"))?;
+        serde_json::from_str(&text).map_err(|e| t!("err.parse_cache_fail", err = e).to_string())?;
     let mtime = std::fs::metadata(&path)
         .and_then(|m| m.modified())
         .map(|t| {
@@ -896,7 +913,7 @@ fn set_registries(state: State<AppState>, registries: Vec<String>) -> Result<(),
     mgr.template_registries = cleaned.clone();
     mgr.save_config(&state.config_path)
         .map_err(|e| format!("{e:#}"))?;
-    mgr.log_op(&format!("更新模板源列表：{}", cleaned.join(", ")));
+    mgr.log_op(&t!("op.update_sources", list = cleaned.join(", ")));
     Ok(())
 }
 
@@ -909,10 +926,17 @@ fn import_local_template(
 ) -> Result<ProgramView, String> {
     let mut mgr = state.manager.lock().unwrap();
     let text = std::fs::read_to_string(&template_path)
-        .map_err(|e| format!("读取模板失败: {e}"))?;
+        .map_err(|e| t!("err.read_template_fail", err = e).to_string())?;
     let mut program: shared::config::Program = serde_json::from_str(&text)
-        .map_err(|e| format!("解析模板失败: {e}"))?;
-    commit_program(&mut mgr, &mut program, overwrite, &state.config_path, "从本地文件").map_err(|e| e)
+        .map_err(|e| t!("err.parse_template_fail", err = e).to_string())?;
+    commit_program(
+        &mut mgr,
+        &mut program,
+        overwrite,
+        &state.config_path,
+        &t!("op.import_local"),
+    )
+    .map_err(|e| e)
 }
 
 /// 本地导入公共落盘：解析好 Program 后按 overwrite 覆盖或追加进受管列表。
@@ -928,19 +952,19 @@ fn commit_program(
     }
     if let Some(idx) = mgr.programs.iter().position(|p| p.id == program.id) {
         if !overwrite {
-            return Err(format!("程序「{}」已存在", program.id));
+            return Err(t!("err.program_exists", id = &program.id).to_string());
         }
         mgr.programs[idx] = program.clone();
         let view = to_view(program);
         mgr.save_config(config_path).map_err(|e| format!("{e:#}"))?;
-        mgr.log_op(&format!("{import_desc} 覆盖导入「{}」", program.id));
+        mgr.log_op(&t!("op.import_overwrite", desc = import_desc, id = &program.id));
         return Ok(view);
     }
     let view = to_view(program);
     let name = program.name.clone();
     mgr.programs.push(program.clone());
     mgr.save_config(config_path).map_err(|e| format!("{e:#}"))?;
-    mgr.log_op(&format!("{import_desc} 导入「{name}」"));
+    mgr.log_op(&t!("op.import", desc = import_desc, name = &name));
     Ok(view)
 }
 
@@ -956,10 +980,10 @@ fn export_template(
         .programs
         .iter()
         .find(|p| p.id == program_id)
-        .ok_or_else(|| "程序不存在".to_string())?;
+        .ok_or_else(|| t!("err.program_not_found", id = program_id).to_string())?;
     let json = serde_json::to_string_pretty(p).map_err(|e| format!("{e:#}"))?;
-    std::fs::write(&dest_path, json).map_err(|e| format!("写入文件失败: {e}"))?;
-    mgr.log_op(&format!("导出程序「{}」模板到本地", p.name));
+    std::fs::write(&dest_path, json).map_err(|e| t!("err.write_file_fail", err = e).to_string())?;
+    mgr.log_op(&t!("op.export", name = &p.name));
     Ok(())
 }
 
@@ -987,13 +1011,13 @@ fn import_template(
 
     if let Some(idx) = mgr.programs.iter().position(|p| p.id == program.id) {
         if !overwrite {
-            return Err(format!("程序「{}」已存在", program.id));
+            return Err(t!("err.program_exists", id = &program.id).to_string());
         }
         mgr.programs[idx] = program.clone();
         let view = to_view(&program);
         mgr.save_config(&state.config_path)
             .map_err(|e| format!("{e:#}"))?;
-        mgr.log_op(&format!("覆盖导入模板「{}」", program.id));
+        mgr.log_op(&t!("op.import_overwrite", desc = t!("op.import_local"), id = &program.id));
         return Ok(view);
     }
     // 允许模板没有显式 binary 时用 id 兜底
@@ -1004,7 +1028,7 @@ fn import_template(
     mgr.programs.push(program);
     mgr.save_config(&state.config_path)
         .map_err(|e| format!("{e:#}"))?;
-    mgr.log_op(&format!("导入模板「{}」", template_id));
+    mgr.log_op(&t!("op.import", desc = t!("op.import_local"), name = &template_id));
     Ok(view)
 }
 
@@ -1047,11 +1071,11 @@ pub fn run() {
         .map(PathBuf::from)
         .unwrap_or_else(|| data_dir.join("shell.json"));
 
-    let mut manager = ShellManager::new(data_dir.clone()).expect("初始化数据目录失败");
+    let mut manager = ShellManager::new(data_dir.clone()).expect(&t!("err.init_datadir"));
     if config_path.exists() {
         manager
             .load_config(&config_path)
-            .expect("加载配置失败");
+            .expect(&t!("err.load_config"));
     } else if let Ok(cwd) = std::env::current_dir() {
         for cand in [cwd.join("shell.json"), cwd.join("demo/shell.json")] {
             if cand.exists() {
@@ -1061,15 +1085,8 @@ pub fn run() {
         }
     }
 
-    // 应用界面语言（auto=跟随系统 或 手动覆写），供 shared/托盘等在启动早期取用
-    shared::locale::apply(
-        if manager.locale == "auto" {
-            None
-        } else {
-            Some(&manager.locale)
-        },
-        &system_hint(),
-    );
+    // 应用界面语言（auto=跟随系统 或 手动覆写），供 shared/后端/托盘等在启动早期取用
+    apply_locale(if manager.locale == "auto" { None } else { Some(&manager.locale) });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -1083,9 +1100,9 @@ pub fn run() {
             use tauri::menu::{CheckMenuItem, Menu, MenuItem};
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-            let show_i = MenuItem::with_id(app, "tray_show", "显示主窗口", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "tray_quit", "退出", true, None::<&str>)?;
-            let auto_i = CheckMenuItem::with_id(app, "tray_auto", "开机自启", true, false, None::<&str>)?;
+            let show_i = MenuItem::with_id(app, "tray_show", t!("tray.show"), true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "tray_quit", t!("tray.quit"), true, None::<&str>)?;
+            let auto_i = CheckMenuItem::with_id(app, "tray_auto", t!("tray.auto_start"), true, false, None::<&str>)?;
             if let Ok(on) = app
                 .state::<AppState>()
                 .manager
@@ -1120,7 +1137,7 @@ pub fn run() {
                                 let mut mgr = st.manager.lock().unwrap();
                                 next = !mgr.autostart.shell_is_enabled();
                                 if let Err(e) = mgr.autostart.set_shell_enabled(next) {
-                                    log::warn!("切换壳开机自启失败: {e:#}");
+                                    log::warn!("{}", t!("log.shell_autostart_fail", err = format!("{e:#}")));
                                 }
                             }
                             let _ = auto_i.set_checked(next);
