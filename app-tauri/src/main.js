@@ -1269,7 +1269,6 @@ function renderLibrary() {
           m: manifest.templates.length,
         });
 
-  el.libSearch.innerHTML = "";
   const kw = libSearchValue.trim().toLowerCase();
   const rows = manifest.templates.filter(([id, tpl, base]) => {
     if (libSource && base !== libSource) return false;
