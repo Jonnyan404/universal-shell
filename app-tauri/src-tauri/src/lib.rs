@@ -439,8 +439,43 @@ fn install(app: AppHandle, state: State<AppState>, program_id: String) -> Result
     Ok(())
 }
 
+#[derive(Clone, serde::Serialize)]
+struct ProcessExitEvent {
+    program_id: String,
+}
+
+/// 程序启动后起一个后台监视线程：探测到该程序退出即 emit `process-exited`，
+/// 让前端能即时恢复「启动」按钮（而不必等 15s/3s 轮询）。
+fn spawn_exit_watcher(app: AppHandle, program_id: String) {
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let mut exited = false;
+        while !exited {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            let running = {
+                let st = handle.state::<AppState>();
+                let mut mgr = st.manager.lock().unwrap();
+                match mgr.programs.iter().find(|p| p.id == program_id).cloned() {
+                    Some(p) => mgr.status_local(&p).running,
+                    None => break, // 程序已被移除/卸载：停止监听
+                }
+            };
+            if !running {
+                let _ = handle.emit(
+                    "process-exited",
+                    ProcessExitEvent {
+                        program_id: program_id.clone(),
+                    },
+                );
+                exited = true;
+            }
+        }
+    });
+}
+
 #[tauri::command]
 fn start_program(
+    app: AppHandle,
     state: State<AppState>,
     payload: StartPayload,
 ) -> Result<StatusView, String> {
@@ -457,9 +492,9 @@ fn start_program(
     mgr.log_op(&t!("op.start", name = &p.name));
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
+    spawn_exit_watcher(app.clone(), p.id.clone());
     Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
 }
-
 #[tauri::command]
 fn stop_program(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
     let mut mgr = state.manager.lock().unwrap();
@@ -477,6 +512,7 @@ fn stop_program(state: State<AppState>, program_id: String) -> Result<StatusView
 /// 重启：停止后重新加载字段值并启动
 #[tauri::command]
 fn restart_program(
+    app: AppHandle,
     state: State<AppState>,
     payload: StartPayload,
 ) -> Result<StatusView, String> {
@@ -493,6 +529,7 @@ fn restart_program(
     mgr.log_op(&t!("op.restart", name = &p.name));
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
+    spawn_exit_watcher(app.clone(), p.id.clone());
     Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
 }
 

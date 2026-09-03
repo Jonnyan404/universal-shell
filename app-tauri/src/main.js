@@ -1758,6 +1758,13 @@ window.addEventListener("DOMContentLoaded", async () => {
   window.__TAURI__.event
     .listen("download-progress", (e) => handleDownloadProgress(e.payload))
     .catch(() => {});
+  // 程序退出事件（由后端监视线程在探测到进程退出时广播）：即时刷新状态，恢复「启动」按钮
+  window.__TAURI__.event
+    .listen("process-exited", (e) => {
+      const pid = e.payload?.program_id;
+      if (view === "manage" && pid === current?.id) refreshStatusLocal();
+    })
+    .catch(() => {});
   const langBtn = document.querySelector("#lang-btn");
   if (langBtn) {
     const updateLangBtn = () => {
