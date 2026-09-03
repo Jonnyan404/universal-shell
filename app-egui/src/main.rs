@@ -1301,7 +1301,7 @@ impl ShellApp {
                                 }
                             }
                         }
-                        // 操作（紧凑按钮，自动换行避免超出可视区）
+                        // 操作（横向排列：超宽时随外层 ScrollArea::both 横向滚动）
                         let up_to_date = st.installed
                             && st.latest_version.as_deref() == Some(st.local_version.as_str());
                         let dl_label = if !st.installed {
@@ -1311,8 +1311,7 @@ impl ShellApp {
                         } else {
                             t!("dl.update").to_string()
                         };
-                        ui.set_max_width(430.0);
-                        ui.horizontal_wrapped(|ui| {
+                        ui.horizontal(|ui| {
                             let dl_btn = ui.add_enabled(!up_to_date, egui::Button::new(dl_label));
                             if dl_btn.clicked() {
                                 self.spawn_install(p.clone());
