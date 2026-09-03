@@ -30,8 +30,8 @@
     "aarch64": "arm64"
   },
   "fields": [
-    { "key": "input", "kind": "file", "label": "输入文件", "default": "", "filter": "*" },
-    { "key": "recipient", "kind": "string", "label": "接收方密钥", "default": "", "placeholder": "age1…" },
+    { "key": "input", "kind": "file", "label": "输入文件", "default": "", "filter": "*", "required": true },
+    { "key": "recipient", "kind": "string", "label": "接收方密钥", "default": "", "placeholder": "age1…", "required": true },
     { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-o out.age …" }
   ],
   "args": ["-r", "{recipient}", "{input}"]

@@ -35,7 +35,7 @@
   "fields": [
     { "key": "bind", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
     { "key": "port", "kind": "string", "label": "端口", "default": "8088", "placeholder": "8088" },
-    { "key": "src", "kind": "string", "label": "源 (本地路径或 remote:path)", "default": "" },
+    { "key": "src", "kind": "string", "label": "源 (本地路径或 remote:path)", "default": "", "required": true },
     { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
   ],
   "args": ["serve", "http", "{src}", "--addr", "{bind}:{port}", "--vfs-cache-mode", "off"]

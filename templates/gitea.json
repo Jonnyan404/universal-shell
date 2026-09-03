@@ -28,7 +28,7 @@
   },
   "fields": [
     { "key": "bind", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
-    { "key": "worktree", "kind": "directory", "label": "安装/数据目录", "default": "" },
+    { "key": "worktree", "kind": "directory", "label": "安装/数据目录", "default": "", "required": true },
     { "key": "port", "kind": "string", "label": "端口", "default": "3000", "placeholder": "3000" },
     { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
   ],

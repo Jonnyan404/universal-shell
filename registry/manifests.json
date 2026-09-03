@@ -1,5 +1,5 @@
 {
-  "revision": "rev-1788359465",
+  "revision": "rev-1788428042",
   "categories": [
     "file-sharing",
     "sync",
@@ -22,6 +22,13 @@
       "category": "file-sharing",
       "description": "croc — 点对点文件传输工具，一条命令在两台电脑之间传文件/文件夹。无需服务器，端到端加密。",
       "repo": "schollz/croc"
+    },
+    {
+      "id": "mihomo",
+      "name": "mihomo",
+      "category": "proxy",
+      "description": "mihomo（Clash Meta 内核）— 规则化代理内核，支持多种出站协议。需自行提供 config.yaml。注意在配置中把监听地址设为 127.0.0.1，避免暴露到局域网。",
+      "repo": "MetaCubeX/mihomo"
     },
     {
       "id": "lazygit",

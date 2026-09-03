@@ -30,7 +30,7 @@
     "aarch64": "arm64"
   },
   "fields": [
-    { "key": "config", "kind": "file", "label": "config.json", "default": "", "filter": "*.json" },
+    { "key": "config", "kind": "file", "label": "config.json", "default": "", "filter": "*.json", "required": true },
     { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-D <dir> -D 数据目录 …" }
   ],
   "args": ["run", "-c", "{config}", "{args_extra}"]
