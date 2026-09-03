@@ -1217,10 +1217,10 @@ function renderLibrary() {
 
   el.libSearch.innerHTML = "";
   const kw = libSearchValue.trim().toLowerCase();
-  const rows = manifest.templates.filter(([id, t, base]) => {
+  const rows = manifest.templates.filter(([id, tpl, base]) => {
     if (libSource && base !== libSource) return false;
     if (!kw) return true;
-    const hay = (t ? [id, t.id, t.name, t.category, t.description].join(" ") : "").toLowerCase();
+    const hay = (tpl ? [id, tpl.id, tpl.name, tpl.category, tpl.description].join(" ") : "").toLowerCase();
     return hay.includes(kw);
   });
 
@@ -1232,20 +1232,20 @@ function renderLibrary() {
   if (!slice.length) {
     el.libList.innerHTML = '<div class="lib-desc">' + t("lib.no_match") + "</div>";
   }
-  for (const [id, t, base] of slice) {
+  for (const [id, tpl, base] of slice) {
     const card = document.createElement("div");
     card.className = "lib-card";
     const top = document.createElement("div");
     top.className = "lib-top";
     const h = document.createElement("span");
     h.className = "lib-name";
-    h.textContent = t.name;
+    h.textContent = tpl.name;
     const cat = document.createElement("span");
     cat.className = "lib-cat";
-    cat.textContent = `[${t.category}]`;
+    cat.textContent = `[${tpl.category}]`;
     const repo = document.createElement("span");
     repo.className = "lib-repo";
-    repo.textContent = t.repo;
+    repo.textContent = tpl.repo;
 
     const imported = programs.some((p) => p.id === id);
     const conflict = (manifest.conflicts || []).find(([cid]) => cid === id);
@@ -1265,7 +1265,7 @@ function renderLibrary() {
 
     const desc = document.createElement("div");
     desc.className = "lib-desc";
-    desc.textContent = t.description;
+    desc.textContent = tpl.description;
     const meta = document.createElement("div");
     meta.className = "lib-meta";
     if (imported) {
@@ -1330,8 +1330,8 @@ function renderSourceBar() {
         );
         parts.push(
           offline
-            ? `离线·${fetched ? t("lib.cache") + timeAgo(fetched) : t("lib.no_cache")}`
-            : `在线·${fetched ? t("log.equal_parts") + " " + timeAgo(fetched) : t("log.just")}`
+            ? t("lib.offline_status", { suffix: fetched ? t("lib.cache") + timeAgo(fetched) : t("lib.no_cache") })
+            : t("lib.online_status", { suffix: fetched ? t("log.equal_parts") + " " + timeAgo(fetched) : t("log.just") })
         );
       }
       updateSpan.textContent = t("log.remote_ready") + parts.join("　");

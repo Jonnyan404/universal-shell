@@ -21,6 +21,7 @@ ui.settings: Network settings
 ui.batch: Batch management
 ui.library: Template library
 ui.shell_log: View shell operation log
+ui.shell_log_short: Shell log
 ui.collapse: Collapse sidebar
 ui.expand: Expand sidebar
 ui.log: Log
@@ -133,6 +134,8 @@ lib.next: Next ›
 lib.offline: (offline · cache)
 lib.no_cache: No cache
 lib.cache: Cache
+lib.offline_status: 'Offline·%{suffix}'
+lib.online_status: 'Online·%{suffix}'
 lib.remote_sources: 'Remote source update: not pulled yet (click "Refresh")'
 lib.remote_none: 'Remote source update: no remote source configured'
 lib.remote_dirty: 'Remote source update: not pulled yet'

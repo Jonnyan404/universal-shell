@@ -21,6 +21,7 @@ ui.settings: 网络设置
 ui.batch: 批量管理
 ui.library: 模板库
 ui.shell_log: 查看壳自身操作日志
+ui.shell_log_short: 壳日志
 ui.collapse: 收窄侧栏
 ui.expand: 展开侧栏
 ui.log: 日志
@@ -133,6 +134,8 @@ lib.next: 下一页 ›
 lib.offline: （离线·缓存）
 lib.no_cache: 无缓存
 lib.cache: 缓存
+lib.offline_status: '离线·%{suffix}'
+lib.online_status: '在线·%{suffix}'
 lib.remote_sources: 远程源更新：尚未拉取（点击「刷新」）
 lib.remote_none: 远程源更新：未配置远程源
 lib.remote_dirty: 远程源更新：尚未拉取
