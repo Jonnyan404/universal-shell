@@ -167,6 +167,16 @@ html[data-sidebar='narrow'] .program-list, html[data-sidebar='narrow'] nav#progr
 .dl-btn:hover:not(:disabled) { filter: brightness(1.08); }
 .dl-btn:disabled { opacity: .55; cursor: not-allowed; }
 
+/* 下载/更新按钮上的进度条（半透明进度层，宽度由 --p 控制） */
+.dl-progress-btn { position: relative; overflow: hidden; }
+.dl-progress-btn::after {
+  content: ""; position: absolute; top: 0; left: 0; bottom: 0;
+  width: var(--p, 0%); background: rgba(0, 0, 0, 0.18);
+  transition: width 0.15s linear; pointer-events: none;
+}
+.dl-btn.dl-progress-btn::after,
+.op-btn.op-primary.dl-progress-btn::after { background: rgba(255, 255, 255, 0.3); }
+
 .view { flex: 1; padding: 18px; overflow-y: auto; }
 .pills { display: flex; flex-wrap: wrap; gap: 6px; }
 .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }

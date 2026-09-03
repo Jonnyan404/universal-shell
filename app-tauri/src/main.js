@@ -228,26 +228,89 @@ async function installProgram(id, btn) {
   installing.add(id);
   if (btn) {
     btn.disabled = true;
+    btn.classList.add("dl-progress-btn");
+    btn.style.setProperty("--p", "0%");
     btn.textContent = t("dl.downloading");
   }
   syncInstallBtns(id);
+  // install 命令已改为后台线程执行并立即返回；真实进度/完成/失败见 download-progress 事件
   try {
-    const v = await invoke("install", { programId: id });
-    const p = programs.find((x) => x.id === id);
-    showNotice(t("toast.updated", { name: p ? p.name : id, ver: v }));
-    if (id === current?.id) logOp(t("toast.updated_short", { ver: v }));
+    await invoke("install", { programId: id });
   } catch (e) {
-    showNotice(String(e), true);
-    if (id === current?.id) logOp(t("toast.download_fail", { err: e }));
-  } finally {
     installing.delete(id);
     if (btn) {
       btn.disabled = false;
+      clearButtonProgress(btn);
       btn.textContent = btn.dataset.installed === "1" ? t("dl.update") : t("dl.download");
     }
     syncInstallBtns(id);
+    showNotice(String(e), true);
+    if (id === current?.id) logOp(t("toast.download_fail", { err: e }));
+  }
+}
+
+function findDlButton(id) {
+  if (current?.id === id) {
+    const b = document.querySelector("#dl-btn");
+    if (b) return b;
+  }
+  return document.querySelector(`#batch-body button[data-program-id="${id}"]`);
+}
+
+function setButtonProgress(btn, pct, label) {
+  if (!btn) return;
+  btn.classList.add("dl-progress-btn");
+  btn.style.setProperty("--p", pct + "%");
+  btn.textContent = label;
+}
+
+function clearButtonProgress(btn) {
+  if (!btn) return;
+  btn.classList.remove("dl-progress-btn");
+  btn.style.removeProperty("--p");
+}
+
+function handleDownloadProgress(payload) {
+  const { program_id, stage, received, total, done, error, version } = payload || {};
+  const btn = findDlButton(program_id);
+  if (stage === "downloading") {
+    const pct =
+      total ? Math.min(99, Math.round((received / total) * 100)) : null;
+    setButtonProgress(
+      btn,
+      pct == null ? 0 : pct,
+      pct == null ? t("dl.downloading") : t("dl.progress", { pct }),
+    );
+  } else if (stage === "verifying" || stage === "extracting") {
+    setButtonProgress(btn, 100, t("dl.working"));
+  } else if (done) {
+    completeInstall(program_id, null, version || "");
+  } else if (error) {
+    completeInstall(program_id, error, "");
+  }
+}
+
+async function completeInstall(id, error, version) {
+  installing.delete(id);
+  try {
     if (view === "batch") await refreshBatchLocal();
     else if (current?.id === id) await refreshStatusLocal();
+    else await refresh();
+  } catch {}
+  syncInstallBtns(id);
+  const btn = findDlButton(id);
+  clearButtonProgress(btn);
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = btn.dataset.installed === "1" ? t("dl.update") : t("dl.download");
+  }
+  if (error) {
+    showNotice(String(error), true);
+    if (id === current?.id) logOp(t("toast.download_fail", { err: error }));
+  } else {
+    const p = programs.find((x) => x.id === id);
+    showNotice(t("toast.updated", { name: p ? p.name : id, ver: version }));
+    if (id === current?.id) logOp(t("toast.updated_short", { ver: version }));
   }
 }
 
@@ -668,6 +731,8 @@ function renderBatch() {
     // 下载 / 更新（复用状态栏安装逻辑，防重复触发；已最新时置灰）
     const isUpToDate = s.installed && s.up_to_date;
     const dl = makeOpBtn(s.installed ? (isUpToDate ? t("st.latest") : t("dl.update")) : t("dl.download"), async () => {
+      dl.dataset.programId = item.id;
+      dl.classList.add("dl-progress-btn");
       dl.dataset.installed = s.installed ? "1" : "0";
       // 最新版本未知时先联网检查，避免不必要的覆盖安装
       if (s.installed && !s.latest_version) {
@@ -1689,6 +1754,10 @@ window.addEventListener("DOMContentLoaded", async () => {
   await loadLocale();
   applyStaticI18n();
   applyTheme();
+  // 后台安装进度事件：实时更新下载按钮进度条与完成/失败终态
+  window.__TAURI__.event
+    .listen("download-progress", (e) => handleDownloadProgress(e.payload))
+    .catch(() => {});
   const langBtn = document.querySelector("#lang-btn");
   if (langBtn) {
     const updateLangBtn = () => {

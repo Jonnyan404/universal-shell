@@ -8,6 +8,7 @@ pub mod config;
 pub mod extract;
 pub mod github;
 pub mod locale;
+pub mod progress;
 pub mod registry;
 pub mod registry_sign;
 pub mod runner;
@@ -18,6 +19,7 @@ rust_i18n::i18n!("locales");
 
 pub use config::{AssetRule, ExtractMode, Field, FieldKind, Program, ProxySettings, ShellConfig};
 pub use github::{clear_github_cache, GitHub};
+pub use progress::{DownloadProgress, DownloadStage};
 pub use registry::{
     load_merged_manifests, Manifest, MergedSource, RegistryClient, RegistryState, TemplateIndex,
 };

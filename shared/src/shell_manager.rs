@@ -254,8 +254,11 @@ impl ShellManager {
     ///
     /// 从 GitHub 拉最新版本，下载匹配当前 OS/架构的资产，解压出成员落盘为
     /// bin_path(与壳不同名，天然防覆盖)。已装同类文件时保留旧二进制为 .old 便于回滚。
-    pub fn install_or_update(&self, program: &Program, on_progress: impl Fn(&str)) -> anyhow::Result<(String, String)> {
-        let _ = on_progress;
+    pub fn install_or_update(
+        &self,
+        program: &Program,
+        on_progress: &dyn Fn(&crate::progress::DownloadProgress),
+    ) -> anyhow::Result<(String, String)> {
         // 1. 查最新版本
         let release: LatestRelease = self.github.latest(&program.repo)?;
         let version = release.tag_name.trim_start_matches('v').to_string();
@@ -276,10 +279,15 @@ impl ShellManager {
         // 3. 下载到临时文件
         let dl_path = self.data_dir.join(format!(".dl-{}", &asset_name));
         info!("{}", t!("log.downloading", url = url, path = dl_path.display()));
-        self.github.download_to(&url, &dl_path)?;
+        use crate::progress::{DownloadProgress, DownloadStage};
+        on_progress(&DownloadProgress::stage(DownloadStage::Downloading));
+        self.github.download_to_with_progress(&url, &dl_path, &|received, total| {
+            on_progress(&DownloadProgress::downloading(received, total));
+        })?;
         info!("{}", t!("log.download_done", bytes = std::fs::metadata(&dl_path).map(|m| m.len()).unwrap_or(0)));
 
         // 3b. sha256 校验：优先用 GitHub API 下发的 digest；模板显式 check_sha256 钉住时以它为准
+        on_progress(&DownloadProgress::stage(DownloadStage::Verifying));
         let expect = match (&program.check_sha256, &api_digest) {
             (Some(pin), _) => Some(pin.clone()),
             (None, Some(d)) => Some(d.clone()),
@@ -297,6 +305,7 @@ impl ShellManager {
         }
 
         // 4. 若为 whole 模式则整包解到 <id> 目录，再令 bin 指向其中 member
+        on_progress(&DownloadProgress::stage(DownloadStage::Extracting));
         let run_target = self.bin_path(program);
         let package_dir = self.data_dir.join(&program.id);
         match rule.mode {
@@ -354,6 +363,15 @@ impl ShellManager {
 
     /// 独立(data_dir + Program)的安装入口，供线程/CLI 使用。返回最新版本号。
     pub fn install_standalone(data_dir: &PathBuf, program: &Program) -> anyhow::Result<String> {
+        Self::install_standalone_with_progress(data_dir, program, &|_| {})
+    }
+
+    /// 独立安装 + 进度回调（WebView/CLI 展示进度用）。
+    pub fn install_standalone_with_progress(
+        data_dir: &PathBuf,
+        program: &Program,
+        on_progress: &dyn Fn(&crate::progress::DownloadProgress),
+    ) -> anyhow::Result<String> {
         let mut mgr = ShellManager::new(data_dir.clone())?;
         // 若存在 shell.json，则读取并应用其网络代理设置
         let cfg_path = data_dir.join("shell.json");
@@ -363,7 +381,7 @@ impl ShellManager {
                     .apply_network(&cfg.proxy.accelerate_prefix, &cfg.proxy.http_proxy);
             }
         }
-        let (version, _) = mgr.install_or_update(program, |_| {})?;
+        let (version, _) = mgr.install_or_update(program, on_progress)?;
         Ok(version)
     }
 

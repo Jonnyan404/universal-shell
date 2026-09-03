@@ -11,6 +11,8 @@ use shared::config::{Field, Program};
 use shared::ShellManager;
 use tauri::Manager;
 use tauri::State;
+use tauri::AppHandle;
+use tauri::Emitter;
 
 use rust_i18n::t;
 
@@ -357,16 +359,84 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
         .collect())
 }
 
+#[derive(Clone, serde::Serialize)]
+struct DownloadEvent {
+    program_id: String,
+    stage: String,
+    received: u64,
+    total: u64,
+    done: bool,
+    error: Option<String>,
+    version: Option<String>,
+}
+
+/// 触发下载+安装。为不阻塞 UI，放到后台线程执行，进度经 `download-progress`
+/// 事件流式广播（含最终 done/error 终态）。
 #[tauri::command]
-fn install(state: State<AppState>, program_id: String) -> Result<String, String> {
+fn install(app: AppHandle, state: State<AppState>, program_id: String) -> Result<(), String> {
     let mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
         return Err(t!("err.program_not_found", id = program_id).into());
     };
     let data_dir = mgr.data_dir.clone();
     drop(mgr);
-    // 独立下载，避免长时间持有锁
-    ShellManager::install_standalone(&data_dir, &p).map_err(|e| format!("{e:#}"))
+
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        use shared::progress::{DownloadProgress, DownloadStage};
+        let pid = p.id.clone();
+        let stage_name = |st: &DownloadStage| match st {
+            DownloadStage::Downloading => "downloading",
+            DownloadStage::Verifying => "verifying",
+            DownloadStage::Extracting => "extracting",
+        };
+        let on_progress = |pr: &DownloadProgress| {
+            let _ = handle.emit(
+                "download-progress",
+                DownloadEvent {
+                    program_id: pid.clone(),
+                    stage: stage_name(&pr.stage).to_string(),
+                    received: pr.received,
+                    total: pr.total,
+                    done: false,
+                    error: None,
+                    version: None,
+                },
+            );
+        };
+        let result = shared::ShellManager::install_standalone_with_progress(&data_dir, &p, &on_progress);
+        match result {
+            Ok(version) => {
+                let _ = handle.emit(
+                    "download-progress",
+                    DownloadEvent {
+                        program_id: pid.clone(),
+                        stage: "done".to_string(),
+                        received: 0,
+                        total: 0,
+                        done: true,
+                        error: None,
+                        version: Some(version),
+                    },
+                );
+            }
+            Err(e) => {
+                let _ = handle.emit(
+                    "download-progress",
+                    DownloadEvent {
+                        program_id: pid.clone(),
+                        stage: "error".to_string(),
+                        received: 0,
+                        total: 0,
+                        done: false,
+                        error: Some(format!("{e:#}")),
+                        version: None,
+                    },
+                );
+            }
+        }
+    });
+    Ok(())
 }
 
 #[tauri::command]

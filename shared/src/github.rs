@@ -153,6 +153,18 @@ impl GitHub {
 
     /// 下载资产到目标路径（URL 已含加速前缀；仅通用代理作用于请求本身）
     pub fn download_to(&self, url: &str, dest: &PathBuf) -> anyhow::Result<()> {
+        self.download_to_with_progress(url, dest, &|_, _| {})
+    }
+
+    /// 带进度回调的下载：逐块读取并回调 (bytes_received, total_bytes)。
+    /// `total` 未知时为 0（如上游未给 Content-Length）。
+    pub fn download_to_with_progress(
+        &self,
+        url: &str,
+        dest: &PathBuf,
+        on_progress: &dyn Fn(u64, u64),
+    ) -> anyhow::Result<()> {
+        use std::io::{Read, Write};
         let mut resp = self
             .client
             .get(url)
@@ -165,9 +177,20 @@ impl GitHub {
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        let total = resp.content_length().unwrap_or(0);
         let mut file = std::fs::File::create(dest)
             .with_context(|| t!("err.github.create_dest", path = dest.display()).to_string())?;
-        std::io::copy(&mut resp, &mut file)?;
+        let mut buf = [0u8; 64 * 1024];
+        let mut received: u64 = 0;
+        loop {
+            let n = resp.read(&mut buf).context(t!("err.github.download"))?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n]).context(t!("err.github.download"))?;
+            received += n as u64;
+            on_progress(received, total);
+        }
         Ok(())
     }
 
