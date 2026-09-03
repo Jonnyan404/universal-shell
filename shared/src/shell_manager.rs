@@ -114,8 +114,12 @@ impl ShellManager {
         Ok(Self {
             data_dir,
             programs: vec![],
-            template_registries: vec![],
-            registry_pubkeys: BTreeMap::new(),
+            // 默认内置官方 GitHub 源(附 demo 公钥验签)，保证全新数据目录也能看到官方模板；
+            // 若后续加载了 shell.json 且用户显式配置了其它源，由 load_config 覆盖之。
+            template_registries: vec![DEFAULT_REGISTRY.to_string()],
+            registry_pubkeys: [(DEFAULT_REGISTRY.to_string(), DEFAULT_REGISTRY_PUBKEY.to_string())]
+                .into_iter()
+                .collect(),
             github: GitHub::default(),
             runner: Runner::new(),
             autostart: AutoStart::new(),
