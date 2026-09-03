@@ -271,6 +271,7 @@ dependencies = [
  "log",
  "rfd 0.17.2",
  "rust-i18n",
+ "serde_json",
  "shared",
  "sys-locale",
  "tray-icon",

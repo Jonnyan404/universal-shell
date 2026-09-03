@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 shared = { workspace = true }
+serde_json = { workspace = true }
 rust-i18n = "4"
 sys-locale = "0.3"
 # glow (OpenGL) 后端兼容性最好；wgpu 在无 GPU/远程环境会 Device lost 崩溃。

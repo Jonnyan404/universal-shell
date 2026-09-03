@@ -81,8 +81,8 @@ enum Msg {
     InstallProgress(String, shared::DownloadProgress),
     /// 模板库清单加载完成（多源合并结果）
     ManifestLoaded(Result<shared::MergedSource, String>),
-    /// 模板拉取完成，携带解析后的 Program（供 UI 线程快照进本地配置）
-    TemplateFetched(String, Result<shared::config::Program, String>),
+    /// 模板拉取完成，携带解析后的 Program 与是否覆盖（供 UI 线程快照进本地配置）
+    TemplateFetched(String, bool, Result<shared::config::Program, String>),
     /// 模板更新检查完成：携带 (程序 id, 远端模板, diff 摘要)
     TemplateUpdateChecked(String, Result<shared::config::Program, String>),
     /// 后台刷新各程序最新版本完成：携带 (id, 最新版本, 发布时间)
@@ -120,6 +120,14 @@ struct ShellApp {
     search: String,
     /// 模板库按来源过滤；None 表示「全部源」
     lib_source: Option<String>,
+    /// 模板库分页（当前页，0 起）
+    lib_page: usize,
+    /// 本地模板抽屉是否展开
+    show_local_drawer: bool,
+    /// 待二次确认覆盖导入的远端模板（程序 id, base url）
+    pending_import: Option<(String, String)>,
+    /// 待二次确认覆盖导入的本地模板文件
+    pending_local_import: Option<(std::path::PathBuf, shared::config::Program)>,
     /// 正在导入的模板 id -> 状态
     imports: BTreeMap<String, String>,
     /// 正在检查模板更新的程序 id -> 状态文案
@@ -193,6 +201,10 @@ impl ShellApp {
             registry_wait: false,
             search: String::new(),
             lib_source: None,
+            lib_page: 0,
+            show_local_drawer: false,
+            pending_import: None,
+            pending_local_import: None,
             imports: BTreeMap::new(),
             update_checks: BTreeMap::new(),
             pending_updates: BTreeMap::new(),
@@ -334,8 +346,8 @@ impl ShellApp {
         });
     }
 
-    /// 后台拉取模板；成功后由 UI 线程快照进本地配置
-    fn spawn_import_template(&mut self, id: String, url: String) {
+    /// 后台拉取模板；成功后由 UI 线程按 `overwrite` 快照进本地配置
+    fn spawn_import_template(&mut self, id: String, url: String, overwrite: bool) {
         self.imports.insert(id.clone(), t!("lib.importing").to_string());
         let cache = self.manager.data_dir.join("cache/registry");
         let pubkeys = self.manager.registry_pubkeys.clone();
@@ -351,10 +363,10 @@ impl ShellApp {
             );
             match client.load_template(&id) {
                 Ok((_, program)) => {
-                    tx.send(Msg::TemplateFetched(id.clone(), Ok(program))).ok();
+                    tx.send(Msg::TemplateFetched(id.clone(), overwrite, Ok(program))).ok();
                 }
                 Err(e) => {
-                    tx.send(Msg::TemplateFetched(id.clone(), Err(format!("{e:#}")))).ok();
+                    tx.send(Msg::TemplateFetched(id.clone(), overwrite, Err(format!("{e:#}")))).ok();
                 }
             }
         });
@@ -441,11 +453,11 @@ impl ShellApp {
                         }
                     }
                 }
-                Msg::TemplateFetched(id, result) => {
+                Msg::TemplateFetched(id, overwrite, result) => {
                     match result {
                         Ok(program) => {
-                            // 快照到本地配置：追加程序 + 写回 shell.json
-                            if let Err(e) = self.commit_import(&program) {
+                            // 快照到本地配置：追加/覆盖程序 + 写回 shell.json
+                            if let Err(e) = self.commit_import(&program, overwrite) {
                                 self.imports.insert(
                                     id.clone(),
                                     t!("eg.import_fail", err = format!("{e:#}")).to_string(),
@@ -569,26 +581,25 @@ impl ShellApp {
         self.pending_updates.remove(&cur.id);
     }
 
-    /// 把拉取到的模板追加进本地配置并写回 disk（快照）
-    fn commit_import(&mut self, program: &shared::config::Program) -> anyhow::Result<()> {
-        if self
-            .manager
-            .programs
-            .iter()
-            .any(|p| p.id == program.id)
-        {
-            anyhow::bail!(t!("err.program_exists", id = program.id));
+    /// 把拉取到的模板追加进本地配置并写回 disk（快照）；overwrite=true 时覆盖同名程序
+    fn commit_import(&mut self, program: &shared::config::Program, overwrite: bool) -> anyhow::Result<()> {
+        if let Some(idx) = self.manager.programs.iter().position(|p| p.id == program.id) {
+            if !overwrite {
+                anyhow::bail!(t!("err.program_exists", id = program.id));
+            }
+            self.manager.programs[idx] = program.clone();
+        } else {
+            // 写入用户运行时值（默认值）
+            let defaults = self.manager.load_field_values(program);
+            self.values.insert(program.id.clone(), defaults);
+            self.notice
+                .entry(program.id.clone())
+                .or_default();
+            if self.current_id.is_none() {
+                self.current_id = Some(program.id.clone());
+            }
+            self.manager.programs.push(program.clone());
         }
-        // 写入用户运行时值（默认值）
-        let defaults = self.manager.load_field_values(program);
-        self.values.insert(program.id.clone(), defaults);
-        self.notice
-            .entry(program.id.clone())
-            .or_default();
-        if self.current_id.is_none() {
-            self.current_id = Some(program.id.clone());
-        }
-        self.manager.programs.push(program.clone());
         self.manager.save_config(&self.config_path)
     }
 
@@ -1077,92 +1088,75 @@ impl ShellApp {
     }
 
     fn show_library(&mut self, ui: &mut egui::Ui) {
+        const LIB_PAGE_SIZE: usize = 12;
+        // 工具栏：标题 + 本地模板切换 + 导入本地模板（对齐 Tauri library-view 工具栏）
         ui.horizontal(|ui| {
-            ui.label(t!("eg.registry_url"));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.registry_url)
-                    .hint_text(t!("sources.placeholder"))
-                    .desired_width(320.0),
-            );
-            let refresh = ui.add_enabled(
-                !self.registry_wait,
-                egui::Button::new(
-                    if self.registry_wait { t!("lib.pull").to_string() } else { t!("act.refresh").to_string() },
-                ),
-            );
-            if refresh.clicked() {
-                self.spawn_load_manifest();
-            }
+            ui.heading(t!("lib.title"));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(format!("{} ({})", t!("lib.local"), self.manager.programs.len())).clicked() {
+                    self.show_local_drawer = !self.show_local_drawer;
+                }
+                if ui.button(t!("lib.import")).clicked() {
+                    if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
+                        self.import_local_path(path);
+                    }
+                }
+            });
         });
-
-        let registry_hint: String =
-            self.manager.template_registries.join(", ").trim().to_string();
-        if !registry_hint.is_empty() {
-            ui.weak(t!("eg.configured_registries", list = registry_hint));
-        }
-
-        if self.manifest_offline {
-            ui.colored_label(
-                egui::Color32::from_rgb(200, 150, 50),
-                t!("eg.offline_status"),
-            );
-        }
-
         ui.separator();
 
-        let Some(merged) = self.merged.clone() else {
-            ui.label(t!("lib.empty_remote"));
-            return;
-        };
+        // 本地模板抽屉
+        if self.show_local_drawer {
+            self.show_local_drawer_ui(ui);
+        }
 
-        // 各源状态行
-        for (base, off, _fetched) in &merged.sources {
-            if *off {
-                ui.colored_label(
-                    egui::Color32::from_rgb(200, 150, 50),
-                    t!("eg.source_offline", base = base),
-                );
-            } else {
-                ui.weak(t!("eg.source_online", base = base));
+        let merged = self.merged.clone();
+        // 源栏：来源下拉 + 状态 + 刷新（对齐 Tauri renderSourceBar）
+        self.show_source_bar(ui, merged.as_ref());
+
+        // 状态摘要（对齐 Tauri lib-status）
+        match &merged {
+            Some(m) => {
+                let n_off = m.sources.iter().filter(|(_, off, _)| *off).count();
+                let summary = if m.sources.is_empty() {
+                    t!("lib.no_sources").to_string()
+                } else {
+                    t!(
+                        "lib.summary",
+                        n = m.sources.len(),
+                        offline = if n_off > 0 {
+                            t!("lib.summary_offline", n = n_off).to_string()
+                        } else {
+                            String::new()
+                        },
+                        m = m.template_count()
+                    )
+                    .to_string()
+                };
+                ui.label(summary);
+            }
+            None => {
+                ui.label(t!("lib.empty_remote"));
             }
         }
-        ui.add_space(4.0);
+        ui.separator();
 
-        // 搜索框 + 来源过滤
-        let source_bases: Vec<String> = merged.sources.iter().map(|(b, _, _)| b.clone()).collect();
+        // 搜索框（对齐 Tauri lib-search，占位文案）
         ui.horizontal(|ui| {
-            ui.label(t!(
-                "eg.template_count",
-                n = merged.template_count(),
-                s = merged.sources.len(),
-                c = merged.conflicts.len()
-            ));
-            ui.separator();
-            // 来源下拉：全部源 / 各源
-            let sel = self.lib_source.clone().unwrap_or_else(|| "__all__".into());
-            let sel_key = |b: &str| {
-                if b == "__all__" {
-                    t!("lib.all_sources").to_string()
-                } else {
-                    b.to_string()
-                }
-            };
-            let mut chosen = sel.clone();
-            egui::ComboBox::from_id_salt("lib_source_combo")
-                .selected_text(sel_key(&sel))
-                .width(220.0)
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut chosen, "__all__".to_string(), sel_key("__all__"));
-                    for b in &source_bases {
-                        ui.selectable_value(&mut chosen, b.clone(), sel_key(b));
-                    }
-                });
-            self.lib_source = if chosen == "__all__" { None } else { Some(chosen) };
             ui.label(t!("eg.search"));
-            ui.add(egui::TextEdit::singleline(&mut self.search).desired_width(200.0));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.search)
+                    .hint_text(t!("lib.search_ph"))
+                    .desired_width(240.0),
+            );
         });
         ui.add_space(6.0);
 
+        let Some(merged) = merged else {
+            return;
+        };
+
+        // 过滤 + 分页
         let keyword = self.search.trim().to_lowercase();
         let mut rows: Vec<(String, shared::TemplateIndex, String)> = Vec::new();
         for (id, (base, t)) in &merged.by_id {
@@ -1172,52 +1166,353 @@ impl ShellApp {
                 }
             }
             if !keyword.is_empty() {
-                let hay = format!("{} {} {} {}", id, t.name, t.category, t.description)
-                    .to_lowercase();
+                let hay = format!(
+                    "{} {} {} {}{}",
+                    id, t.name, t.category, t.description,
+                    if t.repo.is_empty() { "" } else { &t.repo }
+                )
+                .to_lowercase();
                 if !hay.contains(&keyword) {
                     continue;
                 }
             }
             rows.push((id.clone(), t.clone(), base.clone()));
         }
-
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for (id, t, base) in rows {
-                ui.horizontal(|ui| {
-                    let import_state = self.imports.get(&id).cloned();
-                    match import_state {
-                        None => {
-                            if ui.button(t!("act.import")).clicked() {
-                                self.spawn_import_template(id.clone(), base.clone());
-                            }
-                        }
-                        Some(state) => {
-                            ui.add_enabled(false, egui::Button::new(state));
-                        }
+        let pages = usize::max(1, rows.len().div_ceil(LIB_PAGE_SIZE));
+        if self.lib_page >= pages {
+            self.lib_page = pages - 1;
+        }
+        let start = self.lib_page * LIB_PAGE_SIZE;
+        if start >= rows.len() {
+            ui.label(t!("lib.no_match"));
+        } else {
+            let end = usize::min(start + LIB_PAGE_SIZE, rows.len());
+            let slice_owned = rows.drain(start..end).collect::<Vec<_>>();
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    for (id, t, base) in slice_owned {
+                        self.render_lib_card(ui, id, t, base, &merged);
                     }
+                });
+        }
+
+        // 分页（对齐 Tauri renderPager）
+        if pages > 1 {
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                let prev = ui.add_enabled(
+                    self.lib_page > 0,
+                    egui::Button::new(t!("lib.prev")),
+                );
+                if prev.clicked() {
+                    self.lib_page -= 1;
+                }
+                ui.label(format!("{} / {}", self.lib_page + 1, pages));
+                let next = ui.add_enabled(
+                    self.lib_page + 1 < pages,
+                    egui::Button::new(t!("lib.next")),
+                );
+                if next.clicked() {
+                    self.lib_page += 1;
+                }
+            });
+        }
+    }
+
+    /// 模板库：渲染单个模板卡片（名称/[类别]/仓库/冲突徽标 + 导入按钮 + 描述 + 已导入徽标）
+    fn render_lib_card(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: String,
+        t: shared::TemplateIndex,
+        base: String,
+        merged: &shared::MergedSource,
+    ) {
+        let imported = self.manager.programs.iter().any(|p| p.id == id);
+        egui::Frame::group(ui.style())
+            .inner_margin(egui::Margin::same(8))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
                     ui.strong(&t.name);
                     ui.label(format!("[{}]", t.category));
                     ui.weak(&t.repo);
-                    // C5: 冲突标记
                     let conflicts = merged.id_conflicts(&id);
                     if conflicts.len() > 1 {
                         ui.colored_label(
                             egui::Color32::from_rgb(200, 150, 50),
-                            t!("eg.multi_source"),
+                            t!("lib.multi_source", n = conflicts.len()),
                         );
-                        if ui.small_button(t!("eg.who_sources")).clicked() {
-                            self.notice.insert(
-                                "__registry__".into(),
-                                t!("eg.exists_in", id = id, list = conflicts.join(" ; ")).to_string(),
-                            );
-                        }
                     }
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            let import_state = self.imports.get(&id).cloned();
+                            match import_state {
+                                None => {
+                                    if ui.button(t!("act.import")).clicked() {
+                                        if imported {
+                                            self.pending_import = Some((id.clone(), base.clone()));
+                                        } else {
+                                            self.spawn_import_template(id.clone(), base.clone(), false);
+                                        }
+                                    }
+                                }
+                                Some(state) => {
+                                    ui.add_enabled(false, egui::Button::new(state));
+                                }
+                            }
+                        },
+                    );
                 });
                 ui.label(&t.description);
-                ui.weak(format!("id: {id}"));
-                ui.separator();
+                if imported {
+                    ui.weak(t!("lib.local_last"));
+                }
+            });
+        ui.add_space(6.0);
+    }
+
+    /// 源栏：来源下拉（含 offline/cache/timeAgo 状态）+ 刷新按钮 + fetch 信息行
+    fn show_source_bar(&mut self, ui: &mut egui::Ui, merged: Option<&shared::MergedSource>) {
+        ui.horizontal(|ui| {
+            let srcs: Vec<(String, bool, u64)> = if let Some(m) = merged {
+                m.sources.clone()
+            } else {
+                self.manager
+                    .template_registries
+                    .iter()
+                    .map(|r| (r.clone(), false, 0u64))
+                    .collect()
+            };
+            let sel = self.lib_source.clone().unwrap_or_else(|| "__all__".into());
+            let sel_key = |b: &str| -> String {
+                if b == "__all__" {
+                    t!("lib.all_sources").to_string()
+                } else {
+                    b.to_string()
+                }
+            };
+            let mut chosen = sel.clone();
+            egui::ComboBox::from_id_salt("lib_source_combo")
+                .selected_text(sel_key(&sel))
+                .width(300.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut chosen, "__all__".to_string(), sel_key("__all__"));
+                    for (base, off, fetched) in &srcs {
+                        let mut label = String::new();
+                        if *off {
+                            label.push_str(&t!("lib.offline"));
+                        }
+                        label.push_str(base);
+                        if *fetched != 0 {
+                            label.push_str(&format!(" · {}", time_ago(*fetched as i64)));
+                        }
+                        ui.selectable_value(&mut chosen, base.clone(), label);
+                    }
+                });
+            if chosen != sel {
+                self.lib_source = if chosen == "__all__" { None } else { Some(chosen) };
+                self.lib_page = 0;
+            }
+            // 刷新按钮：拉取中置灰 + 显示「拉取中…」（对齐 Tauri）
+            let refresh = ui.add_enabled(
+                !self.registry_wait,
+                egui::Button::new(
+                    if self.registry_wait {
+                        t!("lib.pull").to_string()
+                    } else {
+                        t!("act.refresh").to_string()
+                    },
+                ),
+            );
+            if refresh.clicked() {
+                self.spawn_load_manifest();
             }
         });
+        // fetch 信息行（对齐 Tauri lib-fetch-info）
+        if let Some(m) = merged {
+            if m.sources.is_empty() {
+                ui.weak(t!("lib.remote_none"));
+            } else {
+                let mut parts = Vec::new();
+                let mut titles = Vec::new();
+                for (base, off, fetched) in &m.sources {
+                    titles.push(format!(
+                        "{base}{}",
+                        if *fetched != 0 {
+                            t!("lib.last_pull", date = fmt_datetime(*fetched as i64)).to_string()
+                        } else {
+                            t!("lib.not_pulled").to_string()
+                        }
+                    ));
+                    let suffix = if *off {
+                        if *fetched != 0 {
+                            t!("lib.cache").to_string() + &time_ago(*fetched as i64)
+                        } else {
+                            t!("lib.no_cache").to_string()
+                        }
+                    } else if *fetched != 0 {
+                        t!("log.equal_parts").to_string() + " " + &time_ago(*fetched as i64)
+                    } else {
+                        t!("log.just").to_string()
+                    };
+                    parts.push(if *off {
+                        t!("lib.offline_status", suffix = suffix).to_string()
+                    } else {
+                        t!("lib.online_status", suffix = suffix).to_string()
+                    });
+                }
+                let line =
+                    t!("log.remote_ready").to_string() + &parts.join("　");
+                ui.weak(&line).on_hover_text(titles.join("；"));
+            }
+        } else {
+            ui.weak(t!("lib.remote_sources"));
+        }
+        ui.add_space(4.0);
+    }
+
+    /// 本地模板抽屉：列出已导入程序 + 管理按钮（对齐 Tauri renderLocalTemplates）
+    fn show_local_drawer_ui(&mut self, ui: &mut egui::Ui) {
+        ui.strong(t!("lib.local_has"));
+        let list = self.manager.programs.clone();
+        if list.is_empty() {
+            ui.label(t!("lib.empty_local"));
+            ui.separator();
+            return;
+        }
+        for p in &list {
+            ui.horizontal(|ui| {
+                ui.strong(&p.name);
+                ui.weak(&p.repo);
+                ui.with_layout(
+                    egui::Layout::right_to_left(egui::Align::Center),
+                    |ui| {
+                        if ui.button(t!("act.manage")).clicked() {
+                            self.current_id = Some(p.id.clone());
+                            self.view = View::Manage;
+                        }
+                    },
+                );
+            });
+        }
+        ui.separator();
+    }
+
+    /// 读取本地 JSON 模板文件并解析为 Program；已存在时排队二次确认覆盖
+    fn import_local_path(&mut self, path: std::path::PathBuf) {
+        let text = match std::fs::read_to_string(&path) {
+            Ok(t) => t,
+            Err(e) => {
+                self.notice.insert(
+                    "__registry__".into(),
+                    t!("err.read_template_fail", err = e.to_string()).to_string(),
+                );
+                return;
+            }
+        };
+        let mut program: shared::config::Program = match serde_json::from_str(&text) {
+            Ok(p) => p,
+            Err(e) => {
+                self.notice.insert(
+                    "__registry__".into(),
+                    t!("err.parse_template_fail", err = e.to_string()).to_string(),
+                );
+                return;
+            }
+        };
+        if program.binary.is_empty() {
+            program.binary = program.id.clone();
+        }
+        let exists = self
+            .manager
+            .programs
+            .iter()
+            .any(|p| p.id == program.id);
+        if exists {
+            self.pending_local_import = Some((path, program));
+        } else {
+            match self.commit_import(&program, false) {
+                Ok(()) => {
+                    self.notice
+                        .insert("__registry__".into(), t!("lib.imported_local").to_string());
+                }
+                Err(e) => {
+                    self.notice
+                        .insert("__registry__".into(), format!("{e:#}"));
+                }
+            }
+        }
+    }
+
+    /// 模板库覆盖导入确认弹窗（远端模板 / 本地文件）
+    fn show_library_confirms(&mut self, ctx: &egui::Context) {
+        if let Some((id, base)) = self.pending_import.clone() {
+            let mut open = true;
+            let mut confirmed = false;
+            let mut cancelled = false;
+            egui::Window::new(t!("lib.overwrite"))
+                .id(egui::Id::new("import_confirm"))
+                .collapsible(false)
+                .resizable(false)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.label(t!("confirm.overwrite_import", id = &id));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(t!("act.cancel")).clicked() {
+                            cancelled = true;
+                        }
+                        if ui.button(t!("act.import")).clicked() {
+                            confirmed = true;
+                        }
+                    });
+                });
+            if cancelled || confirmed || !open {
+                self.pending_import = None;
+            }
+            if confirmed {
+                self.spawn_import_template(id.clone(), base.clone(), true);
+            }
+        }
+        if let Some((_path, program)) = self.pending_local_import.clone() {
+            let mut open = true;
+            let mut confirmed = false;
+            let mut cancelled = false;
+            egui::Window::new(t!("lib.overwrite"))
+                .id(egui::Id::new("local_import_confirm"))
+                .collapsible(false)
+                .resizable(false)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.label(t!("lib.already_exists"));
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(t!("act.cancel")).clicked() {
+                            cancelled = true;
+                        }
+                        if ui.button(t!("act.import")).clicked() {
+                            confirmed = true;
+                        }
+                    });
+                });
+            if cancelled || confirmed || !open {
+                self.pending_local_import = None;
+            }
+            if confirmed {
+                match self.commit_import(&program, true) {
+                    Ok(()) => {
+                        self.notice
+                            .insert("__registry__".into(), t!("lib.imported_local").to_string());
+                    }
+                    Err(e) => {
+                        self.notice
+                            .insert("__registry__".into(), format!("{e:#}"));
+                    }
+                }
+            }
+        }
     }
 
     /// 批量管理视图：列出所有受管程序，每行 start/stop + 打开应用目录，统一刷新/停止。
@@ -1560,6 +1855,7 @@ impl eframe::App for ShellApp {
         if let Some(id) = self.confirm_delete.clone() {
             self.show_delete_confirm(ui.ctx(), &id);
         }
+        self.show_library_confirms(ui.ctx());
     }
 }
 
