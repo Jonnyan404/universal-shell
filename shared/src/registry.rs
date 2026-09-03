@@ -214,10 +214,10 @@ impl RegistryClient {
     }
 
     /// 拉取清单。若对该 base 配置了公钥，则强制校验 `<base>manifests.sig`，
-    /// 校验失败直接否决该清单。返回 (离线标记, 清单)
-    pub fn load_manifest(&self) -> anyhow::Result<(bool, Manifest)> {
+    /// 校验失败直接否决该清单。返回 (离线标记, 拉取/校验时刻(缓存日期), 清单)
+    pub fn load_manifest(&self) -> anyhow::Result<(bool, u64, Manifest)> {
         let url = format!("{base}manifests.json", base = self.base);
-        let (offline, text, _fetched_at) = self.fetch_with_cache(&url);
+        let (offline, text, fetched_at) = self.fetch_with_cache(&url);
         if let Some(pubkey) = self.configured_pubkey() {
             let sig_url = format!("{}manifests.sig", self.base);
             let (_off, sig_text, _) = self.fetch_with_cache(&sig_url);
@@ -228,7 +228,7 @@ impl RegistryClient {
         if manifest.templates.is_empty() && offline {
             anyhow::bail!("清单为空且处于离线(缓存)状态");
         }
-        Ok((offline, manifest))
+        Ok((offline, fetched_at, manifest))
     }
 
     /// 惰性拉取单个模板。返回 (离线标记, 模板 Program)
@@ -279,8 +279,8 @@ pub fn merge_indexes(
 pub struct MergedSource {
     /// id -> (base, 索引)。同 id 多源时按配置文件登记顺序取第一个(前置优先)。
     pub by_id: BTreeMap<String, (String, TemplateIndex)>,
-    /// 各源 (base, 离线标记)
-    pub sources: Vec<(String, bool)>,
+    /// 各源 (base, 离线标记, 缓存日期/拉取时刻)
+    pub sources: Vec<(String, bool, u64)>,
     /// 冲突：id -> 提供它的 base 列表(顺序保持配置顺序)
     pub conflicts: Vec<(String, Vec<String>)>,
 }
@@ -319,8 +319,8 @@ pub fn load_merged_manifests(
             accelerate_prefix,
             http_proxy,
         );
-        let (offline, manifest) = client.load_manifest().unwrap_or((true, Manifest::default()));
-        merged.sources.push((base.clone(), offline));
+        let (offline, fetched_at, manifest) = client.load_manifest().unwrap_or((true, now_unix(), Manifest::default()));
+        merged.sources.push((base.clone(), offline, fetched_at));
         merge_manifest_into(&mut merged, base, &manifest);
     }
     merged

@@ -336,6 +336,49 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .lib-conflict { color: #c7772b; font-size: 12px; margin-right: 8px; }
 .lib-desc { color: var(--muted); margin-top: 6px; font-size: 13px; }
 
+#lib-source-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+#lib-source-bar select {
+  flex: 1 1 auto; min-width: 0; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
+}
+ .lib-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.lib-local-badge {
+  color: #fff; background: var(--ok); font-size: 11px; font-weight: 600;
+  border-radius: 4px; padding: 0 7px; line-height: 17px;
+}
+.lib-pager { display: flex; align-items: center; gap: 10px; justify-content: center; margin: 14px 0; }
+.lib-pager button { flex: 0 0 auto; }
+.lib-page-info { color: var(--muted); font-size: 13px; }
+.lib-cache-heading { margin: 10px 0 8px; font-size: 14px; color: var(--text); }
+#lib-cache-drawer {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 12px 12px; margin: 4px 0 12px; max-height: 220px; overflow-y: auto;
+}
+.lib-fetch-compact {
+  font-size: 12px; color: var(--muted); line-height: 1.5; margin-bottom: 8px;
+  word-break: break-all; overflow-wrap: anywhere;
+}
+.lib-cache-row {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px;
+}
+.lib-cache-row .lib-repo { flex: 1; }
+
+/* 模板源管理 */
+.sources-edit { padding: 12px 16px; }
+.sources-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.source-row { display: flex; align-items: center; gap: 8px; }
+.source-row.default input { opacity: 0.7; cursor: not-allowed; }
+.source-row input {
+  flex: 1; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 7px 10px;
+}
+.sources-add { display: flex; gap: 8px; }
+.sources-add input {
+  flex: 1; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 7px 10px;
+}
+
 /* ---------- 模态框 ---------- */
 .modal {
   position: fixed; inset: 0; z-index: 100; display: flex; align-items: center;
@@ -413,6 +456,11 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 
 /* 批量管理：隐藏标记 + 额外操作 */
 .batch-hidden { color: var(--muted); font-size: 12px; margin-left: 6px; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+.batch-checked-at {
+  display: inline-block; font-size: 12px; color: var(--muted);
+  border: 1px dashed var(--border); border-radius: 4px;
+  padding: 2px 10px; margin-bottom: 10px;
+}
 .op-danger { color: var(--danger); border-color: var(--danger); }
 .op-danger:hover { background: var(--danger); color: #fff; }
 

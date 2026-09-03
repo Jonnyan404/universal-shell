@@ -213,6 +213,30 @@ impl ShellManager {
         let _ = std::fs::write(self.op_log_path(), b"");
     }
 
+    /// 版本检查缓存文件路径（repo -> (最新版本, 检查时间戳)）
+    pub fn version_check_path(&self) -> PathBuf {
+        self.data_dir.join("cache").join("version-check.json")
+    }
+
+    /// 读取版本检查缓存（repo -> (latest_version, checked_at)）
+    pub fn load_version_check(&self) -> BTreeMap<String, (String, u64)> {
+        std::fs::read_to_string(self.version_check_path())
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    /// 保存版本检查缓存（供“检查更新”后落盘，避免重复联网）
+    pub fn save_version_check(&self, map: &BTreeMap<String, (String, u64)>) {
+        let path = self.version_check_path();
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Ok(t) = serde_json::to_string_pretty(map) {
+            let _ = std::fs::write(&path, t);
+        }
+    }
+
     /// 清空某程序的日志文件（显式“停止”时调用；重启不清空）
     pub fn clear_log(&self, id: &str) {
         let _ = std::fs::write(self.log_dir().join(format!("{id}.log")), b"");

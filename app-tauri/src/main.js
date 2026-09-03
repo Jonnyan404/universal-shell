@@ -1,5 +1,5 @@
 const { invoke } = window.__TAURI__.core;
-const { open, confirm } = window.__TAURI__.dialog;
+const { open, save, confirm } = window.__TAURI__.dialog;
 
 let programs = [];
 let current = null;
@@ -21,6 +21,11 @@ const el = {
   libStatus: document.querySelector("#lib-status"),
   libSearch: document.querySelector("#lib-search"),
   libList: document.querySelector("#lib-list"),
+  libSourceBar: document.querySelector("#lib-source-bar"),
+  libFetchInfo: document.querySelector("#lib-fetch-info"),
+  libCacheToggle: document.querySelector("#lib-cache-toggle"),
+  libCacheDrawer: document.querySelector("#lib-cache-drawer"),
+  libPager: document.querySelector("#lib-pager"),
 };
 
 let view = "manage";
@@ -474,6 +479,23 @@ async function checkUpdates() {
 
 function renderBatch() {
   el.batchBody.innerHTML = "";
+  // “上次检查更新”全局提示：取各程序最近一次联网检查的最大时间戳
+  const checkedAt = statuses.reduce(
+    (m, it) => {
+      const t = it.status?.latest_checked_at;
+      return t && t > m ? t : m;
+    },
+    0
+  );
+  const updLine = document.querySelector("#batch-checked-at");
+  if (updLine) {
+    updLine.textContent = checkedAt
+      ? `▲ 上次检查更新：${timeAgo(checkedAt)}`
+      : "▲ 尚未检查更新";
+    updLine.title = checkedAt
+      ? `最近一次联网检查：${fmtDate(checkedAt)}`
+      : "点击「检查更新」联网比对最新版本";
+  }
   if (!statuses.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
@@ -1040,86 +1062,100 @@ function switchView(v) {
       v === "batch" ? "所有程序统一操作" : "从远程源导入程序模板";
     el.chips.innerHTML = "";
     if (v === "batch") refreshBatchLocal();
-    else renderLibrary();
+    else {
+      if (!manifest) ensureLibraryFromCache();
+      else renderLibrary();
+    }
   }
 }
 
 // ---------- 模板库 ----------
 
-function renderRegistryBar() {
-  el.registryBar.innerHTML = "";
-  const input = document.createElement("input");
-  input.value = registryUrl;
-  input.placeholder = "https://…/templates/";
-  registerInput(input, (val) => (registryUrl = val));
-  const sel = document.createElement("select");
-  sel.style.marginLeft = "6px";
-  for (const r of registries) {
-    const opt = document.createElement("option");
-    opt.value = r;
-    opt.textContent = r;
-    if (r === registryUrl) opt.selected = true;
-    sel.appendChild(opt);
+// 模板库状态
+let libSource = null; // 当前浏览的源 base；null=全部(合并)
+let libPage = 0;
+const LIB_PAGE_SIZE = 20;
+
+function fmtDate(secs) {
+  if (!secs) return "—";
+  try {
+    return new Date(secs * 1000).toLocaleString();
+  } catch {
+    return String(secs);
   }
-  sel.onchange = () => {
-    registryUrl = sel.value;
-    input.value = sel.value;
-  };
-  const refresh = document.createElement("button");
-  refresh.textContent = "刷新";
-  refresh.onclick = async () => {
-    refresh.disabled = true;
-    refresh.textContent = "拉取中…";
-    try {
-      const m = await invoke("get_merged_manifest", { registryUrl });
-      manifest = m;
-      renderLibrary();
-    } catch (e) {
-      el.libStatus.textContent = `清单拉取失败: ${e}`;
-    } finally {
-      refresh.disabled = false;
-      refresh.textContent = "刷新";
-    }
-  };
-  el.registryBar.append(input, sel, refresh);
 }
 
-function registerInput(input, cb) {
-  input.addEventListener("input", () => cb(input.value));
+function timeAgo(secs) {
+  if (!secs) return "从未";
+  const diff = (
+    (Date.now() / 1000) - secs
+  );
+  if (diff < 60) return "刚刚";
+  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
+  if (diff < 86400 * 30) return `${Math.floor(diff / 86400)} 天前`;
+  return fmtDate(secs);
+}
+
+// 进入模板库时若尚未加载清单，则用本地缓存恢复上一次刷新的远程源列表（不联网）。
+async function ensureLibraryFromCache() {
+  try {
+    if (manifest) { renderLibrary(); return; }
+    manifest = await invoke("get_merged_manifest_offline");
+    libPage = 0;
+  } catch (e) {
+    // 无本地缓存：保持空态，renderLibrary 会提示先联网刷新
+  }
+  renderLibrary();
+}
+
+async function refreshLibrary() {
+  try {
+    const m = await invoke("get_merged_manifest", { registryUrl: registryUrl || "" });
+    manifest = m;
+    if (libSource && !(manifest.sources || []).some((s) => s[0] === libSource)) {
+      libSource = null;
+    }
+    libPage = 0;
+    renderLibrary();
+  } catch (e) {
+    el.libStatus.textContent = `清单拉取失败: ${e}`;
+  }
 }
 
 function renderLibrary() {
   if (!manifest) {
-    el.libList.innerHTML = "尚未加载清单。点击「刷新」从远程源拉取(失败时回退本地缓存)。";
+    el.libList.innerHTML = "尚未加载清单。点击「刷新」从远程源拉取(离线时可查看上次刷新的列表)。";
+    renderSourceBar();
+    renderLocalTemplates();
     return;
   }
-  const nSources = (manifest.sources || []).length;
+  renderSourceBar();
+
   const nOffline = (manifest.sources || []).filter(([, off]) => off).length;
-  const nConflicts = (manifest.conflicts || []).length;
   el.libStatus.textContent =
-    nOffline > 0
-      ? `离线(缓存) ${nOffline}/${nSources} 源 · ${manifest.templates.length} 个模板 · 冲突 ${nConflicts}`
-      : `${nSources} 个源 · ${manifest.templates.length} 个模板 · 冲突 ${nConflicts}`;
+    (manifest.sources || []).length === 0
+      ? "未配置模板源"
+      : `${manifest.sources.length} 个源${nOffline ? ` · ${nOffline} 个离线(用缓存)` : ""} · 共 ${manifest.templates.length} 个模板`;
 
   el.libSearch.innerHTML = "";
-  const s = document.createElement("input");
-  s.placeholder = "搜索模板…";
-  s.value = libSearchValue;
-  registerInput(s, (v) => {
-    libSearchValue = v;
-    renderLibrary();
-  });
-  el.libSearch.appendChild(s);
-
   const kw = libSearchValue.trim().toLowerCase();
-  const rows = manifest.templates.filter(([, t]) => {
+  const rows = manifest.templates.filter(([id, t, base]) => {
+    if (libSource && base !== libSource) return false;
     if (!kw) return true;
-    const hay = t ? [t.id, t.name, t.category, t.description].join(" ").toLowerCase() : "";
+    const hay = (t ? [id, t.id, t.name, t.category, t.description].join(" ") : "").toLowerCase();
     return hay.includes(kw);
   });
 
+  const pages = Math.max(1, Math.ceil(rows.length / LIB_PAGE_SIZE));
+  if (libPage >= pages) libPage = pages - 1;
+  const slice = rows.slice(libPage * LIB_PAGE_SIZE, (libPage + 1) * LIB_PAGE_SIZE);
+
   el.libList.innerHTML = "";
-  for (const [id, t, base] of rows) {
+  if (!slice.length) {
+    el.libList.innerHTML = '<div class="lib-desc">没有匹配的模板。</div>';
+  }
+  for (const [id, t, base] of slice) {
     const card = document.createElement("div");
     card.className = "lib-card";
     const top = document.createElement("div");
@@ -1133,6 +1169,8 @@ function renderLibrary() {
     const repo = document.createElement("span");
     repo.className = "lib-repo";
     repo.textContent = t.repo;
+
+    const imported = programs.some((p) => p.id === id);
     const conflict = (manifest.conflicts || []).find(([cid]) => cid === id);
     if (conflict && conflict[1] > 1) {
       const mark = document.createElement("span");
@@ -1140,57 +1178,323 @@ function renderLibrary() {
       mark.textContent = `⚠ 多源×${conflict[1]}`;
       top.append(mark);
     }
-    const btn = document.createElement("button");
-    btn.textContent = "导入";
-    btn.disabled = importing.has(id);
-    btn.textContent = importing.has(id) ? "导入中…" : "导入";
-    btn.onclick = async () => {
-      importing.add(id);
-      renderLibrary();
-      try {
-        const exists = programs.some((p) => p.id === id);
-        let overwrite = false;
-        if (exists) {
-          const ok = await confirm(
-            `本地已存在程序「${id}」，是否用远程模板覆盖？\n覆盖会替换其模板配置，若已在运行请先停止。`,
-            { title: "覆盖模板", kind: "warning" }
-          );
-          if (!ok) {
-            importing.delete(id);
-            renderLibrary();
-            return;
-          }
-          overwrite = true;
-        }
-        await invoke("import_template", {
-          registryUrl: base,
-          templateId: id,
-          overwrite,
-        });
-        showNotice(
-          exists ? `已覆盖模板「${id}」` : `已导入模板「${id}」（来源: ${base}）并快照到本地配置`
-        );
 
-        programs = await invoke("get_programs");
-        if (!current || !programs.some((p) => p.id === current.id)) {
-          current = programs[0];
-        }
-        renderSidebar();
-        if (programs.some((p) => p.id === id)) await switchTo(id);
-        importing.delete(id);
-        renderLibrary();
-      } catch (e) {
-        importing.delete(id);
-        renderLibrary();
-        showNotice(String(e), true);
-      }
-    };
+    const btn = document.createElement("button");
+    // 已导入也可再次导入（doImport 内对已存在程序二次确认覆盖）
+    btn.textContent = importing.has(id) ? "导入中…" : "导入";
+    btn.disabled = importing.has(id);
+    btn.onclick = () => doImport(id, base, btn);
     top.append(h, cat, repo, btn);
+
     const desc = document.createElement("div");
     desc.className = "lib-desc";
     desc.textContent = t.description;
-    card.append(top, desc);
+    const meta = document.createElement("div");
+    meta.className = "lib-meta";
+    if (imported) {
+      const local = document.createElement("span");
+      local.className = "lib-local-badge";
+      local.textContent = "本地";
+      local.title = "已导入到本地程序库（含模板配置）";
+      meta.appendChild(local);
+    }
+    card.append(top, meta, desc);
     el.libList.appendChild(card);
+  }
+
+  renderPager(pages);
+  renderLocalTemplates();
+}
+
+function renderSourceBar() {
+  if (!el.libSourceBar) return;
+  el.libSourceBar.innerHTML = "";
+  const sel = document.createElement("select");
+  const allOpt = document.createElement("option");
+  allOpt.value = "__all__";
+  allOpt.textContent = "全部源（合并）";
+  if (libSource === null) allOpt.selected = true;
+  sel.appendChild(allOpt);
+  for (const src of manifest?.sources || []) {
+    const [base, offline, fetched] = src;
+    const opt = document.createElement("option");
+    opt.value = base;
+    opt.textContent =
+      (offline ? "（离线·缓存）" : "") + base + (fetched ? ` · ${fmtDate(fetched)}` : "");
+    if (libSource === base) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.onchange = () => {
+    libSource = sel.value === "__all__" ? null : sel.value;
+    libPage = 0;
+    renderLibrary();
+  };
+
+  // 远程源更新：放在源栏下方一行，便于完整展示（悬停看精确时间）
+  if (el.libFetchInfo) {
+    const updateSpan = document.createElement("div");
+    updateSpan.className = "lib-fetch-compact";
+    const srcs = manifest?.sources || [];
+    if (!manifest) {
+      updateSpan.textContent = "远程源更新：尚未拉取（点击「刷新」）";
+      updateSpan.title = "点击「刷新」拉取远程源";
+    } else if (!srcs.length) {
+      updateSpan.textContent = "远程源更新：未配置远程源";
+      updateSpan.title = "";
+    } else {
+      const parts = [];
+      const titles = [];
+      for (const [base, offline, fetched] of srcs) {
+        titles.push(base + (fetched ? ` · 上次拉取 ${fmtDate(fetched)}` : " · 尚未拉取"));
+        parts.push(
+          offline
+            ? `离线·${fetched ? "缓存" + timeAgo(fetched) : "无缓存"}`
+            : `在线·${fetched ? "上次更新 " + timeAgo(fetched) : "刚刚"}`
+        );
+      }
+      updateSpan.textContent = "远程源更新：" + parts.join("　");
+      updateSpan.title = titles.join("；");
+    }
+    el.libFetchInfo.innerHTML = "";
+    el.libFetchInfo.appendChild(updateSpan);
+  }
+
+  const refresh = document.createElement("button");
+  refresh.textContent = "刷新";
+  refresh.onclick = async () => {
+    refresh.disabled = true;
+    refresh.textContent = "拉取中…";
+    try {
+      await refreshLibrary();
+    } finally {
+      refresh.disabled = false;
+      refresh.textContent = "刷新";
+    }
+  };
+  el.libSourceBar.append(sel, refresh);
+}
+
+function renderPager(pages) {
+  if (!el.libPager) return;
+  el.libPager.innerHTML = "";
+  if (pages <= 1) return;
+  const prev = document.createElement("button");
+  prev.textContent = "‹ 上一页";
+  prev.disabled = libPage <= 0;
+  prev.onclick = () => {
+    libPage--;
+    renderLibrary();
+  };
+  const info = document.createElement("span");
+  info.className = "lib-page-info";
+  info.textContent = `${libPage + 1} / ${pages}`;
+  const next = document.createElement("button");
+  next.textContent = "下一页 ›";
+  next.disabled = libPage >= pages - 1;
+  next.onclick = () => {
+    libPage++;
+    renderLibrary();
+  };
+  el.libPager.append(prev, info, next);
+}
+
+function renderLocalTemplates() {
+  const list = programs || [];
+  if (el.libCacheToggle) {
+    el.libCacheToggle.textContent = `本地模板(${list.length})`;
+  }
+  if (!el.libCacheDrawer) return;
+  el.libCacheDrawer.innerHTML = "";
+  const head = document.createElement("h3");
+  head.className = "lib-cache-heading";
+  head.textContent = "本地已有模板";
+  el.libCacheDrawer.appendChild(head);
+  if (!list.length) {
+    const d = document.createElement("div");
+    d.className = "lib-desc";
+    d.textContent = "尚未导入任何模板。从上方远程源点击「导入」即可加入本地程序库。";
+    el.libCacheDrawer.appendChild(d);
+    return;
+  }
+  for (const p of list) {
+    const row = document.createElement("div");
+    row.className = "lib-cache-row";
+    const name = document.createElement("span");
+    name.className = "lib-name";
+    name.textContent = p.name || p.id;
+    const repo = document.createElement("span");
+    repo.className = "lib-repo";
+    repo.textContent = p.repo || "";
+    const ops = document.createElement("span");
+    ops.className = "batch-ops";
+    const show = document.createElement("button");
+    show.className = "op-btn";
+    show.textContent = "管理";
+    show.onclick = () => switchTo(p.id);
+    ops.append(show);
+    row.append(name, repo, ops);
+    el.libCacheDrawer.appendChild(row);
+  }
+}
+
+async function doImport(id, base, btn) {
+  if (importing.has(id)) return;
+  importing.add(id);
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "导入中…";
+  }
+  try {
+    const exists = programs.some((p) => p.id === id);
+    let overwrite = false;
+    if (exists) {
+      const ok = await confirm(
+        `本地已存在程序「${id}」，是否用远程模板覆盖？\n覆盖会替换其模板配置，若已在运行请先停止。`,
+        { title: "覆盖模板", kind: "warning" }
+      );
+      if (!ok) {
+        importing.delete(id);
+        renderLibrary();
+        return;
+      }
+      overwrite = true;
+    }
+    await invoke("import_template", {
+      registryUrl: base || registryUrl || "",
+      templateId: id,
+      overwrite,
+    });
+    showNotice(exists ? `已覆盖模板「${id}」` : `已导入模板「${id}」并快照到本地配置`);
+    await afterImport(id);
+    renderLibrary();
+  } catch (e) {
+    showNotice(String(e), true);
+  } finally {
+    importing.delete(id);
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "导入";
+    }
+  }
+}
+
+async function afterImport(id) {
+  programs = await invoke("get_programs");
+  if (!current || !programs.some((p) => p.id === current.id)) {
+    current = programs[0];
+  }
+  renderSidebar();
+  if (programs.some((p) => p.id === id)) await switchTo(id);
+}
+
+async function importLocalFile() {
+  try {
+    const file = await open({
+      multiple: false,
+      directory: false,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!file) return;
+    let overwrite = false;
+    try {
+      await invoke("import_local_template", {
+        templatePath: String(file),
+        overwrite: false,
+      });
+    } catch (e) {
+      if (/已存在/.test(String(e))) {
+        const ok = await confirm(
+          "本地已存在同名程序，是否覆盖？",
+          { title: "覆盖模板", kind: "warning" }
+        );
+        if (!ok) return;
+        overwrite = true;
+        await invoke("import_local_template", {
+          templatePath: String(file),
+          overwrite: true,
+        });
+      } else {
+        throw e;
+      }
+    }
+    showNotice("已从本地文件导入模板");
+    programs = await invoke("get_programs");
+    renderSidebar();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+function registerInput(input, cb) {
+  input.addEventListener("input", () => cb(input.value));
+}
+
+// ---------- 模板源管理 ----------
+
+function openSourcesModal() {
+  renderSourcesList();
+  document.querySelector("#sources-modal").hidden = false;
+}
+function closeSourcesModal() {
+  document.querySelector("#sources-modal").hidden = true;
+}
+function sourceRows() {
+  return [...document.querySelectorAll("#sources-list .source-row")];
+}
+function renderSourcesList() {
+  const box = document.querySelector("#sources-list");
+  box.innerHTML = "";
+  (registries.length ? registries : [""]).forEach((r, i) => {
+    box.appendChild(sourceRowEl(r, i === 0));
+  });
+}
+function sourceRowEl(url, isDefault) {
+  const row = document.createElement("div");
+  row.className = "source-row" + (isDefault ? " default" : "");
+  const input = document.createElement("input");
+  input.value = url;
+  input.placeholder = "https://…/templates/";
+  const tag = document.createElement("span");
+  tag.className = "lib-cat";
+  tag.textContent = isDefault ? "默认(官方·不可删)" : "";
+  row.append(input, tag);
+  if (!isDefault) {
+    const del = document.createElement("button");
+    del.className = "edit-field-del";
+    del.type = "button";
+    del.textContent = "✕";
+    del.title = "删除该源";
+    del.onclick = () => row.remove();
+    row.append(del);
+  }
+  return row;
+}
+function addSourceRow() {
+  const val = document.querySelector("#sources-new").value.trim();
+  document
+    .querySelector("#sources-list")
+    .appendChild(sourceRowEl(val, false));
+  document.querySelector("#sources-new").value = "";
+}
+async function saveSources() {
+  const list = sourceRows()
+    .map((r) => r.querySelector("input").value.trim())
+    .filter(Boolean);
+  if (!list.length) {
+    showNotice("至少保留一个模板源（官方源不可删除）", true);
+    return;
+  }
+  try {
+    await invoke("set_registries", { registries: list });
+    registries = await invoke("get_registries");
+    registryUrl = registries[0] ?? "";
+    libSource = registries[0] ?? null;
+    showNotice("模板源已保存");
+    closeSourcesModal();
+    manifest = null;
+    renderLibrary();
+  } catch (e) {
+    showNotice(String(e), true);
   }
 }
 
@@ -1361,12 +1665,44 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   registries = await invoke("get_registries");
   registryUrl = registries[0] ?? "";
-  renderRegistryBar();
+  libSource = registries[0] ?? null;
+
+  // 模板库入口按钮 + 源管理
+  const libImportBtn = document.querySelector("#lib-import-local");
+  if (libImportBtn) libImportBtn.onclick = importLocalFile;
+  const libManageBtn = document.querySelector("#lib-manage-sources");
+  if (libManageBtn) libManageBtn.onclick = openSourcesModal;
+  const libCacheToggle = document.querySelector("#lib-cache-toggle");
+  if (libCacheToggle) {
+    libCacheToggle.onclick = () => {
+      if (el.libCacheDrawer) el.libCacheDrawer.hidden = !el.libCacheDrawer.hidden;
+    };
+  }
+  const sourcesModal = document.querySelector("#sources-modal");
+  document.querySelector("#sources-modal-close").onclick = closeSourcesModal;
+  document.querySelector("#sources-cancel").onclick = closeSourcesModal;
+  document.querySelector("#sources-add-btn").onclick = addSourceRow;
+  document.querySelector("#sources-save").onclick = saveSources;
+  sourcesModal.addEventListener("click", (e) => {
+    if (e.target === sourcesModal) closeSourcesModal();
+  });
+  await ensureLibraryFromCache();
   await refresh();
-  // 不自动联网检查版本：仅本地状态周期性刷新；版本更新走“检查更新”按钮
+  renderLocalTemplates();
+
+  // 搜索框只创建一次，输入时仅刷新列表（避免重建导致光标跳走）
+  const libSearchInput = document.createElement("input");
+  libSearchInput.placeholder = "搜索模板（名称 / 分类 / 描述）…";
+  libSearchInput.value = libSearchValue;
+  libSearchInput.addEventListener("input", () => {
+    libSearchValue = libSearchInput.value;
+    libPage = 0;
+    if (manifest) renderLibrary();
+  });
+  el.libSearch.appendChild(libSearchInput);
+  // 不自动联网检查版本：仅管理页本地状态周期性刷新(轻量、无网络)；批量页只在进入/手动刷新/操作后刷新
   setInterval(() => {
-    if (view === "batch") refreshBatchLocal();
-    else if (view === "manage" && current) refreshStatusLocal();
+    if (view === "manage" && current) refreshStatusLocal();
   }, 15000);
   // 运行日志跟随刷新：仅程序运行期间轮询，避免无谓 IPC
   setInterval(() => {

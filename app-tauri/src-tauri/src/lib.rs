@@ -48,6 +48,8 @@ struct StatusView {
     local_version: String,
     latest_version: Option<String>,
     latest_published: String,
+    /// 最近一次联网检查版本的时间戳（unix 秒），供展示“距上次更新多久”
+    latest_checked_at: Option<u64>,
     /// 已安装且不存在更新（true 时前端隐藏「更新」按钮）
     up_to_date: bool,
     bin_path: String,
@@ -63,6 +65,14 @@ struct ProgramStatusView {
 }
 
 impl StatusView {
+    fn now_unix() -> u64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
     fn from_status(s: &shared::ProgramStatus, bin_path: &PathBuf, autostart: bool) -> Self {
         let up_to_date = s.installed
             && s.local_version != "-"
@@ -77,22 +87,41 @@ impl StatusView {
             local_version: s.local_version.clone(),
             latest_version: s.latest_version.clone(),
             latest_published: s.latest_published.clone(),
+            latest_checked_at: s.latest_version.as_ref().map(|_| Self::now_unix()),
             up_to_date,
             bin_path: bin_path.display().to_string(),
         }
     }
 
     /// 本地即时渲染阶段：未知最新版本，up_to_date 置 false
-    /// 避免尚未刷新就把「更新」按钮置灰隐藏
-    fn from_local(s: &shared::ProgramStatus, bin_path: &PathBuf, autostart: bool) -> Self {
+    /// 避免尚未刷新就把「更新」按钮置灰隐藏。
+    /// 若本地有版本检查缓存（曾经联网查过），则回填最新版本与上次检查时间。
+    fn from_local(
+        s: &shared::ProgramStatus,
+        bin_path: &PathBuf,
+        autostart: bool,
+        repo: &str,
+        vcheck: &BTreeMap<String, (String, u64)>,
+    ) -> Self {
+        let cached = vcheck.get(repo);
+        let latest_ver = cached.map(|(v, _)| v.clone());
+        let checked_at = cached.map(|(_, t)| *t);
+        // 有缓存的最新版本时，可据此正确判断是否已最新（否则回到“未知”置 false）
+        let up_to_date = s.installed
+            && s.local_version != "-"
+            && latest_ver
+                .as_deref()
+                .map(|v| !shared::version::is_newer(v, &s.local_version))
+                .unwrap_or(false);
         Self {
             installed: s.installed,
             running: s.running,
             autostart,
             local_version: s.local_version.clone(),
-            latest_version: None,
+            latest_version: latest_ver,
             latest_published: String::new(),
-            up_to_date: false,
+            latest_checked_at: checked_at,
+            up_to_date,
             bin_path: bin_path.display().to_string(),
         }
     }
@@ -185,6 +214,7 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
     let bin;
     let mut local;
     let autostart;
+    let repo;
     {
         let mut mgr = state.manager.lock().unwrap();
         let Some(found) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
@@ -196,11 +226,19 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
         autostart = mgr.program_autostart(&p);
         let layout = mgr.proxy.clone();
         let gh = proxied_github(&layout);
+        repo = p.repo.clone();
         drop(mgr);
         if let Ok(latest) = gh.latest(&p.repo) {
             local.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
             local.latest_published = latest.published_at.clone();
         }
+    }
+    // 刚才联网查过最新版本 → 落盘版本检查缓存（含检查时间戳）
+    if let Some(v) = &local.latest_version {
+        let mgr = state.manager.lock().unwrap();
+        let mut vc = mgr.load_version_check();
+        vc.insert(repo, (v.clone(), StatusView::now_unix()));
+        mgr.save_version_check(&vc);
     }
     Ok(StatusView::from_status(&local, &bin, autostart))
 }
@@ -215,12 +253,14 @@ fn get_status_local(state: State<AppState>, program_id: String) -> Result<Status
     let bin = mgr.bin_path(&p);
     let s = mgr.status_local(&p);
     let auto = mgr.program_autostart(&p);
-    Ok(StatusView::from_local(&s, &bin, auto))
+    let vcheck = mgr.load_version_check();
+    Ok(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck))
 }
 #[tauri::command]
 fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String> {
     let mut mgr = state.manager.lock().unwrap();
     let progs = mgr.programs.clone();
+    let vcheck = mgr.load_version_check();
     Ok(progs
         .into_iter()
         .map(|p| {
@@ -232,7 +272,7 @@ fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, 
                 name: p.name.clone(),
                 repo: p.repo.clone(),
                 hidden: p.hidden,
-                status: StatusView::from_local(&s, &bin, auto),
+                status: StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck),
             }
         })
         .collect())
@@ -281,6 +321,17 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             s.latest_version = Some(v);
             s.latest_published = pb;
         }
+    }
+    // 落盘版本检查缓存（repo -> (最新版本, 检查时间戳)），供后续本地刷新展示“距上次更新多久”
+    if locals.iter().any(|(_, _, s, _)| s.latest_version.is_some()) {
+        let mgr = state.manager.lock().unwrap();
+        let mut vc = mgr.load_version_check();
+        for (p, _, s, _) in locals.iter() {
+            if let Some(v) = &s.latest_version {
+                vc.insert(p.repo.clone(), (v.clone(), StatusView::now_unix()));
+            }
+        }
+        mgr.save_version_check(&vc);
     }
     Ok(locals
         .into_iter()
@@ -678,7 +729,7 @@ fn get_manifest(
         Some(&mgr.proxy.accelerate_prefix),
         Some(&mgr.proxy.http_proxy),
     );
-    let (offline, manifest) = client
+    let (offline, _fetched_at, manifest) = client
         .load_manifest()
         .map_err(|e| format!("{e:#}"))?;
     Ok(ManifestView {
@@ -693,15 +744,23 @@ fn get_manifest(
 #[derive(serde::Serialize)]
 struct MergedManifestView {
     templates: Vec<(String, shared::TemplateIndex, String)>, // (base, index)
-    sources: Vec<(String, bool)>,
+    sources: Vec<(String, bool, u64)>, // (base, offline, fetched_at 缓存日期)
     conflicts: Vec<(String, usize)>, // id -> 提供它的源数量
 }
 
 #[tauri::command]
 fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<MergedManifestView, String> {
-    let mgr = state.manager.lock().unwrap();
-    let cache = mgr.data_dir.join("cache/registry");
-    let mut bases: Vec<String> = mgr.template_registries.clone();
+    // 网络/落盘操作放在锁外，避免阻塞其它命令
+    let (cache, bases0, pubkeys, proxy) = {
+        let mgr = state.manager.lock().unwrap();
+        (
+            mgr.data_dir.join("cache/registry"),
+            mgr.template_registries.clone(),
+            mgr.registry_pubkeys.clone(),
+            mgr.proxy.clone(),
+        )
+    };
+    let mut bases = bases0;
     let typed = registry_url.trim().to_string();
     if !typed.is_empty() && !bases.contains(&typed) {
         bases.push(typed);
@@ -712,9 +771,9 @@ fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<M
     let merged = shared::load_merged_manifests(
         &bases,
         cache,
-        mgr.registry_pubkeys.clone(),
-        Some(&mgr.proxy.accelerate_prefix),
-        Some(&mgr.proxy.http_proxy),
+        pubkeys,
+        Some(&proxy.accelerate_prefix),
+        Some(&proxy.http_proxy),
     );
     Ok(MergedManifestView {
         templates: merged
@@ -729,6 +788,123 @@ fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<M
             .map(|(id, bases)| (id.clone(), bases.len()))
             .collect(),
     })
+}
+
+/// 只读本地缓存的清单（不联网）：供重启进入模板库时恢复上一次刷新的远程源列表。
+/// 若本地有缓存清单则返回，source 标记为离线。无缓存则报错（前端保持空态并提示刷新）。
+#[tauri::command]
+fn get_merged_manifest_offline(state: State<AppState>) -> Result<MergedManifestView, String> {
+    let (cache, default_base) = {
+        let mgr = state.manager.lock().unwrap();
+        (
+            mgr.data_dir.join("cache/registry"),
+            mgr.template_registries.first().cloned().unwrap_or_default(),
+        )
+    };
+    let path = cache.join("manifest.json");
+    let text =
+        std::fs::read_to_string(&path).map_err(|_| "本地无缓存清单，请先联网刷新".to_string())?;
+    let m: shared::Manifest =
+        serde_json::from_str(&text).map_err(|e| format!("解析本地缓存清单失败: {e}"))?;
+    let mtime = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .map(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        })
+        .unwrap_or(0);
+    Ok(MergedManifestView {
+        templates: m
+            .templates
+            .iter()
+            .map(|t| (t.id.clone(), t.clone(), default_base.clone()))
+            .collect(),
+        sources: vec![(default_base, true, mtime)],
+        conflicts: vec![],
+    })
+}
+
+/// 保存模板源列表（shell.json 持久化）。默认官方源需保留或可手动加入。
+#[tauri::command]
+fn set_registries(state: State<AppState>, registries: Vec<String>) -> Result<(), String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let cleaned: Vec<String> = registries
+        .into_iter()
+        .map(|s| {
+            let s = s.trim().to_string();
+            if s.ends_with('/') { s } else { format!("{s}/") }
+        })
+        .filter(|s| !s.is_empty() && s != "/")
+        .collect();
+    mgr.template_registries = cleaned.clone();
+    mgr.save_config(&state.config_path)
+        .map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&format!("更新模板源列表：{}", cleaned.join(", ")));
+    Ok(())
+}
+
+/// 从本地模板 JSON 文件导入（分享/离线导入）。`overwrite` 行为同远程导入。
+#[tauri::command]
+fn import_local_template(
+    state: State<AppState>,
+    template_path: String,
+    overwrite: bool,
+) -> Result<ProgramView, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let text = std::fs::read_to_string(&template_path)
+        .map_err(|e| format!("读取模板失败: {e}"))?;
+    let mut program: shared::config::Program = serde_json::from_str(&text)
+        .map_err(|e| format!("解析模板失败: {e}"))?;
+    commit_program(&mut mgr, &mut program, overwrite, &state.config_path, "从本地文件").map_err(|e| e)
+}
+
+/// 本地导入公共落盘：解析好 Program 后按 overwrite 覆盖或追加进受管列表。
+fn commit_program(
+    mgr: &mut ShellManager,
+    program: &mut Program,
+    overwrite: bool,
+    config_path: &PathBuf,
+    import_desc: &str,
+) -> Result<ProgramView, String> {
+    if program.binary.is_empty() {
+        program.binary = program.id.clone();
+    }
+    if let Some(idx) = mgr.programs.iter().position(|p| p.id == program.id) {
+        if !overwrite {
+            return Err(format!("程序「{}」已存在", program.id));
+        }
+        mgr.programs[idx] = program.clone();
+        let view = to_view(program);
+        mgr.save_config(config_path).map_err(|e| format!("{e:#}"))?;
+        mgr.log_op(&format!("{import_desc} 覆盖导入「{}」", program.id));
+        return Ok(view);
+    }
+    let view = to_view(program);
+    let name = program.name.clone();
+    mgr.programs.push(program.clone());
+    mgr.save_config(config_path).map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&format!("{import_desc} 导入「{name}」"));
+    Ok(view)
+}
+
+/// 导出受管程序的模板定义为本地 JSON（分享给他人/备份）。
+#[tauri::command]
+fn export_template(
+    state: State<AppState>,
+    program_id: String,
+    dest_path: String,
+) -> Result<(), String> {
+    let mgr = state.manager.lock().unwrap();
+    let p = mgr
+        .programs
+        .iter()
+        .find(|p| p.id == program_id)
+        .ok_or_else(|| "程序不存在".to_string())?;
+    let json = serde_json::to_string_pretty(p).map_err(|e| format!("{e:#}"))?;
+    std::fs::write(&dest_path, json).map_err(|e| format!("写入文件失败: {e}"))?;
+    mgr.log_op(&format!("导出程序「{}」模板到本地", p.name));
+    Ok(())
 }
 
 /// 导入：拉取模板 → 快照进本地配置 → 写回 shell.json
@@ -941,8 +1117,12 @@ pub fn run() {
             delete_program,
             set_program_hidden,
             get_registries,
+            set_registries,
             get_manifest,
             get_merged_manifest,
+            get_merged_manifest_offline,
+            import_local_template,
+            export_template,
             import_template,
             get_proxy,
             set_proxy,

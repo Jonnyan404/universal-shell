@@ -58,7 +58,7 @@ fn main() {
     let mut pk = BTreeMap::new();
     pk.insert(base.to_string(), pubkey);
     let client = shared::RegistryClient::with_pubkeys(base, cache.clone(), pk);
-    let (offline1, manifest) = client.load_manifest().unwrap();
+    let (offline1, _fetched, manifest) = client.load_manifest().unwrap();
     assert!(!offline1);
     assert!(!manifest.templates.is_empty());
     println!("1. manifest ok(签名通过), templates={}", manifest.templates.len());
@@ -85,7 +85,7 @@ fn main() {
     server.wait().ok();
     thread::sleep(Duration::from_millis(400));
 
-    let (offline3, manifest2) = client.load_manifest().expect("offline manifest from cache");
+    let (offline3, _fetched2, manifest2) = client.load_manifest().expect("offline manifest from cache");
     assert!(offline3, "网络断开后应标记离线并回退缓存");
     assert_eq!(manifest2.templates.len(), manifest.templates.len());
     // 只对已缓存过的模板可离线加载
