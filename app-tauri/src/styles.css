@@ -461,6 +461,9 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   border: 1px dashed var(--border); border-radius: 4px;
   padding: 2px 10px;
 }
+.batch-checked-at::before {
+  content: "▲"; font-size: 10px; line-height: 1; margin-bottom: 1px;
+}
 .op-danger { color: var(--danger); border-color: var(--danger); }
 .op-danger:hover { background: var(--danger); color: #fff; }
 
