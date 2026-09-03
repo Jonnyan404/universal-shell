@@ -91,7 +91,6 @@ enum View {
     Manage,
     Library,
     Batch,
-    Settings,
 }
 
 struct ShellApp {
@@ -129,6 +128,10 @@ struct ShellApp {
     settings_proxy: String,
     /// 程序日志查看器是否打开
     show_log: bool,
+    /// 全局设置弹窗是否打开
+    show_settings: bool,
+    /// 暗色主题
+    dark_mode: bool,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
     /// 是否已在托盘菜单里点了「退出」
@@ -180,6 +183,8 @@ impl ShellApp {
             settings_accel,
             settings_proxy,
             show_log: false,
+            show_settings: false,
+            dark_mode: true,
             tray: None,
             quit: Arc::new(AtomicBool::new(false)),
         }
@@ -535,29 +540,6 @@ impl ShellApp {
         self.manager.programs.iter().find(|p| p.id == id)
     }
 
-    /// 渲染受管程序的 Tab 栏（B9：多程序切换）
-    fn show_program_tabs(&mut self, ui: &mut egui::Ui) {
-        let selected: Vec<String> = self.manager.programs.iter().map(|p| p.id.clone()).collect();
-        if selected.is_empty() {
-            return;
-        }
-        ui.horizontal(|ui| {
-            for id in &selected {
-                let label = self
-                    .manager
-                    .programs
-                    .iter()
-                    .find(|p| &p.id == id)
-                    .map(|p| p.name.as_str())
-                    .unwrap_or(id);
-                let active = self.current_id.as_deref() == Some(id.as_str());
-                if ui.selectable_label(active, label).clicked() {
-                    self.current_id = Some(id.clone());
-                }
-            }
-        });
-    }
-
     fn show_form(&mut self, ui: &mut egui::Ui) {
         let Some(p) = self.shown_program().cloned() else {
             return;
@@ -642,42 +624,193 @@ impl ShellApp {
         }
     }
 
-    fn show_manage(&mut self, ui: &mut egui::Ui) {
-        // B9: 多程序 Tab 栏
-        self.show_program_tabs(ui);
-        if self.manager.programs.len() > 1 {
-            ui.add_space(2.0);
+    /// 左侧栏：主题/语言/设置按钮 + 程序列表 + 批量/模板库/壳日志链接
+    fn show_sidebar(&mut self, ui: &mut egui::Ui) {
+        // 顶部按钮行：主题 / 语言 / 设置
+        ui.horizontal(|ui| {
+            let theme_label = if self.dark_mode { "☀" } else { "☾" };
+            if ui.small_button(theme_label).on_hover_text(t!("ui.theme")).clicked() {
+                self.dark_mode = !self.dark_mode;
+                let visuals = if self.dark_mode {
+                    egui::Visuals::dark()
+                } else {
+                    egui::Visuals::light()
+                };
+                ui.ctx().set_visuals(visuals);
+            }
+            let lang_label = match self.manager.locale.as_str() {
+                "auto" => "文",
+                "zh-CN" => "中",
+                _ => "EN",
+            };
+            if ui.small_button(lang_label).on_hover_text(t!("ui.lang")).clicked() {
+                let next = match self.manager.locale.as_str() {
+                    "auto" => "zh-CN",
+                    "zh-CN" => "en",
+                    _ => "auto",
+                };
+                self.manager.locale = next.to_string();
+                let override_locale = if next == "auto" { None } else { Some(next) };
+                shared::locale::apply(override_locale, &system_hint());
+                let _ = self.manager.save_config(&self.config_path);
+            }
+            if ui.small_button("⚙").on_hover_text(t!("ui.settings")).clicked() {
+                self.show_settings = true;
+            }
+        });
+        ui.separator();
+
+        // 程序列表（可滚动）
+        let programs = self.manager.programs.clone();
+        let selected_id = self.current_id.clone();
+        egui::ScrollArea::vertical()
+            .id_salt("sidebar_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for p in &programs {
+                    if p.hidden {
+                        continue;
+                    }
+                    let active = selected_id.as_deref() == Some(p.id.as_str());
+                    let st = self.manager.status_local(p);
+                    let response = ui.selectable_label(
+                        active,
+                        egui::RichText::new(&p.name),
+                    );
+                    if response.clicked() {
+                        self.current_id = Some(p.id.clone());
+                        self.view = View::Manage;
+                    }
+                    // 状态小字（版本 / 运行态）
+                    if active {
+                        ui.horizontal(|ui| {
+                            ui.add_space(16.0);
+                            ui.small(t!("st.local_ver", ver = st.local_version));
+                            if st.running {
+                                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), "●");
+                            } else {
+                                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), "○");
+                            }
+                        });
+                    }
+                }
+            });
+
+        // 底部链接
+        ui.separator();
+        if ui.selectable_label(matches!(self.view, View::Batch), t!("batch.title")).clicked() {
+            self.view = View::Batch;
         }
+        if ui.selectable_label(matches!(self.view, View::Library), t!("lib.title")).clicked() {
+            self.view = View::Library;
+        }
+    }
+
+    /// 主内容区：标题栏 + 视图分派
+    fn show_main(&mut self, ui: &mut egui::Ui) {
+        // 标题栏
+        ui.horizontal(|ui| {
+            ui.heading(t!("app.name"));
+            ui.weak(t!("eg.data_dir", path = self.manager.data_dir.display()));
+        });
+        ui.separator();
+
+        match self.view {
+            View::Manage => self.show_manage(ui),
+            View::Library => self.show_library(ui),
+            View::Batch => self.show_batch(ui),
+        }
+    }
+
+    /// 全局设置弹窗
+    fn show_settings_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_settings;
+        egui::Window::new(t!("sett.title"))
+            .id(egui::Id::new("settings_window"))
+            .open(&mut open)
+            .default_width(500.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.accelerate")));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings_accel)
+                            .hint_text(t!("sett.acc_placeholder"))
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.proxy")));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings_proxy)
+                            .hint_text(t!("sett.proxy_placeholder"))
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(t!("act.save")).clicked() {
+                            let accel = self.settings_accel.trim().to_string();
+                            let proxy = self.settings_proxy.trim().to_string();
+                            self.manager.proxy.accelerate_prefix = accel.clone();
+                            self.manager.proxy.http_proxy = proxy.clone();
+                            self.manager.github.apply_network(&accel, &proxy);
+                            if let Err(e) = self.manager.save_config(&self.config_path) {
+                                self.notice.insert("__settings__".into(), format!("{e:#}"));
+                            } else {
+                                self.notice.insert("__settings__".into(), t!("toast.saved").to_string());
+                            }
+                        }
+                    });
+                });
+                if let Some(n) = self.notice.get("__settings__") {
+                    if !n.is_empty() {
+                        ui.colored_label(egui::Color32::from_rgb(90, 180, 90), n);
+                    }
+                }
+            });
+        self.show_settings = open;
+    }
+
+    fn show_manage(&mut self, ui: &mut egui::Ui) {
         let Some(p) = self.shown_program().cloned() else {
             ui.label(t!("eg.no_program"));
             return;
         };
 
-        ui.heading(&p.name);
-        ui.weak(&p.description);
-        ui.separator();
-
-        // 状态行
+        // 状态行：程序名 + 状态标签 + 下载按钮（匹配 Tauri statusbar）
         let status = self.manager.status(&p);
-        let mut chips = vec![
-            t!("st.local_ver", ver = status.local_version),
-            t!(
-                "eg.latest_ver_fmt",
-                ver = status.latest_version.as_deref().unwrap_or("未知")
-            ),
-            if status.installed { t!("st.installed") } else { t!("st.not_installed_bare") },
-        ];
-        if self.manager.runner.is_running(&p.id) {
-            chips.push(t!("st.running"));
-        } else {
-            chips.push(t!("st.stopped"));
-        }
         ui.horizontal(|ui| {
-            for c in chips {
-                ui.label(c);
+            ui.heading(&p.name);
+            ui.add_space(8.0);
+            ui.weak(&p.description);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let dl_btn = ui.add_enabled(
+                    !self.busy,
+                    egui::Button::new(
+                        if self.busy { t!("dl.downloading").to_string() } else { t!("eg.download_or_update").to_string() },
+                    ),
+                );
+                if dl_btn.clicked() {
+                    self.spawn_install(p.clone());
+                    self.notice.insert(p.id.clone(), String::new());
+                }
+            });
+        });
+        ui.horizontal(|ui| {
+            ui.label(t!("st.local_ver", ver = status.local_version));
+            if status.installed {
+                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.installed"));
+            } else {
+                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.not_installed_bare"));
+            }
+            ui.label(t!("eg.latest_ver_fmt", ver = status.latest_version.as_deref().unwrap_or("未知")));
+            if self.manager.runner.is_running(&p.id) {
+                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
+            } else {
+                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.stopped"));
             }
         });
-        ui.add_space(6.0);
 
         // 模板更新行（仅当实例带来源注册表时显示）
         if p.template_source.is_some() {
@@ -716,25 +849,32 @@ impl ShellApp {
             ui.add_space(4.0);
         }
 
+        ui.separator();
+
         // 配置驱动表单
-        self.show_form(ui);
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            self.show_form(ui);
+        });
+
         ui.add_space(8.0);
 
-        // 操作区
+        // 下载进度条
+        if let Some((pid, frac, label)) = self.progress.clone() {
+            if pid == p.id {
+                ui.label(label);
+                ui.add(
+                    egui::ProgressBar::new(frac as f32)
+                        .show_percentage()
+                        .desired_width(ui.available_width()),
+                );
+                ui.add_space(4.0);
+            }
+        }
+
+        // 操作区：启动/停止/重启 + 打开目录/网站/复制地址（匹配 Tauri actions）
         let values = self.values.get(&p.id).cloned().unwrap_or_default();
         let url = web_url(&p, &values);
         ui.horizontal(|ui| {
-            let download_btn = ui.add_enabled(
-                !self.busy,
-                egui::Button::new(
-                    if self.busy { t!("dl.downloading").to_string() } else { t!("eg.download_or_update").to_string() },
-                ),
-            );
-            if download_btn.clicked() {
-                self.spawn_install(p.clone());
-                self.notice.insert(p.id.clone(), String::new());
-            }
-
             let values_for_start = values;
             if self.manager.runner.is_running(&p.id) {
                 if ui.button(t!("act.stop")).clicked() {
@@ -755,41 +895,31 @@ impl ShellApp {
                     }
                 }
             }
-
-            if url.is_some() {
-                if ui.button(t!("act.open_site")).clicked() {
-                    let cmd = open_cmd();
-                    let _ = std::process::Command::new(&cmd).arg(url.as_deref().unwrap()).spawn();
+            // 右对齐操作按钮
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(t!("act.open_app_dir")).clicked() {
+                    let app_dir = self.manager.app_dir(&p);
+                    let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
                 }
-                if ui.button(t!("act.copy_addr")).clicked() {
-                    ui.ctx().copy_text(url.as_deref().unwrap().to_string());
-                    self.notice.insert(p.id.clone(), t!("toast.addr_copied").to_string());
+                if ui.button(t!("act.open_log_dir")).clicked() {
+                    let log_dir = self.manager.data_dir.join("logs");
+                    let _ = std::process::Command::new(&open_cmd()).arg(&log_dir).spawn();
                 }
-            }
-            if ui.button(t!("act.open_app_dir")).clicked() {
-                let app_dir = self.manager.app_dir(&p);
-                let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
-            }
-            if ui.button(t!("act.open_log_dir")).clicked() {
-                let log_dir = self.manager.data_dir.join("logs");
-                let _ = std::process::Command::new(&open_cmd()).arg(&log_dir).spawn();
-            }
-            if ui.button(t!("act.log")).clicked() {
-                self.show_log = true;
-            }
+                if ui.button(t!("act.log")).clicked() {
+                    self.show_log = true;
+                }
+                if url.is_some() {
+                    if ui.button("⧉").on_hover_text(t!("act.copy_addr")).clicked() {
+                        ui.ctx().copy_text(url.as_deref().unwrap().to_string());
+                        self.notice.insert(p.id.clone(), t!("toast.addr_copied").to_string());
+                    }
+                    if ui.button("↗").on_hover_text(t!("act.open_site")).clicked() {
+                        let cmd = open_cmd();
+                        let _ = std::process::Command::new(&cmd).arg(url.as_deref().unwrap()).spawn();
+                    }
+                }
+            });
         });
-
-        if let Some((pid, frac, label)) = self.progress.clone() {
-            if pid == p.id {
-                ui.add_space(6.0);
-                ui.label(label);
-                ui.add(
-                    egui::ProgressBar::new(frac as f32)
-                        .show_percentage()
-                        .desired_width(ui.available_width()),
-                );
-            }
-        }
 
         if let Some(n) = self.notice.get(&p.id) {
             if !n.is_empty() {
@@ -975,50 +1105,6 @@ impl ShellApp {
         });
     }
 
-    /// 设置面板：全局网络(加速前缀/通用代理) + 立即保存应用。
-    fn show_settings(&mut self, ui: &mut egui::Ui) {
-        ui.heading(t!("sett.title"));
-        ui.weak(t!("eg.data_dir", path = self.manager.data_dir.display()));
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.add_sized([120.0, 0.0], egui::Label::new(t!("sett.accelerate")));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.settings_accel)
-                    .hint_text(t!("sett.acc_placeholder"))
-                    .desired_width(f32::INFINITY),
-            );
-        });
-        ui.horizontal(|ui| {
-            ui.add_sized([120.0, 0.0], egui::Label::new(t!("sett.proxy")));
-            ui.add(
-                egui::TextEdit::singleline(&mut self.settings_proxy)
-                    .hint_text(t!("sett.proxy_placeholder"))
-                    .desired_width(f32::INFINITY),
-            );
-        });
-        ui.add_space(6.0);
-        if ui.button(t!("act.save")).clicked() {
-            let accel = self.settings_accel.trim().to_string();
-            let proxy = self.settings_proxy.trim().to_string();
-            self.manager.proxy.accelerate_prefix = accel.clone();
-            self.manager.proxy.http_proxy = proxy.clone();
-            self.manager.github.apply_network(&accel, &proxy);
-            if let Err(e) = self.manager.save_config(&self.config_path) {
-                self.notice
-                    .insert("__settings__".into(), format!("{e:#}"));
-            } else {
-                self.notice
-                    .insert("__settings__".into(), t!("toast.saved").to_string());
-            }
-        }
-        if let Some(n) = self.notice.get("__settings__") {
-            if !n.is_empty() {
-                ui.add_space(6.0);
-                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), n);
-            }
-        }
-    }
-
     /// 程序日志查看器：浮窗展示当前程序日志尾部。
     fn show_log_window(&mut self, ctx: &egui::Context) {
         let Some(p) = self.shown_program().cloned() else {
@@ -1040,60 +1126,6 @@ impl ShellApp {
 }
 
 impl eframe::App for ShellApp {
-    // 逻辑更新见下方 `fn logic`（含崩溃恢复轮询）。
-
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        ui.horizontal(|ui| {
-            ui.heading(t!("app.name"));
-            ui.separator();
-            if ui.selectable_label(matches!(self.view, View::Manage), t!("ui.manage")).clicked() {
-                self.view = View::Manage;
-            }
-            if ui.selectable_label(matches!(self.view, View::Library), t!("lib.title")).clicked() {
-                self.view = View::Library;
-            }
-            if ui.selectable_label(matches!(self.view, View::Batch), t!("batch.title")).clicked() {
-                self.view = View::Batch;
-            }
-            if ui.selectable_label(matches!(self.view, View::Settings), t!("sett.title")).clicked() {
-                self.view = View::Settings;
-            }
-            ui.separator();
-            // 语言切换：auto → zh-CN → en
-            let lang_label = match self.manager.locale.as_str() {
-                "auto" => "文",
-                "zh-CN" => "中",
-                _ => "EN",
-            };
-            if ui.button(lang_label).on_hover_text(t!("ui.lang")).clicked() {
-                let next = match self.manager.locale.as_str() {
-                    "auto" => "zh-CN",
-                    "zh-CN" => "en",
-                    _ => "auto",
-                };
-                self.manager.locale = next.to_string();
-                let override_locale = if next == "auto" { None } else { Some(next) };
-                shared::locale::apply(override_locale, &system_hint());
-                let _ = self.manager.save_config(&self.config_path);
-            }
-            ui.weak(t!("eg.data_dir", path = self.manager.data_dir.display()));
-        });
-        ui.separator();
-
-        match self.view {
-            View::Manage => self.show_manage(ui),
-            View::Library => self.show_library(ui),
-            View::Batch => self.show_batch(ui),
-            View::Settings => self.show_settings(ui),
-        }
-
-        if self.show_log {
-            self.show_log_window(ui.ctx());
-        }
-    }
-
-    /// 崩溃恢复：每 ~3s 触发一次重绘，让管理/批量视图的本地运行态保持新鲜
-    /// （程序自行退出/崩溃后及时刷新启动按钮与运行状态）。
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_msgs();
         // 崩溃恢复/运行态轮询：3s 一次（不发网络请求，仅读本地进程/文件）
@@ -1106,6 +1138,26 @@ impl eframe::App for ShellApp {
             let _ = ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             ctx.request_repaint();
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::Panel::left("sidebar")
+            .resizable(true)
+            .default_size(200.0)
+            .show(ui, |ui| {
+                self.show_sidebar(ui);
+            });
+        egui::CentralPanel::default()
+            .show(ui, |ui| {
+                self.show_main(ui);
+            });
+
+        if self.show_log {
+            self.show_log_window(ui.ctx());
+        }
+        if self.show_settings {
+            self.show_settings_window(ui.ctx());
         }
     }
 }
