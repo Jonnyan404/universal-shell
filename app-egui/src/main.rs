@@ -142,8 +142,6 @@ struct ShellApp {
     /// 各程序的最新版本缓存（后台异步刷新，避免渲染时联网卡顿）
     /// key = 程序 id, value = (最新版本, 发布时间)
     latest_versions: BTreeMap<String, (Option<String>, String)>,
-    /// 首次刷新各程序最新版本是否已触发
-    status_started: bool,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
     /// 是否已在托盘菜单里点了「退出」
@@ -200,7 +198,6 @@ impl ShellApp {
             dark_mode: true,
             op_logs: Vec::new(),
             latest_versions: BTreeMap::new(),
-            status_started: false,
             tray: None,
             quit: Arc::new(AtomicBool::new(false)),
         }
@@ -411,7 +408,6 @@ impl ShellApp {
                         None => t!("toast.download_fail", err = err.unwrap_or_default()).to_string(),
                     };
                     self.notice.insert(pid, text);
-                    self.refresh_status();
                 }
                 Msg::ManifestLoaded(result) => {
                     self.registry_wait = false;
@@ -749,15 +745,11 @@ impl ShellApp {
 
         // 底部链接
         ui.separator();
-        let prev_view = self.view;
         if ui.selectable_label(matches!(self.view, View::Batch), t!("batch.title")).clicked() {
             self.view = View::Batch;
         }
         if ui.selectable_label(matches!(self.view, View::Library), t!("lib.title")).clicked() {
             self.view = View::Library;
-        }
-        if self.view != prev_view {
-            self.refresh_status();
         }
     }
 
@@ -1219,7 +1211,8 @@ impl ShellApp {
             ui.heading(t!("batch.title"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(t!("batch.refresh")).clicked() {
-                    self.refresh_status();
+                    // 仅重读本地状态（不含网络请求，避免卡顿）
+                    ui.ctx().request_repaint();
                 }
                 if ui.button(t!("batch.check")).clicked() {
                     self.notice.insert("__batch__".into(), t!("dl.checking").to_string());
@@ -1386,11 +1379,6 @@ impl ShellApp {
 
 impl eframe::App for ShellApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 启动后首次异步刷新各程序最新版本（后台联网，不阻塞界面）
-        if !self.status_started {
-            self.status_started = true;
-            self.refresh_status();
-        }
         self.handle_msgs();
         // 崩溃恢复/运行态轮询：3s 一次（不发网络请求，仅读本地进程/文件）
         ctx.request_repaint_after(Duration::from_secs(3));
