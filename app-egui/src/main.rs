@@ -149,6 +149,8 @@ struct ShellApp {
     settings_proxy: String,
     /// 程序日志查看器是否打开
     show_log: bool,
+    /// 壳操作日志弹窗是否打开
+    show_shell_log: bool,
     /// 全局设置弹窗是否打开
     show_settings: bool,
     /// 暗色主题
@@ -224,6 +226,7 @@ impl ShellApp {
             settings_accel,
             settings_proxy,
             show_log: false,
+            show_shell_log: false,
             show_settings: false,
             dark_mode: true,
             op_logs: Vec::new(),
@@ -747,6 +750,7 @@ impl ShellApp {
 
         // 程序列表（可滚动），预留底部链接空间
         let programs = self.manager.programs.clone();
+        let visible: Vec<_> = programs.iter().filter(|p| !p.hidden).collect();
         let selected_id = self.current_id.clone();
         let list_height = (ui.available_height() - 46.0).max(80.0);
         egui::ScrollArea::vertical()
@@ -754,42 +758,87 @@ impl ShellApp {
             .auto_shrink([false, false])
             .max_height(list_height)
             .show(ui, |ui| {
-                for p in &programs {
-                    if p.hidden {
-                        continue;
-                    }
+                if visible.is_empty() {
+                    ui.weak(format!(
+                        "{}{}",
+                        t!("side.empty_hint"),
+                        t!("side.empty_suffix")
+                    ));
+                    return;
+                }
+                for p in visible {
                     let active = selected_id.as_deref() == Some(p.id.as_str());
                     let st = self.manager.status_local(p);
-                    let response = ui.selectable_label(
-                        active,
-                        egui::RichText::new(&p.name),
-                    );
+                    let initial = p
+                        .name
+                        .trim()
+                        .chars()
+                        .next()
+                        .map(|c| c.to_uppercase().collect::<String>())
+                        .unwrap_or_else(|| "?".into());
+                    // 副标题：未安装 / 运行中 / 已停止（对齐 Tauri renderSidebar）
+                    let sub = if !st.installed {
+                        t!("st.not_installed", repo = p.repo).to_string()
+                    } else if st.running {
+                        t!("st.running_ver", ver = st.local_version).to_string()
+                    } else {
+                        t!("st.stopped_ver", ver = st.local_version).to_string()
+                    };
+
+                    let response = egui::Frame::group(ui.style())
+                        .inner_margin(egui::Margin::symmetric(8, 4))
+                        .fill(if active {
+                            ui.visuals().selection.bg_fill
+                        } else {
+                            ui.visuals().faint_bg_color
+                        })
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                // 状态点：运行绿 / 停止灰
+                                ui.colored_label(
+                                    if st.running {
+                                        egui::Color32::from_rgb(90, 180, 90)
+                                    } else {
+                                        egui::Color32::from_rgb(150, 150, 150)
+                                    },
+                                    if st.running { "●" } else { "○" },
+                                );
+                                // 首字母图标
+                                ui.monospace(initial);
+                                // 名称 + 副标题
+                                ui.vertical(|ui| {
+                                    let name_color = if active {
+                                        ui.visuals().strong_text_color()
+                                    } else {
+                                        ui.visuals().text_color()
+                                    };
+                                    ui.label(
+                                        egui::RichText::new(&p.name).color(name_color).strong(),
+                                    );
+                                    ui.small(sub);
+                                });
+                            });
+                        })
+                        .response
+                        .interact(egui::Sense::click());
                     if response.clicked() {
                         self.current_id = Some(p.id.clone());
                         self.view = View::Manage;
                     }
-                    // 状态小字（版本 / 运行态）
-                    if active {
-                        ui.horizontal(|ui| {
-                            ui.add_space(16.0);
-                            ui.small(t!("st.local_ver", ver = st.local_version));
-                            if st.running {
-                                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), "●");
-                            } else {
-                                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), "○");
-                            }
-                        });
-                    }
                 }
             });
 
-        // 底部链接
+        // 底部链接：批量 / 模板库 / 壳日志（对齐 Tauri sidebar 底部 + foot）
         ui.separator();
         if ui.selectable_label(matches!(self.view, View::Batch), t!("batch.title")).clicked() {
             self.view = View::Batch;
         }
         if ui.selectable_label(matches!(self.view, View::Library), t!("lib.title")).clicked() {
             self.view = View::Library;
+        }
+        ui.separator();
+        if ui.selectable_label(matches!(self.view, View::Library), t!("ui.shell_log_short")).clicked() {
+            self.show_shell_log = true;
         }
     }
 
@@ -1059,6 +1108,25 @@ impl ShellApp {
         }
         ui.add_space(4.0);
         ui.separator();
+        // 内嵌日志操作栏（对齐 Tauri manage-log-actions）
+        let mut fullscreen = false;
+        ui.horizontal(|ui| {
+            if ui.small_button("⛶").on_hover_text(t!("lib.fullscreen")).clicked() {
+                fullscreen = true;
+            }
+            if ui.small_button("⧉").on_hover_text(t!("act.copy")).clicked() {
+                let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
+                ui.ctx().copy_text(log);
+                self.notice
+                    .insert(p.id.clone(), t!("toast.copied").to_string());
+            }
+            if ui.small_button("↻").on_hover_text(t!("act.refresh")).clicked() {
+                ui.ctx().request_repaint();
+            }
+        });
+        if fullscreen {
+            self.show_log = true;
+        }
         let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
         egui::ScrollArea::vertical()
             .id_salt("manage_log_scroll")
@@ -1882,7 +1950,7 @@ impl ShellApp {
         }
     }
 
-    /// 程序日志查看器：浮窗展示当前程序日志尾部。
+    /// 程序日志查看器：浮窗展示当前程序日志尾部（对齐 Tauri log-modal，含复制/刷新/打开日志目录/关闭）。
     fn show_log_window(&mut self, ctx: &egui::Context) {
         let Some(p) = self.shown_program().cloned() else {
             self.show_log = false;
@@ -1890,15 +1958,108 @@ impl ShellApp {
         };
         let title = t!("log.title_fmt", name = p.name).to_string();
         let mut open = self.show_log;
+        let mut copied = false;
+        let mut close_clicked = false;
+        let log_msg: String = t!("st.empty").to_string();
         egui::Window::new(title)
             .id(egui::Id::new("program_log_window"))
             .open(&mut open)
             .default_size([640.0, 360.0])
             .show(ctx, |ui| {
+                // 操作栏：复制 / 刷新 / 打开日志目录 / 关闭
+                ui.horizontal(|ui| {
+                    if ui.small_button("⧉").on_hover_text(t!("act.copy")).clicked() {
+                        let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
+                        ui.ctx().copy_text(log);
+                        copied = true;
+                    }
+                    if ui.small_button("↻").on_hover_text(t!("act.refresh")).clicked() {
+                        ctx.request_repaint();
+                    }
+                    if ui.small_button("📁").on_hover_text(t!("act.open_log_dir")).clicked() {
+                        let d = self.manager.data_dir.join("logs");
+                        let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("✕").on_hover_text(t!("act.close")).clicked() {
+                            close_clicked = true;
+                        }
+                    });
+                });
+                ui.separator();
+                // 日志内容（stderr 行以 \x1F 开头标红）
                 let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
-                ui.monospace(log);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for line in log.split('\n') {
+                            if let Some(rest) = line.strip_prefix('\u{1f}') {
+                                ui.colored_label(egui::Color32::from_rgb(220, 90, 90), rest);
+                            } else {
+                                ui.monospace(line);
+                            }
+                        }
+                        if log.is_empty() {
+                            ui.weak(log_msg);
+                        }
+                    });
             });
+        if close_clicked {
+            open = false;
+        }
         self.show_log = open;
+        if copied {
+            self.notice
+                .insert("__log__".into(), t!("toast.copied").to_string());
+        }
+    }
+
+    /// 壳操作日志弹窗：显示 shell.log 内容（对齐 Tauri shell-log-modal，含刷新/清空/关闭）。
+    fn show_shell_log_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_shell_log;
+        let mut clear_req = false;
+        let mut close_clicked = false;
+        egui::Window::new(t!("shell_log.title"))
+            .id(egui::Id::new("shell_log_window"))
+            .open(&mut open)
+            .default_size([560.0, 320.0])
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.weak(t!("shell_log.hint"));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("✕").on_hover_text(t!("act.close")).clicked() {
+                            close_clicked = true;
+                        }
+                        if ui.small_button("⟳").on_hover_text(t!("act.refresh")).clicked() {
+                            ctx.request_repaint();
+                        }
+                        if ui.small_button("🗑").on_hover_text(t!("act.clear")).clicked() {
+                            clear_req = true;
+                        }
+                    });
+                });
+                ui.separator();
+                let content = std::fs::read_to_string(self.manager.op_log_path())
+                    .unwrap_or_default();
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if content.trim().is_empty() {
+                            ui.weak(t!("shell_log.empty"));
+                        } else {
+                            for line in content.lines() {
+                                ui.monospace(line);
+                            }
+                        }
+                    });
+            });
+        if close_clicked {
+            open = false;
+        }
+        self.show_shell_log = open;
+        if clear_req {
+            self.manager.clear_op_log();
+        }
     }
 
     /// 删除确认弹窗：二次确认后真正删除程序并清理数据目录。
@@ -2005,6 +2166,9 @@ impl eframe::App for ShellApp {
 
         if self.show_log {
             self.show_log_window(ui.ctx());
+        }
+        if self.show_shell_log {
+            self.show_shell_log_window(ui.ctx());
         }
         if self.show_settings {
             self.show_settings_window(ui.ctx());
