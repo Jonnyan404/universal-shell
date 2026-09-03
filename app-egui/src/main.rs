@@ -1313,15 +1313,32 @@ impl ShellApp {
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut chosen, "__all__".to_string(), sel_key("__all__"));
                     for (base, off, fetched) in &srcs {
-                        let mut label = String::new();
+                        // 「本地/离线」标识带颜色，其余常规色（多段文本）
+                        let mut job = egui::text::LayoutJob::default();
                         if *off {
-                            label.push_str(&t!("lib.offline"));
+                            let off_label = t!("lib.offline").to_string();
+                            job.append(
+                                &off_label,
+                                0.0,
+                                egui::TextFormat {
+                                    color: egui::Color32::from_rgb(200, 150, 50),
+                                    ..Default::default()
+                                },
+                            );
                         }
-                        label.push_str(base);
+                        job.append(base, if *off { 4.0 } else { 0.0 }, egui::TextFormat::default());
                         if *fetched != 0 {
-                            label.push_str(&format!(" · {}", time_ago(*fetched as i64)));
+                            let ago = format!(" · {}", time_ago(*fetched as i64));
+                            job.append(
+                                &ago,
+                                0.0,
+                                egui::TextFormat {
+                                    color: egui::Color32::GRAY,
+                                    ..Default::default()
+                                },
+                            );
                         }
-                        ui.selectable_value(&mut chosen, base.clone(), label);
+                        ui.selectable_value(&mut chosen, base.clone(), job);
                     }
                 });
             if chosen != sel {
