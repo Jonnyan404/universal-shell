@@ -196,6 +196,14 @@ button:disabled { opacity: 0.6; cursor: default; }
 #actions #stop-btn { background: var(--danger); border-color: var(--danger); color: #fff; }
 #actions #restart-btn { background: #f59e0b; border-color: #f59e0b; color: #fff; }
 #actions button:disabled { background: var(--muted); border-color: var(--border); color: #fff; opacity: 0.6; }
+#actions .icon-btn {
+  width: 34px; height: 34px; flex: 0 0 auto; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 15px; line-height: 1; border-radius: 8px;
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  cursor: pointer;
+}
+#actions .icon-btn:hover { color: var(--text); border-color: var(--accent); }
 
 #notice { margin: 10px 0; padding: 8px 12px; border-radius: 6px; }
 #notice.ok { color: var(--ok); }

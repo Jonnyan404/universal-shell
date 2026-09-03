@@ -395,7 +395,9 @@ async function renderForm() {
   // 有地址(/端口)字段时，提供「打开网站」「复制地址」
   if (webUrl(current.id)) {
     const open = document.createElement("button");
-    open.textContent = t("act.open_site");
+    open.className = "icon-btn";
+    open.title = t("act.open_site");
+    open.textContent = "↗";
     open.onclick = () => {
       const u = webUrl(current.id);
       if (u) openWeb(u);
@@ -403,7 +405,9 @@ async function renderForm() {
     el.actions.appendChild(open);
 
     const copy = document.createElement("button");
-    copy.textContent = t("act.copy_addr");
+    copy.className = "icon-btn";
+    copy.title = t("act.copy_addr");
+    copy.textContent = "⧉";
     copy.onclick = () => {
       const u = webUrl(current.id);
       if (u) copyLogText(u);
