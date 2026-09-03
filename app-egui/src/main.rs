@@ -671,12 +671,14 @@ impl ShellApp {
         });
         ui.separator();
 
-        // 程序列表（可滚动）
+        // 程序列表（可滚动），预留底部链接空间
         let programs = self.manager.programs.clone();
         let selected_id = self.current_id.clone();
+        let list_height = (ui.available_height() - 46.0).max(80.0);
         egui::ScrollArea::vertical()
             .id_salt("sidebar_scroll")
             .auto_shrink([false, false])
+            .max_height(list_height)
             .show(ui, |ui| {
                 for p in &programs {
                     if p.hidden {
