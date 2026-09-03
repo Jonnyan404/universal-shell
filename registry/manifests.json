@@ -1,63 +1,14 @@
 {
-  "revision": "rev-1788428042",
+  "revision": "rev-1788432316",
   "categories": [
     "file-sharing",
     "sync",
     "proxy",
-    "vcs",
     "clipboard",
+    "vcs",
     "utility"
   ],
   "templates": [
-    {
-      "id": "filebrowser",
-      "name": "filebrowser",
-      "category": "file-sharing",
-      "description": "filebrowser — 网页版文件管理器，为指定目录提供一个现代化 Web 界面。默认只绑定 127.0.0.1。",
-      "repo": "filebrowser/filebrowser"
-    },
-    {
-      "id": "croc",
-      "name": "croc",
-      "category": "file-sharing",
-      "description": "croc — 点对点文件传输工具，一条命令在两台电脑之间传文件/文件夹。无需服务器，端到端加密。",
-      "repo": "schollz/croc"
-    },
-    {
-      "id": "mihomo",
-      "name": "mihomo",
-      "category": "proxy",
-      "description": "mihomo（Clash Meta 内核）— 规则化代理内核，支持多种出站协议。需自行提供 config.yaml。注意在配置中把监听地址设为 127.0.0.1，避免暴露到局域网。",
-      "repo": "MetaCubeX/mihomo"
-    },
-    {
-      "id": "lazygit",
-      "name": "lazygit",
-      "category": "vcs",
-      "description": "lazygit — 终端里的 Git 客户端，简单直接。单次运行的 TUI 程序。",
-      "repo": "jesseduffield/lazygit"
-    },
-    {
-      "id": "miniserve",
-      "name": "miniserve",
-      "category": "file-sharing",
-      "description": "miniserve — RIIR 风格极简文件服务器，单个裸二进制，无任何依赖。默认只绑定 127.0.0.1。",
-      "repo": "svenstaro/miniserve"
-    },
-    {
-      "id": "dufs",
-      "name": "dufs",
-      "category": "file-sharing",
-      "description": "dufs — 简洁的文件服务器（单可执行文件），支持上传/下载/WebDAV/搜索。默认只绑定 127.0.0.1。",
-      "repo": "sigoden/dufs"
-    },
-    {
-      "id": "cloud-clipboard-go",
-      "name": "cloud-clipboard-go",
-      "category": "clipboard",
-      "description": "cloud-clipboard-go — 云剪贴板核心程序 (Go)，支持监听/端口/配置/数据目录配置。",
-      "repo": "Jonnyan404/cloud-clipboard-go"
-    },
     {
       "id": "brook",
       "name": "brook",
@@ -73,25 +24,25 @@
       "repo": "rclone/rclone"
     },
     {
-      "id": "age",
-      "name": "age",
-      "category": "utility",
-      "description": "age — 简单、现代的加密工具，用于文件加密与密钥管理。单次运行即退出。",
-      "repo": "FiloSottile/age"
+      "id": "cloud-clipboard-go",
+      "name": "cloud-clipboard-go",
+      "category": "clipboard",
+      "description": "cloud-clipboard-go — 云剪贴板核心程序 (Go)，支持监听/端口/配置/数据目录配置。",
+      "repo": "Jonnyan404/cloud-clipboard-go"
     },
     {
-      "id": "sing-box",
-      "name": "sing-box",
-      "category": "proxy",
-      "description": "sing-box — 通用代理平台（Clash 系内核），支持多种出站协议。需自行提供 config.json。默认监听 127.0.0.1。",
-      "repo": "SagerNet/sing-box"
+      "id": "dufs",
+      "name": "dufs",
+      "category": "file-sharing",
+      "description": "dufs — 简洁的文件服务器（单可执行文件），支持上传/下载/WebDAV/搜索。默认只绑定 127.0.0.1。",
+      "repo": "sigoden/dufs"
     },
     {
-      "id": "syncthing",
-      "name": "syncthing",
-      "category": "sync",
-      "description": "syncthing — 开源、去中心化的文件同步工具（不依赖云）。整包含 config/脚本，使用 whole 解包模式。",
-      "repo": "syncthing/syncthing"
+      "id": "filebrowser",
+      "name": "filebrowser",
+      "category": "file-sharing",
+      "description": "filebrowser — 网页版文件管理器，为指定目录提供一个现代化 Web 界面。默认只绑定 127.0.0.1。",
+      "repo": "filebrowser/filebrowser"
     },
     {
       "id": "frpc",
@@ -101,11 +52,60 @@
       "repo": "fatedier/frp"
     },
     {
+      "id": "syncthing",
+      "name": "syncthing",
+      "category": "sync",
+      "description": "syncthing — 开源、去中心化的文件同步工具（不依赖云）。整包含 config/脚本，使用 whole 解包模式。",
+      "repo": "syncthing/syncthing"
+    },
+    {
       "id": "gitea",
       "name": "gitea",
       "category": "vcs",
       "description": "gitea — 开源自托管 Git 服务（GitHub 轻量替代）。单裸二进制，首次启动用 sqlite。默认只绑定 127.0.0.1。",
       "repo": "go-gitea/gitea"
+    },
+    {
+      "id": "mihomo",
+      "name": "mihomo",
+      "category": "proxy",
+      "description": "mihomo（Clash Meta 内核）— 规则化代理内核，支持多种出站协议。需自行提供 config.yaml。注意在配置中把监听地址设为 127.0.0.1，避免暴露到局域网。",
+      "repo": "MetaCubeX/mihomo"
+    },
+    {
+      "id": "croc",
+      "name": "croc",
+      "category": "file-sharing",
+      "description": "croc — 点对点文件传输工具，一条命令在两台电脑之间传文件/文件夹。无需服务器，端到端加密。",
+      "repo": "schollz/croc"
+    },
+    {
+      "id": "age",
+      "name": "age",
+      "category": "utility",
+      "description": "age — 简单、现代的加密工具，用于文件加密与密钥管理。单次运行即退出。",
+      "repo": "FiloSottile/age"
+    },
+    {
+      "id": "miniserve",
+      "name": "miniserve",
+      "category": "file-sharing",
+      "description": "miniserve — RIIR 风格极简文件服务器，单个裸二进制，无任何依赖。默认只绑定 127.0.0.1。",
+      "repo": "svenstaro/miniserve"
+    },
+    {
+      "id": "sing-box",
+      "name": "sing-box",
+      "category": "proxy",
+      "description": "sing-box — 通用代理平台（Clash 系内核），支持多种出站协议。需自行提供 config.json。默认监听 127.0.0.1。",
+      "repo": "SagerNet/sing-box"
+    },
+    {
+      "id": "lazygit",
+      "name": "lazygit",
+      "category": "vcs",
+      "description": "lazygit — 终端里的 Git 客户端，简单直接。单次运行的 TUI 程序。",
+      "repo": "jesseduffield/lazygit"
     }
   ]
 }
