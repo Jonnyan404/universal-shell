@@ -757,16 +757,62 @@ function makeOpBtn(label, fn) {
 
 // ---------- 网络 / 代理设置 ----------
 
+// 把已保存的代理 URL 拆分为 类型/地址/用户名/密码（兼容无 scheme 的旧格式）
+function parseProxy(url) {
+  const out = { type: "http", host: "", user: "", pass: "" };
+  if (!url) return out;
+  let s = String(url).trim();
+  const m = s.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  if (m) {
+    out.type = m[1].toLowerCase();
+    s = s.slice(m[0].length);
+  }
+  const at = s.lastIndexOf("@");
+  if (at >= 0) {
+    const cred = s.slice(0, at);
+    s = s.slice(at + 1);
+    const ci = cred.indexOf(":");
+    if (ci >= 0) {
+      out.user = decodeURIComponent(cred.slice(0, ci));
+      out.pass = decodeURIComponent(cred.slice(ci + 1));
+    } else {
+      out.user = decodeURIComponent(cred);
+    }
+  }
+  out.host = s;
+  if (out.type === "socks5h" || out.type === "socks") out.type = "socks5";
+  if (out.type === "https") out.type = "http";
+  return out;
+}
+
+// 把 类型/地址/用户名/密码 拼回代理 URL 字符串（用户名密码经 URL 编码）
+function buildProxy(type, host, user, pass) {
+  if (!host) return "";
+  const cred =
+    user || pass ? `${encodeURIComponent(user)}:${encodeURIComponent(pass)}@` : "";
+  return `${type}://${cred}${host}`;
+}
+
 function openSettings() {
   const modal = document.querySelector("#settings-modal");
   const acc = document.querySelector("#sett-accelerate");
-  const hp = document.querySelector("#sett-proxy");
+  const hostEl = document.querySelector("#sett-proxy-host");
+  const typeEl = document.querySelector("#sett-proxy-type");
+  const userEl = document.querySelector("#sett-proxy-user");
+  const passEl = document.querySelector("#sett-proxy-pass");
   acc.value = "";
-  hp.value = "";
+  hostEl.value = "";
+  userEl.value = "";
+  passEl.value = "";
+  typeEl.value = "http";
   invoke("get_proxy")
     .then((p) => {
       acc.value = p.accelerate_prefix || "";
-      hp.value = p.http_proxy || "";
+      const parsed = parseProxy(p.http_proxy || "");
+      typeEl.value = parsed.type;
+      hostEl.value = parsed.host;
+      userEl.value = parsed.user;
+      passEl.value = parsed.pass;
     })
     .catch((e) => showNotice(String(e), true));
   invoke("shell_autostart_enabled")
@@ -783,7 +829,11 @@ function closeSettings() {
 
 async function saveSettings() {
   const acc = document.querySelector("#sett-accelerate").value;
-  const hp = document.querySelector("#sett-proxy").value;
+  const type = document.querySelector("#sett-proxy-type").value;
+  const host = document.querySelector("#sett-proxy-host").value.trim();
+  const user = document.querySelector("#sett-proxy-user").value.trim();
+  const pass = document.querySelector("#sett-proxy-pass").value;
+  const hp = buildProxy(type, host, user, pass);
   const shellAuto = document.querySelector("#sett-shell-auto").checked;
   try {
     await invoke("set_proxy", { acceleratePrefix: acc, httpProxy: hp });

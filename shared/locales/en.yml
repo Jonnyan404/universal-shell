@@ -44,7 +44,9 @@ sett.title: Global settings
 sett.accelerate: Accelerate prefix
 sett.acc_placeholder: 'e.g. https://gh-proxy.com/ (GitHub API/download prefix)'
 sett.proxy: General proxy
-sett.proxy_placeholder: 'e.g. http://127.0.0.1:7890 (applies to all network requests)'
+sett.proxy_placeholder: 'e.g. 127.0.0.1:7890 (HTTP/SOCKS5 host:port)'
+sett.proxy_user: Username (optional)
+sett.proxy_pass: Password (optional)
 sett.shell_auto: Shell autostart
 sett.shell_auto_label: 'Start this shell at login (and launch autostart programs)'
 sources.title: Template sources

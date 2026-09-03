@@ -44,7 +44,9 @@ sett.title: 全局设置
 sett.accelerate: 加速地址
 sett.acc_placeholder: '如 https://gh-proxy.com/（GitHub API/下载前缀）'
 sett.proxy: 通用代理
-sett.proxy_placeholder: '如 http://127.0.0.1:7890（作用于全部网络请求）'
+sett.proxy_placeholder: '如 127.0.0.1:7890（HTTP/SOCKS5 地址:端口）'
+sett.proxy_user: 用户名（可选）
+sett.proxy_pass: 密码（可选）
 sett.shell_auto: 壳开机自启
 sett.shell_auto_label: 开机时自动启动本壳（并拉起开启了自启的程序）
 sources.title: 模板源管理

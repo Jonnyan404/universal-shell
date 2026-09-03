@@ -161,7 +161,19 @@
         </div>
         <div class="edit-row">
           <label data-i18n="sett.proxy">通用代理</label>
-          <input id="sett-proxy" data-i18n-placeholder="sett.proxy_placeholder" placeholder="如 http://127.0.0.1:7890（作用于全部网络请求）" />
+          <div class="sett-proxy">
+            <div class="sett-proxy-line">
+              <select id="sett-proxy-type">
+                <option value="http">HTTP</option>
+                <option value="socks5">SOCKS5</option>
+              </select>
+              <input id="sett-proxy-host" data-i18n-placeholder="sett.proxy_placeholder" placeholder="如 127.0.0.1:7890（地址:端口）" />
+            </div>
+            <div class="sett-proxy-line">
+              <input id="sett-proxy-user" data-i18n-placeholder="sett.proxy_user" placeholder="用户名（可选）" />
+              <input id="sett-proxy-pass" type="password" data-i18n-placeholder="sett.proxy_pass" placeholder="密码（可选）" />
+            </div>
+          </div>
         </div>
         <div class="edit-row">
           <label data-i18n="sett.shell_auto">壳开机自启</label>

@@ -436,6 +436,17 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   flex: 1; background: var(--panel-2); border: 1px solid var(--border);
   color: var(--text); border-radius: 6px; padding: 7px 10px;
 }
+.sett-proxy { flex: 1; min-width: 0; }
+.sett-proxy-line { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.sett-proxy-line:last-child { margin-bottom: 0; }
+.sett-proxy select {
+  flex: 0 0 96px; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 6px;
+}
+.sett-proxy input {
+  flex: 1; min-width: 0; background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
+}
 .edit-fields { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }
 .edit-fields-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
 .edit-field-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
