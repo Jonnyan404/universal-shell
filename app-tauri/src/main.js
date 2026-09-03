@@ -1424,7 +1424,13 @@ function renderSourceBar() {
   allOpt.textContent = t("lib.all_sources");
   if (libSource === null) allOpt.selected = true;
   sel.appendChild(allOpt);
-  for (const src of manifest?.sources || []) {
+  // 源下拉始终展示：已有清单用其来源；否则(尚未联网/无缓存)退回内置配置的注册表，
+  // 保证「开箱即见」官方源，无需先刷新。
+  const srcs =
+    manifest && manifest.sources && manifest.sources.length
+      ? manifest.sources
+      : registries.map((r) => [r, false, null]);
+  for (const src of srcs) {
     const [base, offline, fetched] = src;
     const opt = document.createElement("option");
     opt.value = base;
