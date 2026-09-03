@@ -115,6 +115,8 @@ struct ShellApp {
     manifest_offline: bool,
     registry_wait: bool,
     search: String,
+    /// 模板库按来源过滤；None 表示「全部源」
+    lib_source: Option<String>,
     /// 正在导入的模板 id -> 状态
     imports: BTreeMap<String, String>,
     /// 正在检查模板更新的程序 id -> 状态文案
@@ -178,6 +180,7 @@ impl ShellApp {
             manifest_offline: false,
             registry_wait: false,
             search: String::new(),
+            lib_source: None,
             imports: BTreeMap::new(),
             update_checks: BTreeMap::new(),
             pending_updates: BTreeMap::new(),
@@ -1078,7 +1081,8 @@ impl ShellApp {
         }
         ui.add_space(4.0);
 
-        // 搜索框
+        // 搜索框 + 来源过滤
+        let source_bases: Vec<String> = merged.sources.iter().map(|(b, _, _)| b.clone()).collect();
         ui.horizontal(|ui| {
             ui.label(t!(
                 "eg.template_count",
@@ -1087,6 +1091,26 @@ impl ShellApp {
                 c = merged.conflicts.len()
             ));
             ui.separator();
+            // 来源下拉：全部源 / 各源
+            let sel = self.lib_source.clone().unwrap_or_else(|| "__all__".into());
+            let sel_key = |b: &str| {
+                if b == "__all__" {
+                    t!("lib.all_sources").to_string()
+                } else {
+                    b.to_string()
+                }
+            };
+            let mut chosen = sel.clone();
+            egui::ComboBox::from_id_salt("lib_source_combo")
+                .selected_text(sel_key(&sel))
+                .width(220.0)
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut chosen, "__all__".to_string(), sel_key("__all__"));
+                    for b in &source_bases {
+                        ui.selectable_value(&mut chosen, b.clone(), sel_key(b));
+                    }
+                });
+            self.lib_source = if chosen == "__all__" { None } else { Some(chosen) };
             ui.label(t!("eg.search"));
             ui.add(egui::TextEdit::singleline(&mut self.search).desired_width(200.0));
         });
@@ -1095,6 +1119,11 @@ impl ShellApp {
         let keyword = self.search.trim().to_lowercase();
         let mut rows: Vec<(String, shared::TemplateIndex, String)> = Vec::new();
         for (id, (base, t)) in &merged.by_id {
+            if let Some(src) = &self.lib_source {
+                if base != src {
+                    continue;
+                }
+            }
             if !keyword.is_empty() {
                 let hay = format!("{} {} {} {}", id, t.name, t.category, t.description)
                     .to_lowercase();
