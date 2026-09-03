@@ -752,7 +752,7 @@ impl ShellApp {
         let programs = self.manager.programs.clone();
         let visible: Vec<_> = programs.iter().filter(|p| !p.hidden).collect();
         let selected_id = self.current_id.clone();
-        let list_height = (ui.available_height() - 46.0).max(80.0);
+        let list_height = (ui.available_height() - 86.0).max(80.0);
         egui::ScrollArea::vertical()
             .id_salt("sidebar_scroll")
             .auto_shrink([false, false])
@@ -916,24 +916,35 @@ impl ShellApp {
 
         // 状态行：程序名 + 状态标签 + 下载按钮（匹配 Tauri statusbar）
         let status = self.display_status(&p);
+        let up_to_date = status
+            .latest_version
+            .as_ref()
+            .map(|v| *v == status.local_version)
+            .unwrap_or(false);
+        let show_dl = !(status.installed && (up_to_date || status.latest_version.is_none()));
         ui.horizontal(|ui| {
             ui.heading(&p.name);
             ui.add_space(8.0);
-            ui.weak(&p.description);
+            ui.weak(&p.repo);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let dl_btn = ui.add_enabled(
-                    !self.busy,
-                    egui::Button::new(
-                        if self.busy { t!("dl.downloading").to_string() } else { t!("eg.download_or_update").to_string() },
-                    ),
-                );
-                if dl_btn.clicked() {
-                    self.spawn_install(p.clone());
-                    self.notice.insert(p.id.clone(), String::new());
+                if show_dl {
+                    let dl_text = if self.busy {
+                        t!("dl.downloading").to_string()
+                    } else if status.installed {
+                        t!("dl.update").to_string()
+                    } else {
+                        t!("dl.download").to_string()
+                    };
+                    let dl_btn = ui.add_enabled(!self.busy, egui::Button::new(dl_text));
+                    if dl_btn.clicked() {
+                        self.spawn_install(p.clone());
+                        self.notice.insert(p.id.clone(), String::new());
+                    }
                 }
             });
         });
-        ui.horizontal(|ui| {
+        // 状态标签（对齐 Tauri renderStatus chips）
+        ui.horizontal_wrapped(|ui| {
             ui.label(t!("st.local_ver", ver = status.local_version));
             if status.installed {
                 ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.installed"));
@@ -943,7 +954,9 @@ impl ShellApp {
             if self.manager.program_autostart(&p) {
                 ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.autostart"));
             }
-            ui.label(t!("eg.latest_ver_fmt", ver = status.latest_version.as_deref().unwrap_or("未知")));
+            if status.latest_version.is_some() {
+                ui.label(t!("eg.latest_ver_fmt", ver = status.latest_version.as_deref().unwrap_or("")));
+            }
             if self.manager.runner.is_running(&p.id) {
                 ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
             } else {
@@ -1013,51 +1026,42 @@ impl ShellApp {
             }
         }
 
-        // 操作区：启动/停止/重启 + 图标按钮（单行左到右排布，始终可见）
+        // 操作区：启动/停止/重启（对齐 Tauri renderActions，处于运行态时停/重启可用、启动禁用）+ 图标按钮
         let values = self.values.get(&p.id).cloned().unwrap_or_default();
         let url = web_url(&p, &values);
         let running = self.manager.runner.is_running(&p.id);
         ui.horizontal(|ui| {
             let values_for_start = values;
             let running_now = running;
-            if running_now {
-                let stop = ui.add_enabled(true, egui::Button::new(format!("■ {}", t!("act.stop"))));
-                if stop.clicked() {
-                    match self.manager.stop(&p.id) {
-                        Ok(()) => {
-                            self.log_op(&t!("op.stop", name = &p.name));
-                            self.notice.insert(p.id.clone(), String::new());
-                        }
-                        Err(e) => {
-                            self.notice.insert(p.id.clone(), format!("{e:#}"));
-                        }
+            let start_btn = ui.add_enabled(!running_now, egui::Button::new(format!("▶ {}", t!("act.start"))));
+            if start_btn.clicked() {
+                self.manager.save_field_values(&p, &values_for_start);
+                match self.manager.start(&p, &values_for_start) {
+                    Ok(()) => {
+                        self.log_op(&t!("op.start", name = &p.name));
+                        self.notice.insert(p.id.clone(), String::new());
+                    }
+                    Err(e) => {
+                        self.notice.insert(p.id.clone(), t!("toast.start_fail", err = format!("{e:#}")).to_string());
                     }
                 }
-                let restart = ui.add_enabled(
-                    true,
-                    egui::Button::new(format!("↻ {}", t!("act.restart"))),
-                );
-                if restart.clicked() {
-                    self.restart_program(&p, &values_for_start);
-                    self.log_op(&t!("op.restart", name = &p.name));
-                }
-            } else {
-                let start = ui.add_enabled(
-                    true,
-                    egui::Button::new(format!("▶ {}", t!("act.start"))),
-                );
-                if start.clicked() {
-                    self.manager.save_field_values(&p, &values_for_start);
-                    match self.manager.start(&p, &values_for_start) {
-                        Ok(()) => {
-                            self.log_op(&t!("op.start", name = &p.name));
-                            self.notice.insert(p.id.clone(), String::new());
-                        }
-                        Err(e) => {
-                            self.notice.insert(p.id.clone(), t!("toast.start_fail", err = format!("{e:#}")).to_string());
-                        }
+            }
+            let stop_btn = ui.add_enabled(running_now, egui::Button::new(format!("■ {}", t!("act.stop"))));
+            if stop_btn.clicked() {
+                match self.manager.stop(&p.id) {
+                    Ok(()) => {
+                        self.log_op(&t!("op.stop", name = &p.name));
+                        self.notice.insert(p.id.clone(), String::new());
+                    }
+                    Err(e) => {
+                        self.notice.insert(p.id.clone(), format!("{e:#}"));
                     }
                 }
+            }
+            let restart_btn = ui.add_enabled(running_now, egui::Button::new(format!("↻ {}", t!("act.restart"))));
+            if restart_btn.clicked() {
+                self.restart_program(&p, &values_for_start);
+                self.log_op(&t!("op.restart", name = &p.name));
             }
             ui.separator();
             if ui.button("📁").on_hover_text(t!("act.open_app_dir")).clicked() {
