@@ -175,8 +175,8 @@ toast.import_overwritten: '已覆盖模板「%{id}」'
 toast.import_done: '已导入模板「%{id}」并快照到本地配置'
 toast.sources_saved: 模板源已保存
 toast.stop_all: 已停止所有程序
-check.last_checked: '▲ 上次检查更新：%{ago}'
-check.not_checked: ▲ 尚未检查更新
+check.last_checked: '上次检查更新：%{ago}'
+check.not_checked: 尚未检查更新
 check.last_online: '最近一次联网检查：%{date}'
 log.title_fmt: '日志 · %{name}'
 confirm.delete: '确定删除程序「%{name}」？\n将移除其配置、已下载二进制与日志，且不可恢复。'

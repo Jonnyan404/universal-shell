@@ -175,8 +175,8 @@ toast.import_overwritten: 'Overwrote template "%{id}"'
 toast.import_done: 'Imported template "%{id}" and snapshotted to local config'
 toast.sources_saved: Template sources saved
 toast.stop_all: Stopped all programs
-check.last_checked: '▲ Last checked: %{ago}'
-check.not_checked: ▲ Not checked yet
+check.last_checked: 'Last checked: %{ago}'
+check.not_checked: Not checked yet
 check.last_online: 'Last online check: %{date}'
 log.title_fmt: 'Log · %{name}'
 confirm.delete: 'Delete program "%{name}"?\nThis removes its config, downloaded binaries and logs. This cannot be undone.'
