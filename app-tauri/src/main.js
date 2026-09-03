@@ -1,5 +1,5 @@
 const { invoke } = window.__TAURI__.core;
-const { open } = window.__TAURI__.dialog;
+const { open, confirm } = window.__TAURI__.dialog;
 
 let programs = [];
 let current = null;
@@ -783,6 +783,8 @@ function logOp(msg) {
   opLogs.push(`[${t}] ${msg}`);
   if (opLogs.length > 200) opLogs.shift();
   if (view === "manage" && current) renderOpLog();
+  // 同步落盘到壳操作日志（由后端统一加时间戳），无权限时静默忽略
+  invoke("log_shell_op", { msg }).catch(() => {});
 }
 
 function showManageLog() {
@@ -938,13 +940,32 @@ function editFieldRow(f) {
   d.className = "d";
   d.placeholder = "默认值";
   d.value = f.default ?? "";
+  const reqWrap = document.createElement("label");
+  reqWrap.className = "req";
+  reqWrap.title = "启动前必填";
+  const req = document.createElement("input");
+  req.type = "checkbox";
+  req.checked = !!f.required;
+  const reqTxt = document.createElement("span");
+  reqTxt.textContent = "必填";
+  reqWrap.append(req, reqTxt);
+  const reqMark = document.createElement("span");
+  reqMark.className = "req-star";
+  reqMark.textContent = "*";
+  reqMark.hidden = !f.required;
+  const syncReq = () => {
+    reqMark.hidden = !req.checked;
+    row.classList.toggle("req-on", req.checked);
+  };
+  req.addEventListener("change", syncReq);
+  syncReq();
   const del = document.createElement("button");
   del.className = "edit-field-del";
   del.type = "button";
   del.textContent = "✕";
   del.title = "删除字段";
   del.onclick = () => row.remove();
-  row.append(k, l, sel, d, del);
+  row.append(k, l, sel, d, reqWrap, reqMark, del);
   return row;
 }
 
@@ -957,8 +978,9 @@ async function saveEdit() {
       const l = row.querySelector(".l").value.trim();
       const kind = row.querySelector(".kind").value;
       const def = row.querySelector(".d").value;
+      const required = row.querySelector(".req input").checked;
       if (!k) return;
-      fields.push({ key: k, kind, label: l || k, default: def });
+      fields.push({ key: k, kind, label: l || k, default: def, required });
     });
   const payload = {
     id: editProgramId,
@@ -1126,11 +1148,29 @@ function renderLibrary() {
       importing.add(id);
       renderLibrary();
       try {
+        const exists = programs.some((p) => p.id === id);
+        let overwrite = false;
+        if (exists) {
+          const ok = await confirm(
+            `本地已存在程序「${id}」，是否用远程模板覆盖？\n覆盖会替换其模板配置，若已在运行请先停止。`,
+            { title: "覆盖模板", kind: "warning" }
+          );
+          if (!ok) {
+            importing.delete(id);
+            renderLibrary();
+            return;
+          }
+          overwrite = true;
+        }
         await invoke("import_template", {
           registryUrl: base,
           templateId: id,
+          overwrite,
         });
-        showNotice(`已导入模板「${id}」（来源: ${base}）并快照到本地配置`);
+        showNotice(
+          exists ? `已覆盖模板「${id}」` : `已导入模板「${id}」（来源: ${base}）并快照到本地配置`
+        );
+
         programs = await invoke("get_programs");
         if (!current || !programs.some((p) => p.id === current.id)) {
           current = programs[0];
@@ -1282,6 +1322,41 @@ window.addEventListener("DOMContentLoaded", async () => {
   };
   editModal.addEventListener("click", (e) => {
     if (e.target === editModal) closeEditModal();
+  });
+
+  // 壳操作日志弹窗
+  const shellLogModal = document.querySelector("#shell-log-modal");
+  const shellLogContent = document.querySelector("#shell-log-content");
+  async function loadShellLog() {
+    try {
+      const text = await invoke("get_shell_log");
+      shellLogContent.textContent = text || "(暂无壳操作日志)";
+      shellLogContent.scrollTop = shellLogContent.scrollHeight;
+    } catch (e) {
+      showNotice(String(e), true);
+    }
+  }
+  function openShellLogModal() {
+    shellLogModal.hidden = false;
+    loadShellLog();
+  }
+  function closeShellLogModal() {
+    shellLogModal.hidden = true;
+  }
+  document.querySelector("#shell-log-link").onclick = openShellLogModal;
+  document.querySelector("#shell-log-modal-close").onclick = closeShellLogModal;
+  document.querySelector("#shell-log-refresh").onclick = loadShellLog;
+  document.querySelector("#shell-log-clear").onclick = async () => {
+    try {
+      await invoke("clear_shell_log");
+      shellLogContent.textContent = "";
+      showNotice("已清空壳操作日志");
+    } catch (e) {
+      showNotice(String(e), true);
+    }
+  };
+  shellLogModal.addEventListener("click", (e) => {
+    if (e.target === shellLogModal) closeShellLogModal();
   });
 
   registries = await invoke("get_registries");

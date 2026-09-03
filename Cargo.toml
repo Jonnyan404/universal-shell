@@ -15,3 +15,4 @@ log = "0.4"
 env_logger = "0.11"
 sha2 = "0.10"
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "rand_core"] }
+time = { version = "0.3", features = ["local-offset", "formatting"] }

@@ -17,7 +17,11 @@
       <nav id="program-tabs" class="room-list"></nav>
       <button id="batch-link" class="sidebar-settings">☰ <span class="app-btn-label">批量管理</span></button>
       <button id="library-link" class="sidebar-settings">▤ <span class="app-btn-label">模板库</span></button>
-      <div class="sidebar-foot"></div>
+      <div class="sidebar-foot">
+        <button id="shell-log-link" class="sidebar-settings" title="查看壳自身操作日志">
+          🗒 <span class="app-btn-label">壳日志</span>
+        </button>
+      </div>
     </aside>
     <div class="sidebar-edge"><button id="collapse-btn" class="edge" title="收窄侧栏">«</button></div>
 
@@ -160,6 +164,22 @@
   </div>
 
   <div id="toast-container"></div>
+
+  <!-- 模态：壳操作日志 -->
+  <div id="shell-log-modal" class="modal" hidden>
+    <div class="modal-box shell-log-box">
+      <div class="modal-head">
+        <span>壳操作日志</span>
+        <span class="shell-log-hint">记录壳自身的启动/停止/自启动/导入/设置等操作</span>
+        <span class="spacer"></span>
+        <button id="shell-log-refresh" class="log-action" title="刷新">⟳</button>
+        <button id="shell-log-clear" class="log-action" title="清空日志">×</button>
+        <button id="shell-log-modal-close" class="modal-close" title="关闭">✕</button>
+      </div>
+      <pre id="shell-log-content" class="term-body shell-log-content"></pre>
+    </div>
+  </div>
+
   <script src="main.js"></script>
 </body>
 </html>

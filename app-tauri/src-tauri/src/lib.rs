@@ -24,6 +24,7 @@ struct FieldView {
     label: String,
     kind: String,
     default: String,
+    required: bool,
 }
 
 /// 程序描述（前端据此渲染整张表单）
@@ -138,7 +139,7 @@ fn to_field_view(f: &Field) -> FieldView {
             ("autostart", label.clone(), default.to_string())
         }
     };
-    FieldView { key: f.key.clone(), kind: kind.to_string(), label, default }
+    FieldView { key: f.key.clone(), kind: kind.to_string(), label, default, required: f.required }
 }
 
 #[tauri::command]
@@ -320,6 +321,7 @@ fn start_program(
         log::info!("autostart 设置失败: {e:#}");
     }
     mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&format!("启动程序「{}」", p.name));
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
     Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
@@ -333,6 +335,7 @@ fn stop_program(state: State<AppState>, program_id: String) -> Result<StatusView
     };
     mgr.stop(&program_id).map_err(|e| format!("{e:#}"))?;
     mgr.clear_log(&program_id);
+    mgr.log_op(&format!("停止程序「{}」", p.name));
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
     Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
@@ -354,6 +357,7 @@ fn restart_program(
         log::info!("autostart 设置失败: {e:#}");
     }
     mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&format!("重启程序「{}」", p.name));
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
     Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
@@ -363,8 +367,38 @@ fn restart_program(
 fn stop_all(state: State<AppState>) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
     mgr.stop_all();
+    mgr.log_op("批量停止所有程序");
     Ok(())
 }
+
+/// 读取壳自身操作日志全文；无日志文件时返回空字符串。
+#[tauri::command]
+fn get_shell_log(state: State<AppState>) -> Result<String, String> {
+    let mgr = state.manager.lock().unwrap();
+    let path = mgr.op_log_path();
+    if path.exists() {
+        std::fs::read_to_string(&path).map_err(|e| format!("{e:#}"))
+    } else {
+        Ok(String::new())
+    }
+}
+
+/// 前端 UI 操作追加写一条壳操作日志（与后端事件统一落盘）。
+#[tauri::command]
+fn log_shell_op(state: State<AppState>, msg: String) -> Result<(), String> {
+    let mgr = state.manager.lock().unwrap();
+    mgr.log_op(&msg);
+    Ok(())
+}
+
+/// 清空壳操作日志。
+#[tauri::command]
+fn clear_shell_log(state: State<AppState>) -> Result<(), String> {
+    let mgr = state.manager.lock().unwrap();
+    mgr.clear_op_log();
+    Ok(())
+}
+
 
 #[tauri::command]
 fn set_autostart(
@@ -387,6 +421,7 @@ fn set_autostart(
         values.insert(key, if enabled { "true".into() } else { "false".into() });
         mgr.save_field_values(&p, &values);
     }
+    mgr.log_op(&format!("{}程序「{}」开机自启动", if enabled { "开启" } else { "关闭" }, p.name));
     Ok(())
 }
 
@@ -394,9 +429,14 @@ fn set_autostart(
 #[tauri::command]
 fn set_shell_autostart(state: State<AppState>, enabled: bool) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
-    mgr.autostart
+    let r = mgr
+        .autostart
         .set_shell_enabled(enabled)
-        .map_err(|e| format!("{e:#}"))
+        .map_err(|e| format!("{e:#}"));
+    if r.is_ok() {
+        mgr.log_op(&format!("{}壳自身开机自启动", if enabled { "开启" } else { "关闭" }));
+    }
+    r
 }
 
 /// 查询壳自身开机自启是否已启用
@@ -569,6 +609,7 @@ fn edit_program(
     let updated = build_program_from_edit(&payload, &base);
     mgr.update_program(&payload.id, &updated, &state.config_path)
         .map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&format!("编辑程序「{}」模板", base.name));
     let view = to_view(&updated);
     Ok(view)
 }
@@ -576,8 +617,16 @@ fn edit_program(
 #[tauri::command]
 fn delete_program(state: State<AppState>, program_id: String) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
+    let name = mgr
+        .programs
+        .iter()
+        .find(|p| p.id == program_id)
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| program_id.clone());
     mgr.delete_program(&program_id, &state.config_path)
-        .map_err(|e| format!("{e:#}"))
+        .map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&format!("删除程序「{name}」"));
+    Ok(())
 }
 
 #[tauri::command]
@@ -587,8 +636,16 @@ fn set_program_hidden(
     hidden: bool,
 ) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
+    let name = mgr
+        .programs
+        .iter()
+        .find(|p| p.id == program_id)
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| program_id.clone());
     mgr.set_hidden(&program_id, hidden, &state.config_path)
-        .map_err(|e| format!("{e:#}"))
+        .map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&format!("{}程序「{name}」", if hidden { "隐藏" } else { "显示" }));
+    Ok(())
 }
 
 // ---------- 模板库 ----------
@@ -675,11 +732,13 @@ fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<M
 }
 
 /// 导入：拉取模板 → 快照进本地配置 → 写回 shell.json
+/// `overwrite=true` 时若同名程序已存在则替换（保留已排序位置）。
 #[tauri::command]
 fn import_template(
     state: State<AppState>,
     registry_url: String,
     template_id: String,
+    overwrite: bool,
 ) -> Result<ProgramView, String> {
     let mut mgr = state.manager.lock().unwrap();
     let cache = mgr.data_dir.join("cache/registry");
@@ -694,8 +753,16 @@ fn import_template(
         .load_template(&template_id)
         .map_err(|e| format!("{e:#}"))?;
 
-    if mgr.programs.iter().any(|p| p.id == program.id) {
-        return Err(format!("程序「{}」已存在", program.id));
+    if let Some(idx) = mgr.programs.iter().position(|p| p.id == program.id) {
+        if !overwrite {
+            return Err(format!("程序「{}」已存在", program.id));
+        }
+        mgr.programs[idx] = program.clone();
+        let view = to_view(&program);
+        mgr.save_config(&state.config_path)
+            .map_err(|e| format!("{e:#}"))?;
+        mgr.log_op(&format!("覆盖导入模板「{}」", program.id));
+        return Ok(view);
     }
     // 允许模板没有显式 binary 时用 id 兜底
     if program.binary.is_empty() {
@@ -705,6 +772,7 @@ fn import_template(
     mgr.programs.push(program);
     mgr.save_config(&state.config_path)
         .map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&format!("导入模板「{}」", template_id));
     Ok(view)
 }
 
@@ -877,7 +945,10 @@ pub fn run() {
             get_merged_manifest,
             import_template,
             get_proxy,
-            set_proxy
+            set_proxy,
+            get_shell_log,
+            log_shell_op,
+            clear_shell_log
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

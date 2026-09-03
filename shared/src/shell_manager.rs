@@ -186,6 +186,33 @@ impl ShellManager {
         self.data_dir.join("logs")
     }
 
+    /// 壳自身操作日志文件（启动/停止/自启动/导入/设置等统一落盘）
+    pub fn op_log_path(&self) -> PathBuf {
+        self.data_dir.join("shell.log")
+    }
+
+    /// 追加一条壳操作日志。带本地时间戳；落盘失败仅记录，不影响功能。
+    pub fn log_op(&self, msg: &str) {
+        let stamp = || {
+            use time::format_description::well_known::Rfc3339;
+            let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+            now.format(&Rfc3339).unwrap_or_else(|_| "?".into())
+        };
+        let line = format!("[{}] {}\n", stamp(), msg);
+        let path = self.op_log_path();
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = f.write_all(line.as_bytes());
+        } else {
+            log::warn!("写入壳操作日志失败: {}", path.display());
+        }
+    }
+
+    /// 清空壳操作日志
+    pub fn clear_op_log(&self) {
+        let _ = std::fs::write(self.op_log_path(), b"");
+    }
+
     /// 清空某程序的日志文件（显式“停止”时调用；重启不清空）
     pub fn clear_log(&self, id: &str) {
         let _ = std::fs::write(self.log_dir().join(format!("{id}.log")), b"");
@@ -499,8 +526,14 @@ impl ShellManager {
                 continue; // 已在运行/残留进程在跑，不重复拉起
             }
             match self.start(p, &values) {
-                Ok(()) => log::info!("开机自启已拉起 {}", p.name),
-                Err(e) => log::warn!("开机自启拉起 {} 失败: {}", p.name, e),
+                Ok(()) => {
+                    log::info!("开机自启已拉起 {}", p.name);
+                    self.log_op(&format!("应用自启动：拉起「{}」", p.name));
+                }
+                Err(e) => {
+                    log::warn!("开机自启拉起 {} 失败: {}", p.name, e);
+                    self.log_op(&format!("应用自启动：拉起「{}」失败 - {e}", p.name));
+                }
             }
         }
     }

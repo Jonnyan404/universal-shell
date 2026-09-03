@@ -358,6 +358,19 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 .modal-close:hover { color: var(--text); }
 
+/* 壳操作日志弹窗 */
+.shell-log-box { width: min(880px, 96vw); height: min(70vh, 560px); }
+.shell-log-hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+.shell-log-head-actions { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; }
+.shell-log-confirm { display: inline-block; }
+.shell-log-content {
+  flex: 1; margin: 0; padding: 12px 16px; overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+  line-height: 1.6; color: var(--text); background: var(--bg); white-space: pre-wrap; word-break: break-word;
+}
+#shell-log-link { width: 100%; justify-content: flex-start; }
+.sidebar-foot { display: flex; flex-direction: column; gap: 4px; }
+
 .log-refresh { margin-left: auto; font-size: 13px; }
 .mono {
   flex: 1; overflow: auto; margin: 0; padding: 12px 16px; white-space: pre-wrap;
@@ -391,6 +404,11 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   flex: 0 0 auto; background: none; border: none; color: var(--danger);
   font-size: 16px; cursor: pointer;
 }
+.edit-field-row .req { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+.edit-field-row .req input { width: auto; height: auto; margin: 0; padding: 0; border: none; background: none; }
+.edit-field-row .req-star { color: var(--danger); font-weight: 700; font-size: 14px; margin-left: 2px; }
+.edit-field-row.req-on .k,
+.edit-field-row.req-on .l { border-color: var(--danger); }
 .edit-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 
 /* 批量管理：隐藏标记 + 额外操作 */
