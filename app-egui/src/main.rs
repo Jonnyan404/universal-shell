@@ -155,7 +155,10 @@ struct ShellApp {
     progress: Option<(String, f64, String)>,
     /// 设置面板：加速前缀 / 通用代理 编辑框
     settings_accel: String,
-    settings_proxy: String,
+    settings_proxy_type: String,
+    settings_proxy_host: String,
+    settings_proxy_user: String,
+    settings_proxy_pass: String,
     /// 设置面板：壳自身开机自启（对齐 Tauri sett-shell-auto）
     settings_shell_auto: bool,
     /// 程序日志查看器是否打开
@@ -217,7 +220,8 @@ impl ShellApp {
             .unwrap_or_default();
         let current_id = manager.programs.first().map(|p| p.id.clone());
         let settings_accel = manager.proxy.accelerate_prefix.clone();
-        let settings_proxy = manager.proxy.http_proxy.clone();
+        let (settings_proxy_type, settings_proxy_host, settings_proxy_user, settings_proxy_pass) =
+            parse_proxy(&manager.proxy.http_proxy);
         let settings_shell_auto = manager.autostart.shell_is_enabled();
         let sources_rows = manager.template_registries.clone();
         Self {
@@ -248,7 +252,10 @@ impl ShellApp {
             pending_updates: BTreeMap::new(),
             progress: None,
             settings_accel,
-            settings_proxy,
+            settings_proxy_type,
+            settings_proxy_host,
+            settings_proxy_user,
+            settings_proxy_pass,
             settings_shell_auto,
             show_log: false,
             show_shell_log: false,
@@ -920,11 +927,36 @@ impl ShellApp {
                             .desired_width(f32::INFINITY),
                     );
                 });
+                // 通用代理：类型 + 地址 + 用户名/密码（对齐 Tauri sett-proxy）
                 ui.horizontal(|ui| {
                     ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.proxy")));
+                    egui::ComboBox::from_id_salt("sett_proxy_type")
+                        .selected_text(&self.settings_proxy_type)
+                        .width(90.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.settings_proxy_type, "http".to_string(), "HTTP");
+                            ui.selectable_value(&mut self.settings_proxy_type, "socks5".to_string(), "SOCKS5");
+                        });
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.settings_proxy)
+                        egui::TextEdit::singleline(&mut self.settings_proxy_host)
                             .hint_text(t!("sett.proxy_placeholder"))
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.add_space(100.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings_proxy_user)
+                            .hint_text(t!("sett.proxy_user"))
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.add_space(100.0);
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings_proxy_pass)
+                            .password(true)
+                            .hint_text(t!("sett.proxy_pass"))
                             .desired_width(f32::INFINITY),
                     );
                 });
@@ -937,7 +969,12 @@ impl ShellApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(t!("act.save")).clicked() {
                             let accel = self.settings_accel.trim().to_string();
-                            let proxy = self.settings_proxy.trim().to_string();
+                            let proxy = build_proxy(
+                                &self.settings_proxy_type,
+                                self.settings_proxy_host.trim(),
+                                self.settings_proxy_user.trim(),
+                                &self.settings_proxy_pass,
+                            );
                             self.manager.proxy.accelerate_prefix = accel.clone();
                             self.manager.proxy.http_proxy = proxy.clone();
                             self.manager.github.apply_network(&accel, &proxy);
@@ -1918,6 +1955,10 @@ impl ShellApp {
                                     showhide = t!(if hidden { "op.hide" } else { "op.show" }),
                                     name = &p.name
                                 ));
+                                // 隐藏当前选中程序时取消选中（对齐 Tauri：隐藏后切换离开）
+                                if hidden && self.current_id.as_deref() == Some(p.id.as_str()) {
+                                    self.current_id = None;
+                                }
                             }
                             Err(e) => {
                                 self.notice.insert(p.id.clone(), format!("{e:#}"));
@@ -1942,23 +1983,22 @@ impl ShellApp {
                     if dl_btn.clicked() {
                         self.spawn_install(p.clone());
                     }
-                    if st.running {
-                        let restart = ui.small_button(t!("act.restart"));
-                        if restart.clicked() {
-                            let values = self.values.get(&p.id).cloned().unwrap_or_default();
-                            self.restart_program(p, &values);
-                            self.log_op(&t!("op.restart", name = &p.name));
-                        }
-                        if ui.small_button(t!("act.stop")).clicked() {
-                            if let Ok(()) = self.manager.stop(&p.id) {
-                                self.log_op(&t!("op.stop", name = &p.name));
-                            }
-                        }
-                    } else if ui.small_button(t!("act.start")).clicked() {
+                    // 启动 / 重启 / 停止：三个操作始终显示（对齐 Tauri renderBatch ops）
+                    if ui.small_button(t!("act.start")).clicked() {
                         let values = self.values.get(&p.id).cloned().unwrap_or_default();
                         self.manager.save_field_values(p, &values);
                         if let Ok(()) = self.manager.start(p, &values) {
                             self.log_op(&t!("op.start", name = &p.name));
+                        }
+                    }
+                    if ui.small_button(t!("act.restart")).clicked() {
+                        let values = self.values.get(&p.id).cloned().unwrap_or_default();
+                        self.restart_program(p, &values);
+                        self.log_op(&t!("op.restart", name = &p.name));
+                    }
+                    if ui.small_button(t!("act.stop")).clicked() {
+                        if let Ok(()) = self.manager.stop(&p.id) {
+                            self.log_op(&t!("op.stop", name = &p.name));
                         }
                     }
                     if ui.small_button(t!("act.log")).clicked() {
@@ -1968,6 +2008,9 @@ impl ShellApp {
                     if ui.small_button(t!("act.open_app_dir")).on_hover_text(t!("act.open_app_dir")).clicked() {
                         let d = self.manager.app_dir(p);
                         let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
+                    }
+                    if ui.small_button(t!("act.edit")).clicked() {
+                        self.open_edit(&p.id);
                     }
                     if ui.small_button(t!("act.manage")).clicked() {
                         self.current_id = Some(p.id.clone());
@@ -2496,6 +2539,91 @@ fn field_default(kind: &FieldKind) -> String {
         FieldKind::File { default, .. } => default.clone(),
         FieldKind::Directory { default, .. } => default.clone(),
         FieldKind::AutoStart { default, .. } => default.to_string(),
+    }
+}
+
+/// 把代理 URL 拆成 类型/地址/用户名/密码（对齐 Tauri parseProxy）。
+fn parse_proxy(url: &str) -> (String, String, String, String) {
+    let mut ty = "http".to_string();
+    let mut user = String::new();
+    let mut pass = String::new();
+    let mut s = url.trim();
+    if let Some(rest) = s.split_once("://") {
+        ty = rest.0.to_lowercase();
+        s = rest.1;
+    }
+    if ty == "socks5h" || ty == "socks" {
+        ty = "socks5".to_string();
+    }
+    if ty == "https" {
+        ty = "http".to_string();
+    }
+    if let Some((cred, h)) = s.rsplit_once('@') {
+        s = h;
+        if let Some((u, p)) = cred.split_once(':') {
+            user = percent_decode(u).to_string();
+            pass = percent_decode(p).to_string();
+        } else {
+            user = percent_decode(cred).to_string();
+        }
+    }
+    let host = s.to_string();
+    (ty, host, user, pass)
+}
+
+/// 把 类型/地址/用户名/密码 拼回代理 URL（用户名密码经 URL 编码；对齐 Tauri buildProxy）。
+fn build_proxy(ty: &str, host: &str, user: &str, pass: &str) -> String {
+    if host.is_empty() {
+        return String::new();
+    }
+    let cred = if !user.is_empty() || !pass.is_empty() {
+        format!("{}:{}@", percent_encode(user), percent_encode(pass))
+    } else {
+        String::new()
+    };
+    format!("{ty}://{cred}{host}")
+}
+
+/// 简易 URL 百分号解码（仅处理 %XX）。
+fn percent_decode(s: &str) -> String {
+    let mut out = String::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hi = hex_val(bytes[i + 1]);
+            let lo = hex_val(bytes[i + 2]);
+            if let (Some(h), Some(l)) = (hi, lo) {
+                out.push((h << 4 | l) as char);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
+/// 简易 URL 百分号编码（非 ASCII-字母/数字/-._~ 的字节转 %XX）。
+fn percent_encode(s: &str) -> String {
+    let mut out = String::new();
+    for &b in s.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
     }
 }
 
