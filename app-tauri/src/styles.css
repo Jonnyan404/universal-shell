@@ -327,10 +327,11 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
   padding: 12px 14px; margin-bottom: 10px;
 }
-.lib-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.lib-name { font-weight: 600; }
-.lib-cat { color: var(--accent); font-size: 12px; }
-.lib-repo { color: var(--muted); font-size: 12px; flex: 1; min-width: 120px; }
+.lib-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.lib-name { font-weight: 600; flex: 0 0 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-cat { color: var(--accent); font-size: 12px; flex: 0 0 auto; }
+.lib-repo { color: var(--muted); font-size: 12px; flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lib-top button { flex: 0 0 auto; }
 .lib-conflict { color: #c7772b; font-size: 12px; margin-right: 8px; }
 .lib-desc { color: var(--muted); margin-top: 6px; font-size: 13px; }
 
