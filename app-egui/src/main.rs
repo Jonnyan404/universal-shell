@@ -1250,12 +1250,12 @@ impl ShellApp {
                 self.log_op(&t!("op.restart", name = &p.name));
             }
             ui.separator();
-            if ui.button("📁").on_hover_text(t!("act.open_app_dir")).clicked() {
+            if ui.button("📂").on_hover_text(t!("act.open_app_dir")).clicked() {
                 let app_dir = self.manager.app_dir(&p);
                 let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
             }
             if url.is_some() {
-                if ui.button("⧉").on_hover_text(t!("act.copy_addr")).clicked() {
+                if ui.button("📋").on_hover_text(t!("act.copy_addr")).clicked() {
                     ui.ctx().copy_text(url.as_deref().unwrap().to_string());
                     self.notice.insert(p.id.clone(), t!("toast.addr_copied").to_string());
                 }
@@ -1304,7 +1304,7 @@ impl ShellApp {
             if ui.small_button("⛶").on_hover_text(t!("lib.fullscreen")).clicked() {
                 fullscreen = true;
             }
-            if ui.small_button("⧉").on_hover_text(t!("act.copy")).clicked() {
+            if ui.small_button("📋").on_hover_text(t!("act.copy")).clicked() {
                 let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
                 ui.ctx().copy_text(log);
                 self.notice
@@ -1912,7 +1912,7 @@ impl ShellApp {
                         if i == 0 {
                             ui.label(t!("lib.default_rule"));
                         } else if ui
-                            .small_button("✕")
+                            .small_button("×")
                             .on_hover_text(t!("lib.delete_source"))
                             .clicked()
                         {
@@ -2201,7 +2201,7 @@ impl ShellApp {
             .show(ctx, |ui| {
                 // 操作栏：复制 / 刷新 / 打开日志目录 / 关闭
                 ui.horizontal(|ui| {
-                    if ui.small_button("⧉").on_hover_text(t!("act.copy")).clicked() {
+                    if ui.small_button("📋").on_hover_text(t!("act.copy")).clicked() {
                         let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
                         ui.ctx().copy_text(log);
                         copied = true;
@@ -2209,12 +2209,12 @@ impl ShellApp {
                     if ui.small_button("↻").on_hover_text(t!("act.refresh")).clicked() {
                         ctx.request_repaint();
                     }
-                    if ui.small_button("📁").on_hover_text(t!("act.open_log_dir")).clicked() {
+                    if ui.small_button("📂").on_hover_text(t!("act.open_log_dir")).clicked() {
                         let d = self.manager.data_dir.join("logs");
                         let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("✕").on_hover_text(t!("act.close")).clicked() {
+                        if ui.small_button("×").on_hover_text(t!("act.close")).clicked() {
                             close_clicked = true;
                         }
                     });
@@ -2261,7 +2261,7 @@ impl ShellApp {
                 ui.horizontal(|ui| {
                     ui.weak(t!("shell_log.hint"));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("✕").on_hover_text(t!("act.close")).clicked() {
+                        if ui.small_button("×").on_hover_text(t!("act.close")).clicked() {
                             close_clicked = true;
                         }
                         if ui.small_button("⟳").on_hover_text(t!("act.refresh")).clicked() {
@@ -2401,7 +2401,7 @@ impl ShellApp {
                                 );
                                 ui.checkbox(&mut f.required, "").on_hover_text(t!("lib.precheck"));
                                 ui.weak(t!("lib.required"));
-                                if ui.small_button("✕").on_hover_text(t!("act.delete_field")).clicked() {
+                                if ui.small_button("×").on_hover_text(t!("act.delete_field")).clicked() {
                                     remove = Some(i);
                                 }
                             });
