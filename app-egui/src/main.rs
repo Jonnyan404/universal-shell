@@ -77,6 +77,8 @@ fn main() -> eframe::Result {
 enum Msg {
     /// 后台安装/更新完成
     InstallDone(String, Option<String>, Option<String>),
+    /// 后台安装/更新进度
+    InstallProgress(String, shared::DownloadProgress),
     /// 模板库清单加载完成（多源合并结果）
     ManifestLoaded(Result<shared::MergedSource, String>),
     /// 模板拉取完成，携带解析后的 Program（供 UI 线程快照进本地配置）
@@ -88,6 +90,8 @@ enum Msg {
 enum View {
     Manage,
     Library,
+    Batch,
+    Settings,
 }
 
 struct ShellApp {
@@ -118,6 +122,13 @@ struct ShellApp {
     update_checks: BTreeMap<String, String>,
     /// 已拉到待应用的远端模板(程序 id -> (远端模板, diff 摘要))
     pending_updates: BTreeMap<String, (shared::config::Program, shared::TemplateDiff)>,
+    /// 当前下载进度：(程序 id, 完成比例 0.0..=1.0, 阶段文案)
+    progress: Option<(String, f64, String)>,
+    /// 设置面板：加速前缀 / 通用代理 编辑框
+    settings_accel: String,
+    settings_proxy: String,
+    /// 程序日志查看器是否打开
+    show_log: bool,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
     /// 是否已在托盘菜单里点了「退出」
@@ -145,6 +156,8 @@ impl ShellApp {
             .cloned()
             .unwrap_or_default();
         let current_id = manager.programs.first().map(|p| p.id.clone());
+        let settings_accel = manager.proxy.accelerate_prefix.clone();
+        let settings_proxy = manager.proxy.http_proxy.clone();
         Self {
             manager,
             values,
@@ -163,6 +176,10 @@ impl ShellApp {
             imports: BTreeMap::new(),
             update_checks: BTreeMap::new(),
             pending_updates: BTreeMap::new(),
+            progress: None,
+            settings_accel,
+            settings_proxy,
+            show_log: false,
             tray: None,
             quit: Arc::new(AtomicBool::new(false)),
         }
@@ -236,11 +253,19 @@ impl ShellApp {
             return;
         }
         self.busy = true;
+        self.progress = Some((
+            program.id.clone(),
+            0.0,
+            t!("dl.downloading").to_string(),
+        ));
         let data_dir = self.manager.data_dir.clone();
         let tx = self.tx.clone();
         let pid = program.id.clone();
         std::thread::spawn(move || {
-            let result = ShellManager::install_standalone(&data_dir, &program);
+            let on_progress = |p: &shared::DownloadProgress| {
+                let _ = tx.send(Msg::InstallProgress(pid.clone(), p.clone()));
+            };
+            let result = ShellManager::install_standalone_with_progress(&data_dir, &program, &on_progress);
             match result {
                 Ok(version) => tx.send(Msg::InstallDone(pid.clone(), Some(version), None)).ok(),
                 Err(e) => tx.send(Msg::InstallDone(pid.clone(), None, Some(format!("{e:#}")))).ok(),
@@ -348,8 +373,18 @@ impl ShellApp {
     fn handle_msgs(&mut self) {
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
+                Msg::InstallProgress(pid, p) => {
+                    let label = match p.stage {
+                        shared::DownloadStage::Downloading => t!("dl.progress", pct = (p.fraction().unwrap_or(0.0) * 100.0).round() as u64).to_string(),
+                        shared::DownloadStage::Verifying => t!("dl.verifying").to_string(),
+                        shared::DownloadStage::Extracting => t!("dl.extracting").to_string(),
+                    };
+                    let frac = p.fraction().unwrap_or(0.0);
+                    self.progress = Some((pid, frac, label));
+                }
                 Msg::InstallDone(pid, version, err) => {
                     self.busy = false;
+                    self.progress = None;
                     let text = match version {
                         Some(v) => t!("toast.updated_short", ver = v).to_string(),
                         None => t!("toast.download_fail", err = err.unwrap_or_default()).to_string(),
@@ -534,8 +569,9 @@ impl ShellApp {
             match &field.kind {
                 FieldKind::String { label, placeholder, .. } => {
                     ui.horizontal(|ui| {
-                        ui.add_sized([140.0, 0.0], egui::Label::new(label));
                         let v = values.entry(field.key.clone()).or_default();
+                        let empty = v.is_empty();
+                        ui.add_sized([140.0, 0.0], required_label(field.required, empty, label));
                         ui.add(
                             egui::TextEdit::singleline(v)
                                 .hint_text(placeholder)
@@ -545,8 +581,9 @@ impl ShellApp {
                 }
                 FieldKind::File { label, filter, .. } => {
                     ui.horizontal(|ui| {
-                        ui.add_sized([140.0, 0.0], egui::Label::new(label));
                         let v = values.entry(field.key.clone()).or_default();
+                        let empty = v.is_empty();
+                        ui.add_sized([140.0, 0.0], required_label(field.required, empty, label));
                         ui.add(egui::TextEdit::singleline(v).desired_width(f32::INFINITY));
                         if ui.button(t!("act.browse")).clicked() {
                             let mut dlg = rfd::FileDialog::new();
@@ -563,8 +600,9 @@ impl ShellApp {
                 }
                 FieldKind::Directory { label, .. } => {
                     ui.horizontal(|ui| {
-                        ui.add_sized([140.0, 0.0], egui::Label::new(label));
                         let v = values.entry(field.key.clone()).or_default();
+                        let empty = v.is_empty();
+                        ui.add_sized([140.0, 0.0], required_label(field.required, empty, label));
                         ui.add(egui::TextEdit::singleline(v).desired_width(f32::INFINITY));
                         if ui.button(t!("act.browse")).clicked() {
                             if let Some(path) = rfd::FileDialog::new().pick_folder() {
@@ -683,6 +721,8 @@ impl ShellApp {
         ui.add_space(8.0);
 
         // 操作区
+        let values = self.values.get(&p.id).cloned().unwrap_or_default();
+        let url = web_url(&p, &values);
         ui.horizontal(|ui| {
             let download_btn = ui.add_enabled(
                 !self.busy,
@@ -695,7 +735,6 @@ impl ShellApp {
                 self.notice.insert(p.id.clone(), String::new());
             }
 
-            let values = self.values.get(&p.id).cloned().unwrap_or_default();
             let values_for_start = values;
             if self.manager.runner.is_running(&p.id) {
                 if ui.button(t!("act.stop")).clicked() {
@@ -717,13 +756,40 @@ impl ShellApp {
                 }
             }
 
+            if url.is_some() {
+                if ui.button(t!("act.open_site")).clicked() {
+                    let cmd = open_cmd();
+                    let _ = std::process::Command::new(&cmd).arg(url.as_deref().unwrap()).spawn();
+                }
+                if ui.button(t!("act.copy_addr")).clicked() {
+                    ui.ctx().copy_text(url.as_deref().unwrap().to_string());
+                    self.notice.insert(p.id.clone(), t!("toast.addr_copied").to_string());
+                }
+            }
+            if ui.button(t!("act.open_app_dir")).clicked() {
+                let app_dir = self.manager.app_dir(&p);
+                let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
+            }
             if ui.button(t!("act.open_log_dir")).clicked() {
                 let log_dir = self.manager.data_dir.join("logs");
-                let _ = std::process::Command::new(&open_cmd())
-                    .arg(&log_dir)
-                    .spawn();
+                let _ = std::process::Command::new(&open_cmd()).arg(&log_dir).spawn();
+            }
+            if ui.button(t!("act.log")).clicked() {
+                self.show_log = true;
             }
         });
+
+        if let Some((pid, frac, label)) = self.progress.clone() {
+            if pid == p.id {
+                ui.add_space(6.0);
+                ui.label(label);
+                ui.add(
+                    egui::ProgressBar::new(frac as f32)
+                        .show_percentage()
+                        .desired_width(ui.available_width()),
+                );
+            }
+        }
 
         if let Some(n) = self.notice.get(&p.id) {
             if !n.is_empty() {
@@ -850,21 +916,122 @@ impl ShellApp {
             }
         });
     }
+
+    /// 批量管理视图：列出所有受管程序，每行 start/stop + 打开应用目录，统一刷新/停止。
+    fn show_batch(&mut self, ui: &mut egui::Ui) {
+        let programs = self.manager.programs.clone();
+        if programs.is_empty() {
+            ui.label(t!("eg.no_program"));
+            return;
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for p in &programs {
+                let st = self.manager.status_local(p);
+                ui.horizontal(|ui| {
+                    ui.add_sized([180.0, 0.0], egui::Label::new(&p.name));
+                    ui.label(if st.installed {
+                        t!("st.local_ver", ver = st.local_version).to_string()
+                    } else {
+                        t!("st.not_installed_bare").to_string()
+                    });
+                    if st.running {
+                        ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
+                    } else {
+                        ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.stopped"));
+                    }
+                    if st.running {
+                        if ui.button(t!("act.stop")).clicked() {
+                            let _ = self.manager.stop(&p.id);
+                        }
+                    } else if ui.button(t!("act.start")).clicked() {
+                        let values = self.values.get(&p.id).cloned().unwrap_or_default();
+                        self.manager.save_field_values(p, &values);
+                        let _ = self.manager.start(p, &values);
+                    }
+                    if ui.button(t!("act.open_app_dir")).clicked() {
+                        let d = self.manager.app_dir(p);
+                        let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
+                    }
+                    if ui.selectable_label(
+                        self.current_id.as_deref() == Some(p.id.as_str()),
+                        t!("act.manage"),
+                    )
+                    .clicked()
+                    {
+                        self.current_id = Some(p.id.clone());
+                        self.view = View::Manage;
+                    }
+                });
+            }
+        });
+    }
+
+    /// 设置面板：全局网络(加速前缀/通用代理) + 立即保存应用。
+    fn show_settings(&mut self, ui: &mut egui::Ui) {
+        ui.heading(t!("sett.title"));
+        ui.weak(t!("eg.data_dir", path = self.manager.data_dir.display()));
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.add_sized([120.0, 0.0], egui::Label::new(t!("sett.accelerate")));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.settings_accel)
+                    .hint_text(t!("sett.acc_placeholder"))
+                    .desired_width(f32::INFINITY),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.add_sized([120.0, 0.0], egui::Label::new(t!("sett.proxy")));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.settings_proxy)
+                    .hint_text(t!("sett.proxy_placeholder"))
+                    .desired_width(f32::INFINITY),
+            );
+        });
+        ui.add_space(6.0);
+        if ui.button(t!("act.save")).clicked() {
+            let accel = self.settings_accel.trim().to_string();
+            let proxy = self.settings_proxy.trim().to_string();
+            self.manager.proxy.accelerate_prefix = accel.clone();
+            self.manager.proxy.http_proxy = proxy.clone();
+            self.manager.github.apply_network(&accel, &proxy);
+            if let Err(e) = self.manager.save_config(&self.config_path) {
+                self.notice
+                    .insert("__settings__".into(), format!("{e:#}"));
+            } else {
+                self.notice
+                    .insert("__settings__".into(), t!("toast.saved").to_string());
+            }
+        }
+        if let Some(n) = self.notice.get("__settings__") {
+            if !n.is_empty() {
+                ui.add_space(6.0);
+                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), n);
+            }
+        }
+    }
+
+    /// 程序日志查看器：浮窗展示当前程序日志尾部。
+    fn show_log_window(&mut self, ctx: &egui::Context) {
+        let Some(p) = self.shown_program().cloned() else {
+            self.show_log = false;
+            return;
+        };
+        let title = t!("log.title_fmt", name = p.name).to_string();
+        let mut open = self.show_log;
+        egui::Window::new(title)
+            .id(egui::Id::new("program_log_window"))
+            .open(&mut open)
+            .default_size([640.0, 360.0])
+            .show(ctx, |ui| {
+                let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
+                ui.monospace(log);
+            });
+        self.show_log = open;
+    }
 }
 
 impl eframe::App for ShellApp {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.handle_msgs();
-        // 关闭窗口 → 隐藏到托盘（托盘「退出」才真正退出）
-        if ctx.input(|i| i.viewport().close_requested()) {
-            if self.quit.load(Ordering::SeqCst) {
-                return;
-            }
-            let _ = ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            ctx.request_repaint();
-        }
-    }
+    // 逻辑更新见下方 `fn logic`（含崩溃恢复轮询）。
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.horizontal(|ui| {
@@ -875,6 +1042,12 @@ impl eframe::App for ShellApp {
             }
             if ui.selectable_label(matches!(self.view, View::Library), t!("lib.title")).clicked() {
                 self.view = View::Library;
+            }
+            if ui.selectable_label(matches!(self.view, View::Batch), t!("batch.title")).clicked() {
+                self.view = View::Batch;
+            }
+            if ui.selectable_label(matches!(self.view, View::Settings), t!("sett.title")).clicked() {
+                self.view = View::Settings;
             }
             ui.separator();
             if ui.button(t!("batch.refresh")).clicked() {
@@ -907,6 +1080,29 @@ impl eframe::App for ShellApp {
         match self.view {
             View::Manage => self.show_manage(ui),
             View::Library => self.show_library(ui),
+            View::Batch => self.show_batch(ui),
+            View::Settings => self.show_settings(ui),
+        }
+
+        if self.show_log {
+            self.show_log_window(ui.ctx());
+        }
+    }
+
+    /// 崩溃恢复：每 ~3s 触发一次重绘，让管理/批量视图的本地运行态保持新鲜
+    /// （程序自行退出/崩溃后及时刷新启动按钮与运行状态）。
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.handle_msgs();
+        // 崩溃恢复/运行态轮询：3s 一次（不发网络请求，仅读本地进程/文件）
+        ctx.request_repaint_after(Duration::from_secs(3));
+        // 关闭窗口 → 隐藏到托盘（托盘「退出」才真正退出）
+        if ctx.input(|i| i.viewport().close_requested()) {
+            if self.quit.load(Ordering::SeqCst) {
+                return;
+            }
+            let _ = ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            ctx.request_repaint();
         }
     }
 }
@@ -919,6 +1115,65 @@ fn open_cmd() -> String {
     } else {
         "xdg-open".into()
     }
+}
+
+/// 字段标签；必填且当前为空时标红并加红色 `*`。
+fn required_label(required: bool, empty: bool, label: &str) -> egui::Label {
+    let text = if required {
+        format!("{label} *")
+    } else {
+        label.to_string()
+    };
+    let rich = if required && empty {
+        egui::RichText::new(text).color(egui::Color32::from_rgb(220, 80, 80))
+    } else {
+        egui::RichText::new(text)
+    };
+    egui::Label::new(rich)
+}
+
+/// 构造程序的 Web 访问地址(如有 host/bind/addr + port 字段)。无地址返回 None。
+/// 与 Tauri 前端 `webUrl` 保持一致的取值逻辑。
+fn web_url(program: &shared::config::Program, values: &BTreeMap<String, String>) -> Option<String> {
+    let field_val = |key: &str| -> Option<String> {
+        if let Some(v) = values.get(key) {
+            let t = v.trim();
+            if !t.is_empty() {
+                return Some(t.to_string());
+            }
+        }
+        program
+            .fields
+            .iter()
+            .find(|f| f.key == key)
+            .and_then(|f| {
+                let d = f.default_raw();
+                let t = d.trim();
+                if t.is_empty() { None } else { Some(t.to_string()) }
+            })
+    };
+    let addr = field_val("host")
+        .or_else(|| field_val("bind"))
+        .or_else(|| field_val("addr"))?;
+    if addr.starts_with("http://") || addr.starts_with("https://") {
+        return Some(addr);
+    }
+    let port = field_val("port");
+    if let Some(p) = port {
+        if !addr.ends_with(&p) && !regex_like_addr(&addr) {
+            return Some(format!("http://{addr}:{p}"));
+        }
+        return Some(format!("http://{addr}:{p}"));
+    }
+    Some(format!("http://{addr}"))
+}
+
+/// 地址是否已含端口(scheme://host:port)。简单判断结尾 :数字。
+fn regex_like_addr(addr: &str) -> bool {
+    let Some((_, rest)) = addr.split_once(':') else {
+        return false;
+    };
+    rest.chars().all(|c| c.is_ascii_digit())
 }
 
 /// 获取系统语言提示(供 `shared::locale::apply` 使用)，失败回退 en。
