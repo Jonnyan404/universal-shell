@@ -400,7 +400,7 @@ async function renderForm() {
   el.actions.innerHTML = "";
   const start = document.createElement("button");
   start.id = "start-btn";
-  start.textContent = t("act.start");
+  start.textContent = "▶ " + t("act.start");
   start.onclick = async () => {
     try {
       const st = await invoke("start_program", {
@@ -420,7 +420,7 @@ async function renderForm() {
   const stop = document.createElement("button");
   stop.id = "stop-btn";
   stop.disabled = true;
-  stop.textContent = t("act.stop");
+  stop.textContent = "■ " + t("act.stop");
   stop.onclick = async () => {
     try {
       const st = await invoke("stop_program", { programId: current.id });
@@ -438,7 +438,7 @@ async function renderForm() {
   const restart = document.createElement("button");
   restart.id = "restart-btn";
   restart.disabled = true;
-  restart.textContent = t("act.restart");
+  restart.textContent = "↻ " + t("act.restart");
   restart.onclick = async () => {
     try {
       const st = await invoke("restart_program", {
@@ -456,9 +456,11 @@ async function renderForm() {
   el.actions.appendChild(restart);
 
   const appDir = document.createElement("button");
-  appDir.textContent = t("act.open_app_dir");
+  appDir.className = "icon-btn";
+  appDir.textContent = "📁";
   appDir.title = t("act.open_app_dir");
   appDir.onclick = () => revealAppDir(current.id);
+  appDir.style.marginLeft = "auto";
   el.actions.appendChild(appDir);
 
   // 有地址(/端口)字段时，提供「打开网站」「复制地址」

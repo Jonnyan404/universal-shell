@@ -202,7 +202,7 @@ button {
 button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.6; cursor: default; }
 
-#actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 20px; }
+#actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 10px; margin-top: 20px; }
 #actions button:first-child { background: var(--accent); border-color: var(--accent); color: #fff; }
 #actions #stop-btn { background: var(--danger); border-color: var(--danger); color: #fff; }
 #actions #restart-btn { background: #f59e0b; border-color: #f59e0b; color: #fff; }
