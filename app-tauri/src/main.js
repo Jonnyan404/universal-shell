@@ -1647,7 +1647,11 @@ function applyTheme() {
   const b = document.querySelector("#theme-btn");
   if (b) {
     b.textContent = dark ? "☀" : "☾";
-    b.title = dark ? t("ui.theme.light") : t("ui.theme.dark");
+    if (cur) {
+      b.title = dark ? t("ui.theme.light") : t("ui.theme.dark");
+    } else {
+      b.title = t("ui.theme.follow_system");
+    }
   }
 }
 function cycleTheme() {
@@ -1684,6 +1688,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   applySidebar(localStorage.getItem("sidebarMode") || "full");
   await loadLocale();
   applyStaticI18n();
+  applyTheme();
   const langBtn = document.querySelector("#lang-btn");
   if (langBtn) {
     const updateLangBtn = () => {

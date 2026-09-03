@@ -16,6 +16,7 @@ tmpl.none: No material changes
 tmpl.changed: 'Changed: %{parts}'
 ui.theme.light: Switch to light mode
 ui.theme.dark: Switch to dark mode
+ui.theme.follow_system: Follow system
 ui.lang: Switch language
 ui.settings: Network settings
 ui.batch: Batch management

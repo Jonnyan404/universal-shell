@@ -16,6 +16,7 @@ tmpl.none: 无实质变化
 tmpl.changed: '变化: %{parts}'
 ui.theme.light: 切换到浅色
 ui.theme.dark: 切换到深色
+ui.theme.follow_system: 跟随系统
 ui.lang: 切换语言
 ui.settings: 网络设置
 ui.batch: 批量管理
