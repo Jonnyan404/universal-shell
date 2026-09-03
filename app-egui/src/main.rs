@@ -128,6 +128,12 @@ struct ShellApp {
     pending_import: Option<(String, String)>,
     /// 待二次确认覆盖导入的本地模板文件
     pending_local_import: Option<(std::path::PathBuf, shared::config::Program)>,
+    /// 模板源管理弹窗是否打开
+    show_sources: bool,
+    /// 模板源管理：可编辑的源列表（第 0 项为默认官方源）
+    sources_rows: Vec<String>,
+    /// 模板源管理：新增源输入框内容
+    sources_new: String,
     /// 正在导入的模板 id -> 状态
     imports: BTreeMap<String, String>,
     /// 正在检查模板更新的程序 id -> 状态文案
@@ -185,6 +191,7 @@ impl ShellApp {
         let current_id = manager.programs.first().map(|p| p.id.clone());
         let settings_accel = manager.proxy.accelerate_prefix.clone();
         let settings_proxy = manager.proxy.http_proxy.clone();
+        let sources_rows = manager.template_registries.clone();
         Self {
             manager,
             values,
@@ -205,6 +212,9 @@ impl ShellApp {
             show_local_drawer: false,
             pending_import: None,
             pending_local_import: None,
+            show_sources: false,
+            sources_rows,
+            sources_new: String::new(),
             imports: BTreeMap::new(),
             update_checks: BTreeMap::new(),
             pending_updates: BTreeMap::new(),
@@ -1093,13 +1103,16 @@ impl ShellApp {
         ui.horizontal(|ui| {
             ui.heading(t!("lib.title"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(format!("{} ({})", t!("lib.local"), self.manager.programs.len())).clicked() {
-                    self.show_local_drawer = !self.show_local_drawer;
+                if ui.button(t!("lib.sources")).clicked() {
+                    self.open_sources();
                 }
                 if ui.button(t!("lib.import")).clicked() {
                     if let Some(path) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
                         self.import_local_path(path);
                     }
+                }
+                if ui.button(format!("{} ({})", t!("lib.local"), self.manager.programs.len())).clicked() {
+                    self.show_local_drawer = !self.show_local_drawer;
                 }
             });
         });
@@ -1515,6 +1528,125 @@ impl ShellApp {
         }
     }
 
+    /// 打开模板源管理弹窗（对齐 Tauri openSourcesModal/renderSourcesList）
+    fn open_sources(&mut self) {
+        let rows = self.manager.template_registries.clone();
+        self.sources_rows = if rows.is_empty() {
+            vec![String::new()]
+        } else {
+            rows
+        };
+        self.sources_new = String::new();
+        self.show_sources = true;
+    }
+
+    /// 保存模板源（对齐 Tauri saveSources/set_registries）；返回是否成功
+    fn save_sources(&mut self) -> bool {
+        let cleaned: Vec<String> = self
+            .sources_rows
+            .iter()
+            .map(|s| {
+                let s = s.trim().to_string();
+                if s.ends_with('/') {
+                    s
+                } else {
+                    format!("{s}/")
+                }
+            })
+            .filter(|s| !s.is_empty() && s != "/")
+            .collect();
+        if cleaned.is_empty() {
+            self.notice.insert("__sources__".into(), t!("lib.keep_one").to_string());
+            return false;
+        }
+        self.manager.template_registries = cleaned.clone();
+        if let Err(e) = self.manager.save_config(&self.config_path) {
+            self.notice.insert("__sources__".into(), format!("{e:#}"));
+            return false;
+        }
+        self.manager.log_op(&t!("op.update_sources", list = cleaned.join(", ")));
+        self.registry_url = cleaned.first().cloned().unwrap_or_default();
+        self.lib_source = cleaned.first().cloned();
+        self.lib_page = 0;
+        // 源已变更：清空清单缓存，回到「尚未拉取」状态，待用户刷新重拉
+        self.merged = None;
+        self.show_sources = false;
+        self.notice.insert("__registry__".into(), t!("toast.sources_saved").to_string());
+        true
+    }
+
+    /// 模板源管理弹窗（对齐 Tauri sources-modal）
+    fn show_sources_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_sources;
+        let mut cancel = false;
+        let mut save = false;
+        egui::Window::new(t!("sources.title"))
+            .id(egui::Id::new("sources_window"))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.set_min_width(440.0);
+                let mut remove: Option<usize> = None;
+                for (i, row) in self.sources_rows.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(row)
+                                .hint_text(t!("sources.placeholder"))
+                                .desired_width(320.0),
+                        );
+                        if i == 0 {
+                            ui.label(t!("lib.default_rule"));
+                        } else if ui
+                            .small_button("✕")
+                            .on_hover_text(t!("lib.delete_source"))
+                            .clicked()
+                        {
+                            remove = Some(i);
+                        }
+                    });
+                }
+                if let Some(i) = remove {
+                    self.sources_rows.remove(i);
+                }
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.sources_new)
+                            .hint_text(t!("sources.placeholder"))
+                            .desired_width(320.0),
+                    );
+                    if ui.button(t!("act.add")).clicked() {
+                        let v = self.sources_new.trim().to_string();
+                        if !v.is_empty() {
+                            self.sources_rows.push(v);
+                            self.sources_new = String::new();
+                        }
+                    }
+                });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.with_layout(
+                        egui::Layout::right_to_left(egui::Align::Center),
+                        |ui| {
+                            if ui.button(t!("act.cancel")).clicked() {
+                                cancel = true;
+                            }
+                            if ui.button(t!("act.save")).clicked() {
+                                save = true;
+                            }
+                        },
+                    );
+                });
+            });
+        if cancel || !open {
+            self.show_sources = false;
+        }
+        if save {
+            self.save_sources();
+        }
+    }
+
     /// 批量管理视图：列出所有受管程序，每行 start/stop + 打开应用目录，统一刷新/停止。
     fn show_batch(&mut self, ui: &mut egui::Ui) {
         let programs = self.manager.programs.clone();
@@ -1856,6 +1988,9 @@ impl eframe::App for ShellApp {
             self.show_delete_confirm(ui.ctx(), &id);
         }
         self.show_library_confirms(ui.ctx());
+        if self.show_sources {
+            self.show_sources_window(ui.ctx());
+        }
     }
 }
 
