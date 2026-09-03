@@ -1280,7 +1280,8 @@ impl ShellApp {
                 });
                 ui.label(&t.description);
                 if imported {
-                    ui.weak(t!("lib.local_last"));
+                    // 「本地」标识用 ok 绿（对齐 Tauri .lib-local-badge 的 --ok 底色）
+                    ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("lib.local_last"));
                 }
             });
         ui.add_space(6.0);
