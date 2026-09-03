@@ -890,7 +890,7 @@ impl ShellApp {
             }
         }
 
-        // 操作区：启动/停止/重启 + 图标按钮（匹配 Tauri actions）
+        // 操作区：启动/停止/重启 + 图标按钮（单行左到右排布，始终可见）
         let values = self.values.get(&p.id).cloned().unwrap_or_default();
         let url = web_url(&p, &values);
         let running = self.manager.runner.is_running(&p.id);
@@ -936,9 +936,7 @@ impl ShellApp {
                     }
                 }
             }
-        });
-        // 第二行：图标按钮（右对齐，避免被窗口宽度裁剪）
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.separator();
             if ui.button("📁").on_hover_text(t!("act.open_app_dir")).clicked() {
                 let app_dir = self.manager.app_dir(&p);
                 let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
