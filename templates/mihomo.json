@@ -1,0 +1,37 @@
+{
+  "id": "mihomo",
+  "name": "mihomo",
+  "description": "mihomo（Clash Meta 内核）— 规则化代理内核，支持多种出站协议。需自行提供 config.yaml。注意在配置中把监听地址设为 127.0.0.1，避免暴露到局域网。",
+  "repo": "MetaCubeX/mihomo",
+  "binary": "mihomo",
+  "category": "proxy",
+  "assets": {
+    "darwin": {
+      "candidates": ["mihomo-darwin-{arch}-v{version}.gz"],
+      "format": "gz",
+      "mode": "single",
+      "member": "mihomo"
+    },
+    "linux": {
+      "candidates": ["mihomo-linux-{arch}-v{version}.gz"],
+      "format": "gz",
+      "mode": "single",
+      "member": "mihomo"
+    },
+    "windows": {
+      "candidates": ["mihomo-windows-{arch}-v{version}.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "mihomo.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "config", "kind": "file", "label": "config.yaml", "default": "", "filter": "*.yaml" },
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-d <工作目录> …" }
+  ],
+  "args": ["-f", "{config}", "{args_extra}"]
+}
