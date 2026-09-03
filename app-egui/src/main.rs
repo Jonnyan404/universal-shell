@@ -96,6 +96,15 @@ enum View {
     Batch,
 }
 
+/// 编辑弹窗的字段行草稿
+struct EditFieldDraft {
+    key: String,
+    label: String,
+    kind: String,
+    default: String,
+    required: bool,
+}
+
 struct ShellApp {
     manager: ShellManager,
     /// program id -> 表单字段运行时值
@@ -147,10 +156,24 @@ struct ShellApp {
     /// 设置面板：加速前缀 / 通用代理 编辑框
     settings_accel: String,
     settings_proxy: String,
+    /// 设置面板：壳自身开机自启（对齐 Tauri sett-shell-auto）
+    settings_shell_auto: bool,
     /// 程序日志查看器是否打开
     show_log: bool,
     /// 壳操作日志弹窗是否打开
     show_shell_log: bool,
+    /// 编辑弹窗是否打开
+    show_edit: bool,
+    /// 正在编辑的程序 id（None 时编辑弹窗不显示）
+    edit_id: Option<String>,
+    /// 编辑表单缓冲
+    edit_name: String,
+    edit_desc: String,
+    edit_repo: String,
+    edit_binary: String,
+    edit_args: String,
+    /// 编辑弹窗的字段行（key/label/kind/default/required）
+    edit_fields: Vec<EditFieldDraft>,
     /// 全局设置弹窗是否打开
     show_settings: bool,
     /// 暗色主题
@@ -195,6 +218,7 @@ impl ShellApp {
         let current_id = manager.programs.first().map(|p| p.id.clone());
         let settings_accel = manager.proxy.accelerate_prefix.clone();
         let settings_proxy = manager.proxy.http_proxy.clone();
+        let settings_shell_auto = manager.autostart.shell_is_enabled();
         let sources_rows = manager.template_registries.clone();
         Self {
             manager,
@@ -225,8 +249,17 @@ impl ShellApp {
             progress: None,
             settings_accel,
             settings_proxy,
+            settings_shell_auto,
             show_log: false,
             show_shell_log: false,
+            show_edit: false,
+            edit_id: None,
+            edit_name: String::new(),
+            edit_desc: String::new(),
+            edit_repo: String::new(),
+            edit_binary: String::new(),
+            edit_args: String::new(),
+            edit_fields: Vec::new(),
             show_settings: false,
             dark_mode: true,
             op_logs: Vec::new(),
@@ -784,6 +817,7 @@ impl ShellApp {
                     } else {
                         t!("st.stopped_ver", ver = st.local_version).to_string()
                     };
+                    let mut edit_req = false;
 
                     let response = egui::Frame::group(ui.style())
                         .inner_margin(egui::Margin::symmetric(8, 4))
@@ -817,6 +851,15 @@ impl ShellApp {
                                     );
                                     ui.small(sub);
                                 });
+                                // 编辑按钮（✎，对齐 Tauri prog-edit-ico）
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui.small_button("✎").on_hover_text(t!("act.edit")).clicked() {
+                                            edit_req = true;
+                                        }
+                                    },
+                                );
                             });
                         })
                         .response
@@ -824,6 +867,9 @@ impl ShellApp {
                     if response.clicked() {
                         self.current_id = Some(p.id.clone());
                         self.view = View::Manage;
+                    }
+                    if edit_req {
+                        self.open_edit(&p.id);
                     }
                 }
             });
@@ -882,6 +928,10 @@ impl ShellApp {
                             .desired_width(f32::INFINITY),
                     );
                 });
+                // 壳开机自启（对齐 Tauri sett-shell-auto）
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.settings_shell_auto, t!("sett.shell_auto_label"));
+                });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -891,7 +941,11 @@ impl ShellApp {
                             self.manager.proxy.accelerate_prefix = accel.clone();
                             self.manager.proxy.http_proxy = proxy.clone();
                             self.manager.github.apply_network(&accel, &proxy);
-                            if let Err(e) = self.manager.save_config(&self.config_path) {
+                            let shell_auto = self.settings_shell_auto;
+                            if let (Err(e), Ok(())) = (
+                                self.manager.autostart.set_shell_enabled(shell_auto),
+                                self.manager.save_config(&self.config_path),
+                            ) {
                                 self.notice.insert("__settings__".into(), format!("{e:#}"));
                             } else {
                                 self.notice.insert("__settings__".into(), t!("toast.saved").to_string());
@@ -2066,6 +2120,229 @@ impl ShellApp {
         }
     }
 
+    /// 打开编辑弹窗，按程序当前定义填充表单缓冲。
+    fn open_edit(&mut self, id: &str) {
+        let Some(base) = self.manager.programs.iter().find(|p| p.id == id).cloned() else {
+            return;
+        };
+        self.edit_id = Some(id.to_string());
+        self.edit_name = base.name.clone();
+        self.edit_desc = base.description.clone();
+        self.edit_repo = base.repo.clone();
+        self.edit_binary = base.binary.clone();
+        self.edit_args = base.args.join(" ");
+        self.edit_fields = base
+            .fields
+            .iter()
+            .map(|f| EditFieldDraft {
+                key: f.key.clone(),
+                label: f.label().to_string(),
+                kind: kind_name(&f.kind).to_string(),
+                default: field_default(&f.kind),
+                required: f.required,
+            })
+            .collect();
+        self.show_edit = true;
+    }
+
+    /// 编辑弹窗：程序元信息 + 动态字段行编辑（对齐 Tauri edit-modal）。
+    fn show_edit_window(&mut self, ctx: &egui::Context) {
+        let mut open = self.show_edit;
+        let mut saved = false;
+        let mut close_clicked = false;
+        egui::Window::new(t!("edit.title"))
+            .id(egui::Id::new("edit_window"))
+            .open(&mut open)
+            .default_size([560.0, 480.0])
+            .collapsible(false)
+            .show(ctx, |ui| {
+                egui::Grid::new("edit_grid")
+                    .num_columns(2)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label(t!("edit.name"));
+                        ui.add(egui::TextEdit::singleline(&mut self.edit_name).desired_width(f32::INFINITY));
+                        ui.end_row();
+                        ui.label(t!("edit.desc"));
+                        ui.add(egui::TextEdit::singleline(&mut self.edit_desc).desired_width(f32::INFINITY));
+                        ui.end_row();
+                        ui.label(t!("edit.repo"));
+                        ui.add(egui::TextEdit::singleline(&mut self.edit_repo).desired_width(f32::INFINITY));
+                        ui.end_row();
+                        ui.label(t!("edit.binary"));
+                        ui.add(egui::TextEdit::singleline(&mut self.edit_binary).desired_width(f32::INFINITY));
+                        ui.end_row();
+                        ui.label(t!("edit.args"));
+                        ui.add(egui::TextEdit::singleline(&mut self.edit_args).desired_width(f32::INFINITY));
+                        ui.end_row();
+                    });
+                ui.add_space(6.0);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.strong(t!("lib.fields"));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(t!("act.add_field")).clicked() {
+                            self.edit_fields.push(EditFieldDraft {
+                                key: String::new(),
+                                label: String::new(),
+                                kind: "string".into(),
+                                default: String::new(),
+                                required: false,
+                            });
+                        }
+                    });
+                });
+                let mut remove: Option<usize> = None;
+                egui::ScrollArea::vertical()
+                    .id_salt("edit_fields_scroll")
+                    .max_height(200.0)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for (i, f) in self.edit_fields.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut f.key)
+                                        .hint_text(t!("lib.field_key"))
+                                        .desired_width(90.0),
+                                );
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut f.label)
+                                        .hint_text(t!("lib.labels"))
+                                        .desired_width(90.0),
+                                );
+                                egui::ComboBox::from_id_salt(("edit_kind", i))
+                                    .selected_text(&f.kind)
+                                    .width(90.0)
+                                    .show_ui(ui, |ui| {
+                                        for k in ["string", "boolean", "file", "directory", "autostart"] {
+                                            ui.selectable_value(&mut f.kind, k.to_string(), k);
+                                        }
+                                    });
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut f.default)
+                                        .hint_text(t!("lib.def_val"))
+                                        .desired_width(90.0),
+                                );
+                                ui.checkbox(&mut f.required, "").on_hover_text(t!("lib.precheck"));
+                                ui.weak(t!("lib.required"));
+                                if ui.small_button("✕").on_hover_text(t!("act.delete_field")).clicked() {
+                                    remove = Some(i);
+                                }
+                            });
+                        }
+                    });
+                if let Some(i) = remove {
+                    self.edit_fields.remove(i);
+                }
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(t!("act.cancel")).clicked() {
+                            saved = false;
+                            close_clicked = true;
+                        }
+                        if ui.button(t!("act.save")).clicked() {
+                            saved = true;
+                            close_clicked = true;
+                        }
+                    });
+                });
+            });
+        if close_clicked {
+            open = false;
+        }
+        self.show_edit = open;
+        if saved {
+            self.commit_edit();
+        }
+    }
+
+    /// 提交编辑：用表单缓冲构建新 Program 并写入配置（对齐 Tauri build_program_from_edit + edit_program）。
+    fn commit_edit(&mut self) {
+        let Some(id) = self.edit_id.clone() else { return };
+        let Some(base) = self.manager.programs.iter().find(|p| p.id == id).cloned() else {
+            return;
+        };
+        let fields: Vec<shared::config::Field> = self
+            .edit_fields
+            .iter()
+            .filter(|f| !f.key.trim().is_empty())
+            .map(|f| {
+                let label = if f.label.trim().is_empty() {
+                    f.key.clone()
+                } else {
+                    f.label.clone()
+                };
+                let kind = match f.kind.as_str() {
+                    "file" => shared::config::FieldKind::File {
+                        label: label.clone(),
+                        default: f.default.clone(),
+                        filter: String::new(),
+                    },
+                    "directory" => shared::config::FieldKind::Directory {
+                        label: label.clone(),
+                        default: f.default.clone(),
+                    },
+                    "boolean" => shared::config::FieldKind::Boolean {
+                        label: label.clone(),
+                        default: f.default == "true",
+                    },
+                    "autostart" => shared::config::FieldKind::AutoStart {
+                        label: label.clone(),
+                        default: f.default == "true",
+                    },
+                    _ => shared::config::FieldKind::String {
+                        label,
+                        default: f.default.clone(),
+                        placeholder: String::new(),
+                    },
+                };
+                shared::config::Field {
+                    key: f.key.trim().to_string(),
+                    kind,
+                    required: f.required,
+                }
+            })
+            .collect();
+        let args: Vec<String> = self
+            .edit_args
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+        let updated = shared::config::Program {
+            id: id.clone(),
+            name: self.edit_name.trim().to_string(),
+            description: self.edit_desc.trim().to_string(),
+            category: base.category.clone(),
+            repo: self.edit_repo.trim().to_string(),
+            binary: if self.edit_binary.trim().is_empty() {
+                id.clone()
+            } else {
+                self.edit_binary.trim().to_string()
+            },
+            assets: base.assets.clone(),
+            arch_map: base.arch_map.clone(),
+            os_map: base.os_map.clone(),
+            fields,
+            args,
+            working_dir: base.working_dir.clone(),
+            template_source: base.template_source.clone(),
+            imported_at: base.imported_at,
+            check_sha256: base.check_sha256.clone(),
+            hidden: base.hidden,
+        };
+        match self.manager.update_program(&id, &updated, &self.config_path) {
+            Ok(()) => {
+                self.manager.log_op(&t!("op.edit_template", name = &base.name));
+                self.notice.insert(id.clone(), t!("toast.saved").to_string());
+                self.values.remove(&id);
+            }
+            Err(e) => {
+                self.notice.insert(id.clone(), format!("{e:#}"));
+            }
+        }
+    }
+
     /// 删除确认弹窗：二次确认后真正删除程序并清理数据目录。
     fn show_delete_confirm(&mut self, ctx: &egui::Context, id: &str) {
         let title = t!("act.delete").to_string();
@@ -2174,6 +2451,9 @@ impl eframe::App for ShellApp {
         if self.show_shell_log {
             self.show_shell_log_window(ui.ctx());
         }
+        if self.show_edit {
+            self.show_edit_window(ui.ctx());
+        }
         if self.show_settings {
             self.show_settings_window(ui.ctx());
         }
@@ -2194,6 +2474,28 @@ fn open_cmd() -> String {
         "explorer".into()
     } else {
         "xdg-open".into()
+    }
+}
+
+/// FieldKind 的字符串名（对齐 Tauri edit 的 kind 下拉选项）。
+fn kind_name(kind: &FieldKind) -> &'static str {
+    match kind {
+        FieldKind::String { .. } => "string",
+        FieldKind::Boolean { .. } => "boolean",
+        FieldKind::File { .. } => "file",
+        FieldKind::Directory { .. } => "directory",
+        FieldKind::AutoStart { .. } => "autostart",
+    }
+}
+
+/// FieldKind 的默认值字符串（编辑弹窗回填用）。
+fn field_default(kind: &FieldKind) -> String {
+    match kind {
+        FieldKind::String { default, .. } => default.clone(),
+        FieldKind::Boolean { default, .. } => default.to_string(),
+        FieldKind::File { default, .. } => default.clone(),
+        FieldKind::Directory { default, .. } => default.clone(),
+        FieldKind::AutoStart { default, .. } => default.to_string(),
     }
 }
 
