@@ -270,7 +270,9 @@ dependencies = [
  "env_logger",
  "log",
  "rfd 0.17.2",
+ "rust-i18n",
  "shared",
+ "sys-locale",
  "tray-icon",
 ]
 

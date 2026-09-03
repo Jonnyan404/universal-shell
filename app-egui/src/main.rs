@@ -13,8 +13,11 @@ use std::time::Duration;
 
 use anyhow::Context;
 use eframe::egui;
+use rust_i18n::t;
 use shared::config::FieldKind;
 use shared::{RegistryClient, ShellManager};
+
+rust_i18n::i18n!("../shared/locales");
 
 fn main() -> eframe::Result {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -28,7 +31,7 @@ fn main() -> eframe::Result {
         .unwrap_or_else(|| data_dir.join("shell.json"));
 
     let mut manager = ShellManager::new(data_dir.clone())
-        .with_context(|| "初始化数据目录失败")
+        .with_context(|| t!("err.init_datadir"))
         .unwrap();
 
     if config_path.exists() {
@@ -42,6 +45,14 @@ fn main() -> eframe::Result {
             }
         }
     }
+
+    // 语言：手动覆盖(auto=跟随系统) + 系统提示 解析出最终语言并同步到 rust_i18n
+    let override_locale = if manager.locale == "auto" {
+        None
+    } else {
+        Some(manager.locale.as_str())
+    };
+    shared::locale::apply(override_locale, &system_hint());
 
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
@@ -204,8 +215,8 @@ impl ShellApp {
         use tray_icon::menu::{Menu, MenuItem};
         use tray_icon::{Icon, TrayIconBuilder};
 
-        let show = MenuItem::with_id("tray_show", "显示主窗口", true, None);
-        let quit = MenuItem::with_id("tray_quit", "退出", true, None);
+        let show = MenuItem::with_id("tray_show", t!("tray.show"), true, None);
+        let quit = MenuItem::with_id("tray_quit", t!("tray.quit"), true, None);
         let menu = Menu::with_items(&[&show, &quit]).ok()?;
 
         // 做一个 32×32 的纯色图标（避免引入 image 依赖）
@@ -251,7 +262,7 @@ impl ShellApp {
         }
         if bases.is_empty() {
             self.notice
-                .insert("__registry__".into(), "未配置注册表，请先填写 URL".into());
+                .insert("__registry__".into(), t!("err.registry_not_configured").to_string());
             return;
         }
         self.registry_wait = true;
@@ -273,7 +284,7 @@ impl ShellApp {
 
     /// 后台拉取模板；成功后由 UI 线程快照进本地配置
     fn spawn_import_template(&mut self, id: String, url: String) {
-        self.imports.insert(id.clone(), "导入中…".into());
+        self.imports.insert(id.clone(), t!("lib.importing").to_string());
         let cache = self.manager.data_dir.join("cache/registry");
         let pubkeys = self.manager.registry_pubkeys.clone();
         let proxy = self.manager.proxy.clone();
@@ -314,10 +325,10 @@ impl ShellApp {
         }
         let Some(base) = self.registry_base_from_source(&program) else {
             self.notice
-                .insert(program.id.clone(), "该程序无来源注册表，无法检查更新".into());
+                .insert(program.id.clone(), t!("eg.no_source_registry").to_string());
             return;
         };
-        self.update_checks.insert(program.id.clone(), "检查中…".into());
+        self.update_checks.insert(program.id.clone(), t!("dl.checking_short").to_string());
         let id = program.id.clone();
         let cache = self.manager.data_dir.join("cache/registry");
         let tx = self.tx.clone();
@@ -340,8 +351,8 @@ impl ShellApp {
                 Msg::InstallDone(pid, version, err) => {
                     self.busy = false;
                     let text = match version {
-                        Some(v) => format!("下载/更新完成，当前版本 {v}"),
-                        None => format!("下载/更新失败: {}", err.unwrap_or_default()),
+                        Some(v) => t!("toast.updated_short", ver = v).to_string(),
+                        None => t!("toast.download_fail", err = err.unwrap_or_default()).to_string(),
                     };
                     self.notice.insert(pid, text);
                     self.refresh_status();
@@ -352,19 +363,20 @@ impl ShellApp {
                         Ok(merged) => {
                             self.merged = Some(merged.clone());
                             self.manifest_offline =
-                                merged.sources.iter().any(|(_, off)| *off);
+                                merged.sources.iter().any(|(_, off, _)| *off);
                             let n = merged.sources.len();
                             let msg = if self.manifest_offline {
-                                format!("加载完成（{n} 个源，含离线回退）")
+                                t!("eg.loaded_offline", n = n)
                             } else {
-                                format!("加载完成（{n} 个源）")
-                            };
+                                t!("eg.loaded", n = n)
+                            }
+                            .to_string();
                             self.notice.insert("__registry__".into(), msg);
                         }
                         Err(e) => {
                             self.merged = None;
                             self.notice
-                                .insert("__registry__".into(), format!("清单拉取失败: {e}"));
+                                .insert("__registry__".into(), t!("toast.manifest_fail", err = e).to_string());
                         }
                     }
                 }
@@ -375,19 +387,20 @@ impl ShellApp {
                             if let Err(e) = self.commit_import(&program) {
                                 self.imports.insert(
                                     id.clone(),
-                                    format!("导入失败: {}", format!("{e:#}")),
+                                    t!("eg.import_fail", err = format!("{e:#}")).to_string(),
                                 );
                                 return;
                             }
                             self.imports.remove(&id);
                             self.notice.insert(
                                 "__registry__".into(),
-                                format!("已导入模板「{id}」，快照已写入 {}", self.config_path.display()),
+                                t!("eg.imported_snap", id = id, path = self.config_path.display())
+                                    .to_string(),
                             );
                         }
-                        Err(e) => {
-                            self.imports.insert(id.clone(), format!("导入失败: {e}"));
-                        }
+                                Err(e) => {
+                                    self.imports.insert(id.clone(), t!("eg.import_fail", err = e).to_string());
+                                }
                     }
                 }
                 Msg::TemplateUpdateChecked(pid, result) => {
@@ -399,14 +412,14 @@ impl ShellApp {
                                 self.manager.programs.iter().find(|p| p.id == pid).clone()
                             });
                             let Some(cur) = cur else {
-                                self.notice.insert(pid.clone(), "找不到该程序实例".into());
+                                self.notice.insert(pid.clone(), t!("eg.not_found_instance").to_string());
                                 return;
                             };
                             let diff = self.manager.template_diff(cur, &remote);
                             if diff.is_empty() {
                                 self.pending_updates.remove(&pid);
                                 self.notice
-                                    .insert(pid.clone(), "模板已是最新，无差异".into());
+                                    .insert(pid.clone(), t!("eg.no_diff").to_string());
                             } else {
                                 self.pending_updates.insert(pid.clone(), (remote, diff));
                                 let summary = self
@@ -415,11 +428,11 @@ impl ShellApp {
                                     .map(|(_, d)| d.summary())
                                     .unwrap_or_default();
                                 self.notice
-                                    .insert(pid.clone(), format!("发现模板更新: {summary}"));
+                                    .insert(pid.clone(), t!("eg.update_found", summary = summary).to_string());
                             }
                         }
                         Err(e) => {
-                            self.notice.insert(pid.clone(), format!("检查模板更新失败: {e}"));
+                            self.notice.insert(pid.clone(), t!("eg.check_update_fail", err = e).to_string());
                         }
                     }
                 }
@@ -449,11 +462,11 @@ impl ShellApp {
             Ok(()) => {
                 self.notice.insert(
                     cur.id.clone(),
-                    format!("模板已更新并写回 {}", self.config_path.display()),
+                    t!("eg.updated_written", path = self.config_path.display()).to_string(),
                 );
             }
             Err(e) => {
-                self.notice.insert(cur.id.clone(), format!("写回配置失败: {e:#}"));
+                self.notice.insert(cur.id.clone(), t!("eg.write_fail", err = format!("{e:#}")).to_string());
             }
         }
         self.pending_updates.remove(&cur.id);
@@ -467,7 +480,7 @@ impl ShellApp {
             .iter()
             .any(|p| p.id == program.id)
         {
-            anyhow::bail!("程序「{}」已存在于本地配置", program.id);
+            anyhow::bail!(t!("err.program_exists", id = program.id));
         }
         // 写入用户运行时值（默认值）
         let defaults = self.manager.load_field_values(program);
@@ -535,7 +548,7 @@ impl ShellApp {
                         ui.add_sized([140.0, 0.0], egui::Label::new(label));
                         let v = values.entry(field.key.clone()).or_default();
                         ui.add(egui::TextEdit::singleline(v).desired_width(f32::INFINITY));
-                        if ui.button("浏览…").clicked() {
+                        if ui.button(t!("act.browse")).clicked() {
                             let mut dlg = rfd::FileDialog::new();
                             if !filter.is_empty() {
                                 let patterns: Vec<&str> =
@@ -553,7 +566,7 @@ impl ShellApp {
                         ui.add_sized([140.0, 0.0], egui::Label::new(label));
                         let v = values.entry(field.key.clone()).or_default();
                         ui.add(egui::TextEdit::singleline(v).desired_width(f32::INFINITY));
-                        if ui.button("浏览…").clicked() {
+                        if ui.button(t!("act.browse")).clicked() {
                             if let Some(path) = rfd::FileDialog::new().pick_folder() {
                                 *v = path.display().to_string();
                             }
@@ -582,7 +595,7 @@ impl ShellApp {
                             .cloned();
                         if let Some(p) = target {
                             if let Err(e) = self.manager.apply_key_autostart(&p, &snapshot) {
-                                self.notice.insert(pid.clone(), format!("设置开机启动失败: {e:#}"));
+                                self.notice.insert(pid.clone(), t!("eg.autostart_fail", err = format!("{e:#}")).to_string());
                             }
                         }
                     }
@@ -598,7 +611,7 @@ impl ShellApp {
             ui.add_space(2.0);
         }
         let Some(p) = self.shown_program().cloned() else {
-            ui.label("未配置任何受管程序。请以 `universal-shell-egui <shell.json>` 启动，或在「模板库」导入。");
+            ui.label(t!("eg.no_program"));
             return;
         };
 
@@ -609,17 +622,17 @@ impl ShellApp {
         // 状态行
         let status = self.manager.status(&p);
         let mut chips = vec![
-            format!("本地版本: {}", status.local_version),
-            format!(
-                "最新版本: {}",
-                status.latest_version.as_deref().unwrap_or("未知")
+            t!("st.local_ver", ver = status.local_version),
+            t!(
+                "eg.latest_ver_fmt",
+                ver = status.latest_version.as_deref().unwrap_or("未知")
             ),
-            if status.installed { "已安装" } else { "未安装" }.to_string(),
+            if status.installed { t!("st.installed") } else { t!("st.not_installed_bare") },
         ];
         if self.manager.runner.is_running(&p.id) {
-            chips.push("运行中".into());
+            chips.push(t!("st.running"));
         } else {
-            chips.push("已停止".into());
+            chips.push(t!("st.stopped"));
         }
         ui.horizontal(|ui| {
             for c in chips {
@@ -634,7 +647,9 @@ impl ShellApp {
                 let checking = self.update_checks.get(&p.id).cloned();
                 let btn = ui.add_enabled(
                     checking.is_none(),
-                    egui::Button::new(if checking.is_some() { "检查中…" } else { "检查模板更新" }),
+                    egui::Button::new(
+                        if checking.is_some() { t!("dl.checking_short").to_string() } else { t!("eg.check_update").to_string() },
+                    ),
                 );
                 if btn.clicked() {
                     self.spawn_check_template_update(p.clone());
@@ -643,7 +658,7 @@ impl ShellApp {
                 if let Some((_, diff)) = self.pending_updates.get(&p.id).cloned() {
                     let mut detail = diff.changed_fields_detail.clone();
                     ui.label(diff.summary());
-                    if ui.button("查看变化").clicked() {
+                    if ui.button(t!("eg.view_changes")).clicked() {
                         self.notice.insert(
                             p.id.clone(),
                             if detail.is_empty() {
@@ -653,7 +668,7 @@ impl ShellApp {
                             },
                         );
                     }
-                    if ui.button("应用模板更新").clicked() {
+                    if ui.button(t!("eg.apply_update")).clicked() {
                         if let Some((remote, _)) = self.pending_updates.get(&p.id).cloned() {
                             self.apply_pending_update(p.clone(), remote);
                         }
@@ -671,7 +686,9 @@ impl ShellApp {
         ui.horizontal(|ui| {
             let download_btn = ui.add_enabled(
                 !self.busy,
-                egui::Button::new(if self.busy { "下载中…" } else { "下载 / 更新" }),
+                egui::Button::new(
+                    if self.busy { t!("dl.downloading").to_string() } else { t!("eg.download_or_update").to_string() },
+                ),
             );
             if download_btn.clicked() {
                 self.spawn_install(p.clone());
@@ -681,26 +698,26 @@ impl ShellApp {
             let values = self.values.get(&p.id).cloned().unwrap_or_default();
             let values_for_start = values;
             if self.manager.runner.is_running(&p.id) {
-                if ui.button("停止").clicked() {
+                if ui.button(t!("act.stop")).clicked() {
                     if let Err(e) = self.manager.stop(&p.id) {
                         self.notice.insert(p.id.clone(), format!("{e:#}"));
                     } else {
                         self.notice.insert(p.id.clone(), String::new());
                     }
                 }
-            } else if ui.button("启动").clicked() {
+            } else if ui.button(t!("act.start")).clicked() {
                 self.manager.save_field_values(&p, &values_for_start);
                 match self.manager.start(&p, &values_for_start) {
                     Ok(()) => {
                         self.notice.insert(p.id.clone(), String::new());
                     }
                     Err(e) => {
-                        self.notice.insert(p.id.clone(), format!("启动失败: {e:#}"));
+                        self.notice.insert(p.id.clone(), t!("toast.start_fail", err = format!("{e:#}")).to_string());
                     }
                 }
             }
 
-            if ui.button("打开日志目录").clicked() {
+            if ui.button(t!("act.open_log_dir")).clicked() {
                 let log_dir = self.manager.data_dir.join("logs");
                 let _ = std::process::Command::new(&open_cmd())
                     .arg(&log_dir)
@@ -718,15 +735,17 @@ impl ShellApp {
 
     fn show_library(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            ui.label("注册表 URL:");
+            ui.label(t!("eg.registry_url"));
             ui.add(
                 egui::TextEdit::singleline(&mut self.registry_url)
-                    .hint_text("https://…/templates/")
+                    .hint_text(t!("sources.placeholder"))
                     .desired_width(320.0),
             );
             let refresh = ui.add_enabled(
                 !self.registry_wait,
-                egui::Button::new(if self.registry_wait { "拉取中…" } else { "刷新" }),
+                egui::Button::new(
+                    if self.registry_wait { t!("lib.pull").to_string() } else { t!("act.refresh").to_string() },
+                ),
             );
             if refresh.clicked() {
                 self.spawn_load_manifest();
@@ -736,46 +755,46 @@ impl ShellApp {
         let registry_hint: String =
             self.manager.template_registries.join(", ").trim().to_string();
         if !registry_hint.is_empty() {
-            ui.weak(format!("配置的注册表: {registry_hint}"));
+            ui.weak(t!("eg.configured_registries", list = registry_hint));
         }
 
         if self.manifest_offline {
             ui.colored_label(
                 egui::Color32::from_rgb(200, 150, 50),
-                "当前为离线(缓存)状态，显示的是上次成功拉取的清单",
+                t!("eg.offline_status"),
             );
         }
 
         ui.separator();
 
         let Some(merged) = self.merged.clone() else {
-            ui.label("尚未加载清单。点击「刷新」从注册表拉取(失败时回退本地缓存)。");
+            ui.label(t!("lib.empty_remote"));
             return;
         };
 
         // 各源状态行
-        for (base, off) in &merged.sources {
+        for (base, off, _fetched) in &merged.sources {
             if *off {
                 ui.colored_label(
                     egui::Color32::from_rgb(200, 150, 50),
-                    format!("离线(缓存): {base}"),
+                    t!("eg.source_offline", base = base),
                 );
             } else {
-                ui.weak(format!("源: {base}"));
+                ui.weak(t!("eg.source_online", base = base));
             }
         }
         ui.add_space(4.0);
 
         // 搜索框
         ui.horizontal(|ui| {
-            ui.label(format!(
-                "共 {} 个模板（{} 个源，冲突 {}）",
-                merged.template_count(),
-                merged.sources.len(),
-                merged.conflicts.len()
+            ui.label(t!(
+                "eg.template_count",
+                n = merged.template_count(),
+                s = merged.sources.len(),
+                c = merged.conflicts.len()
             ));
             ui.separator();
-            ui.label("搜索:");
+            ui.label(t!("eg.search"));
             ui.add(egui::TextEdit::singleline(&mut self.search).desired_width(200.0));
         });
         ui.add_space(6.0);
@@ -799,7 +818,7 @@ impl ShellApp {
                     let import_state = self.imports.get(&id).cloned();
                     match import_state {
                         None => {
-                            if ui.button("导入").clicked() {
+                            if ui.button(t!("act.import")).clicked() {
                                 self.spawn_import_template(id.clone(), base.clone());
                             }
                         }
@@ -815,12 +834,12 @@ impl ShellApp {
                     if conflicts.len() > 1 {
                         ui.colored_label(
                             egui::Color32::from_rgb(200, 150, 50),
-                            "⚠ 多源",
+                            t!("eg.multi_source"),
                         );
-                        if ui.small_button("?来源").clicked() {
+                        if ui.small_button(t!("eg.who_sources")).clicked() {
                             self.notice.insert(
                                 "__registry__".into(),
-                                format!("「{id}」存在于: {}", conflicts.join(" ; ")),
+                                t!("eg.exists_in", id = id, list = conflicts.join(" ; ")).to_string(),
                             );
                         }
                     }
@@ -849,22 +868,39 @@ impl eframe::App for ShellApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.horizontal(|ui| {
-            ui.heading("Universal Shell");
+            ui.heading(t!("app.name"));
             ui.separator();
-            if ui.selectable_label(matches!(self.view, View::Manage), "程序管理").clicked() {
+            if ui.selectable_label(matches!(self.view, View::Manage), t!("ui.manage")).clicked() {
                 self.view = View::Manage;
             }
-            if ui.selectable_label(matches!(self.view, View::Library), "模板库").clicked() {
+            if ui.selectable_label(matches!(self.view, View::Library), t!("lib.title")).clicked() {
                 self.view = View::Library;
             }
             ui.separator();
-            if ui.button("刷新状态").clicked() {
+            if ui.button(t!("batch.refresh")).clicked() {
                 self.refresh_status();
             }
-            if ui.button("停止所有").clicked() {
+            if ui.button(t!("batch.stop_all")).clicked() {
                 self.manager.stop_all();
             }
-            ui.weak(format!("数据目录: {}", self.manager.data_dir.display()));
+            // 语言切换：auto → zh-CN → en
+            let lang_label = match self.manager.locale.as_str() {
+                "auto" => "文",
+                "zh-CN" => "中",
+                _ => "EN",
+            };
+            if ui.button(lang_label).on_hover_text(t!("ui.lang")).clicked() {
+                let next = match self.manager.locale.as_str() {
+                    "auto" => "zh-CN",
+                    "zh-CN" => "en",
+                    _ => "auto",
+                };
+                self.manager.locale = next.to_string();
+                let override_locale = if next == "auto" { None } else { Some(next) };
+                shared::locale::apply(override_locale, &system_hint());
+                let _ = self.manager.save_config(&self.config_path);
+            }
+            ui.weak(t!("eg.data_dir", path = self.manager.data_dir.display()));
         });
         ui.separator();
 
@@ -883,6 +919,11 @@ fn open_cmd() -> String {
     } else {
         "xdg-open".into()
     }
+}
+
+/// 获取系统语言提示(供 `shared::locale::apply` 使用)，失败回退 en。
+fn system_hint() -> String {
+    sys_locale::get_locale().unwrap_or_else(|| "en".to_string())
 }
 
 /// 加载系统中文字体并注入 egui fallback，避免界面中文显示为「口」。

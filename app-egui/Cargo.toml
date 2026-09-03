@@ -11,6 +11,8 @@ path = "src/main.rs"
 
 [dependencies]
 shared = { workspace = true }
+rust-i18n = "4"
+sys-locale = "0.3"
 # glow (OpenGL) 后端兼容性最好；wgpu 在无 GPU/远程环境会 Device lost 崩溃。
 # 不启 default 的 wgpu，避免误用 wgpu 渲染器。
 eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "wayland", "x11", "accesskit"] }

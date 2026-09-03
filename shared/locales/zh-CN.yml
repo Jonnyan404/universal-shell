@@ -189,6 +189,36 @@ lib.multi_source: '⚠ 多源×%{n}'
 lib.last_pull: '上次拉取 %{date}'
 lib.not_pulled: 尚未拉取
 shell_log.empty: (暂无壳操作日志)
+ui.manage: 程序管理
+eg.data_dir: '数据目录: %{path}'
+eg.no_program: '未配置任何受管程序。请以 `universal-shell-egui <shell.json>` 启动，或在「模板库」导入。'
+eg.check_update: 检查模板更新
+eg.view_changes: 查看变化
+eg.apply_update: 应用模板更新
+eg.download_or_update: 下载 / 更新
+eg.latest_ver_fmt: '最新版本: %{ver}'
+eg.registry_url: '注册表 URL:'
+eg.configured_registries: '配置的注册表: %{list}'
+eg.offline_status: 当前为离线(缓存)状态，显示的是上次成功拉取的清单
+eg.source_offline: '离线(缓存): %{base}'
+eg.source_online: '源: %{base}'
+eg.template_count: '共 %{n} 个模板（%{s} 个源，冲突 %{c}）'
+eg.search: '搜索:'
+eg.multi_source: ⚠ 多源
+eg.who_sources: ?来源
+eg.exists_in: '「%{id}」存在于: %{list}'
+eg.loaded_offline: '加载完成（%{n} 个源，含离线回退）'
+eg.loaded: '加载完成（%{n} 个源）'
+eg.import_fail: '导入失败: %{err}'
+eg.imported_snap: '已导入模板「%{id}」，快照已写入 %{path}'
+eg.not_found_instance: 找不到该程序实例
+eg.no_diff: 模板已是最新，无差异
+eg.update_found: '发现模板更新: %{summary}'
+eg.check_update_fail: '检查模板更新失败: %{err}'
+eg.updated_written: '模板已更新并写回 %{path}'
+eg.write_fail: '写回配置失败: %{err}'
+eg.autostart_fail: '设置开机启动失败: %{err}'
+eg.no_source_registry: 该程序无来源注册表，无法检查更新
 log.autostart.launch: '应用自启动：拉起「%{name}」'
 log.autostart.fail: '应用自启动：拉起「%{name}」失败 - %{err}'
 err.datadir: '无法创建数据目录 %{path}'

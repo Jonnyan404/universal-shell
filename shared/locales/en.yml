@@ -189,6 +189,36 @@ lib.multi_source: '⚠ multi-source×%{n}'
 lib.last_pull: 'Last pulled %{date}'
 lib.not_pulled: not pulled yet
 shell_log.empty: (No shell operation logs yet)
+ui.manage: Programs
+eg.data_dir: 'Data dir: %{path}'
+eg.no_program: 'No managed programs configured. Start with `universal-shell-egui <shell.json>` or import from the template library.'
+eg.check_update: Check template update
+eg.view_changes: View changes
+eg.apply_update: Apply template update
+eg.download_or_update: Download / Update
+eg.latest_ver_fmt: 'Latest version: %{ver}'
+eg.registry_url: 'Registry URL:'
+eg.configured_registries: 'Configured registries: %{list}'
+eg.offline_status: Currently in offline (cache) state, showing the last successfully pulled manifest
+eg.source_offline: 'Offline (cache): %{base}'
+eg.source_online: 'Source: %{base}'
+eg.template_count: '%{n} templates (%{s} sources, %{c} conflicts)'
+eg.search: 'Search:'
+eg.multi_source: ⚠ multi-source
+eg.who_sources: ?sources
+eg.exists_in: '"%{id}" exists in: %{list}'
+eg.loaded_offline: 'Loaded (%{n} sources, with offline fallback)'
+eg.loaded: 'Loaded (%{n} sources)'
+eg.import_fail: 'Import failed: %{err}'
+eg.imported_snap: 'Imported template "%{id}", snapshot written to %{path}'
+eg.not_found_instance: Program instance not found
+eg.no_diff: Template is up to date, no changes
+eg.update_found: 'Template update found: %{summary}'
+eg.check_update_fail: 'Failed to check template update: %{err}'
+eg.updated_written: 'Template updated and written back to %{path}'
+eg.write_fail: 'Failed to write config: %{err}'
+eg.autostart_fail: 'Failed to set autostart: %{err}'
+eg.no_source_registry: This program has no source registry; cannot check for updates
 log.autostart.launch: 'Autostart: launching "%{name}"'
 log.autostart.fail: 'Autostart: launching "%{name}" failed - %{err}'
 err.datadir: 'Cannot create data dir %{path}'
