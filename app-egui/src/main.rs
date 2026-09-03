@@ -933,18 +933,11 @@ impl ShellApp {
                     }
                 }
             }
-            // 右对齐操作按钮
+            // 右对齐图标操作按钮（匹配 Tauri actions）
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button(t!("act.open_app_dir")).on_hover_text(t!("act.open_app_dir")).clicked() {
+                if ui.button("📁").on_hover_text(t!("act.open_app_dir")).clicked() {
                     let app_dir = self.manager.app_dir(&p);
                     let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
-                }
-                if ui.button(t!("act.open_log_dir")).on_hover_text(t!("act.open_log_dir_short")).clicked() {
-                    let log_dir = self.manager.data_dir.join("logs");
-                    let _ = std::process::Command::new(&open_cmd()).arg(&log_dir).spawn();
-                }
-                if ui.button(t!("act.log")).on_hover_text(t!("act.log")).clicked() {
-                    self.show_log = true;
                 }
                 if url.is_some() {
                     if ui.button("⧉").on_hover_text(t!("act.copy_addr")).clicked() {
