@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
+use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 
 /// 清单里的单条模板索引(轻量，驱动浏览/搜索)
@@ -222,11 +223,11 @@ impl RegistryClient {
             let sig_url = format!("{}manifests.sig", self.base);
             let (_off, sig_text, _) = self.fetch_with_cache(&sig_url);
             crate::registry_sign::verify_manifest(text.as_bytes(), sig_text.trim(), pubkey)
-                .with_context(|| format!("拒绝使用签名未通过的清单: {}", self.base))?;
+                .with_context(|| t!("err.registry.sig_rejected", base = &self.base).to_string())?;
         }
-        let manifest: Manifest = serde_json::from_str(&text).context("解析清单失败")?;
+        let manifest: Manifest = serde_json::from_str(&text).context(t!("err.registry.parse_manifest"))?;
         if manifest.templates.is_empty() && offline {
-            anyhow::bail!("清单为空且处于离线(缓存)状态");
+            anyhow::bail!(t!("err.registry.empty_offline"));
         }
         Ok((offline, fetched_at, manifest))
     }
@@ -236,7 +237,7 @@ impl RegistryClient {
         let url = format!("{}templates/{id}.json", self.base);
         let (offline, text, _) = self.fetch_with_cache(&url);
         let mut program: crate::config::Program = serde_json::from_str(&text)
-            .with_context(|| format!("解析模板 {id} 失败"))?;
+            .with_context(|| t!("err.registry.parse_template", id = id).to_string())?;
         // 打上来源戳，供「导入后快照」记录 template_source/imported_at
         program.template_source = Some(format!("{}{id}", self.base));
         program.imported_at = Some(now_unix());

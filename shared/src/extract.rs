@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context};
+use rust_i18n::t;
 
 /// 从 archive 提取单个文件(或裸二进制)到 dest。
 pub fn extract_file(
@@ -22,7 +23,7 @@ pub fn extract_file(
         "tar.gz" | "tar" => extract_single_tar(archive, member, dest),
         "zip" => extract_single_zip(archive, member, dest),
         _ => {
-            std::fs::copy(archive, dest).with_context(|| "复制裸二进制失败")?;
+            std::fs::copy(archive, dest).with_context(|| t!("err.extract.copy_bin").to_string())?;
             set_exec(dest);
             Ok(())
         }
@@ -35,7 +36,7 @@ pub fn extract_whole(archive: &PathBuf, format: &str, dest_dir: &PathBuf) -> any
     match format {
         "tar.gz" | "tar" => extract_whole_tar(archive, dest_dir),
         "zip" => extract_whole_zip(archive, dest_dir),
-        _ => anyhow::bail!("format {} 不支持整包解压", format),
+        _ => anyhow::bail!(t!("err.extract.whole_unsupported", format = format)),
     }
 }
 
@@ -57,12 +58,12 @@ pub fn list_entries(dir: &PathBuf) -> Vec<PathBuf> {
 }
 
 fn extract_single_tar(archive: &PathBuf, want_member: Option<&str>, dest: &PathBuf) -> anyhow::Result<()> {
-    let f = std::fs::File::open(archive).context("打开 tar.gz 失败")?;
+    let f = std::fs::File::open(archive).context(t!("err.extract.open_tar"))?;
     let gz = flate2::read::GzDecoder::new(f);
     let mut tar = tar::Archive::new(gz);
     let mut found: Option<tar::Entry<'_, _>> = None;
-    for entry in tar.entries().context("读取 tar 失败")? {
-        let entry = entry.context("tar 条目失败")?;
+    for entry in tar.entries().context(t!("err.extract.read_tar"))? {
+        let entry = entry.context(t!("err.extract.tar_entry"))?;
         let path = entry
             .path()
             .ok()
@@ -83,28 +84,28 @@ fn extract_single_tar(archive: &PathBuf, want_member: Option<&str>, dest: &PathB
             break;
         }
     }
-    let mut entry = found.ok_or_else(|| anyhow!("tar.gz 中未找到目标成员"))?;
+    let mut entry = found.ok_or_else(|| anyhow!(t!("err.extract.no_tar_member")))?;
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let mut out = std::fs::File::create(dest)
-        .with_context(|| format!("无法创建 {}", dest.display()))?;
-    std::io::copy(&mut entry, &mut out).context("解压失败")?;
+        .with_context(|| t!("err.extract.create_dest", path = dest.display()).to_string())?;
+    std::io::copy(&mut entry, &mut out).context(t!("err.extract.extract"))?;
     drop(out);
     set_exec(dest);
     Ok(())
 }
 
 fn extract_single_zip(archive: &PathBuf, want_member: Option<&str>, dest: &PathBuf) -> anyhow::Result<()> {
-    let f = std::fs::File::open(archive).context("打开 zip 失败")?;
-    let mut z = zip::ZipArchive::new(f).context("解析 zip 失败")?;
+    let f = std::fs::File::open(archive).context(t!("err.extract.open_zip"))?;
+    let mut z = zip::ZipArchive::new(f).context(t!("err.extract.parse_zip"))?;
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let target_name = resolve_zip_name(&mut z, want_member)?;
-    let mut entry = z.by_name(&target_name).context("读取 zip 成员失败")?;
-    let mut out = std::fs::File::create(dest).with_context(|| format!("无法创建 {}", dest.display()))?;
-    std::io::copy(&mut entry, &mut out).context("解压失败")?;
+    let mut entry = z.by_name(&target_name).context(t!("err.extract.read_zip"))?;
+    let mut out = std::fs::File::create(dest).with_context(|| t!("err.extract.create_dest", path = dest.display()).to_string())?;
+    std::io::copy(&mut entry, &mut out).context(t!("err.extract.extract"))?;
     drop(out);
     set_exec(dest);
     Ok(())
@@ -120,7 +121,7 @@ fn resolve_zip_name(z: &mut zip::ZipArchive<std::fs::File>, want_member: Option<
                     return Ok(name.to_string());
                 }
             }
-            Err(anyhow!("zip 中未找到目标成员 {m}"))
+            Err(anyhow!(t!("err.extract.no_zip_member", m = m)))
         }
         None => {
             for i in 0..z.len() {
@@ -129,18 +130,18 @@ fn resolve_zip_name(z: &mut zip::ZipArchive<std::fs::File>, want_member: Option<
                     return Ok(f.name().to_string());
                 }
             }
-            Err(anyhow!("zip 中没有非目录成员"))
+            Err(anyhow!(t!("err.extract.no_zip_file")))
         }
     }
 }
 
 fn extract_whole_tar(archive: &PathBuf, dest_dir: &PathBuf) -> anyhow::Result<()> {
-    let f = std::fs::File::open(archive).context("打开 tar.gz 失败")?;
+    let f = std::fs::File::open(archive).context(t!("err.extract.open_tar"))?;
     let gz = flate2::read::GzDecoder::new(f);
     let mut tar = tar::Archive::new(gz);
     // 逐条解出，防御性去掉 ".."
-    for entry in tar.entries().context("读取 tar 失败")? {
-        let mut entry = entry.context("tar 条目失败")?;
+    for entry in tar.entries().context(t!("err.extract.read_tar"))? {
+        let mut entry = entry.context(t!("err.extract.tar_entry"))?;
         // 安全规范路径
         let rel = entry
             .path()
@@ -155,7 +156,7 @@ fn extract_whole_tar(archive: &PathBuf, dest_dir: &PathBuf) -> anyhow::Result<()
             if let Some(parent) = out_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            entry.unpack(&out_path).context("写入条目失败")?;
+            entry.unpack(&out_path).context(t!("err.extract.write_entry"))?;
             set_exec(&out_path);
         }
     }
@@ -163,8 +164,8 @@ fn extract_whole_tar(archive: &PathBuf, dest_dir: &PathBuf) -> anyhow::Result<()
 }
 
 fn extract_whole_zip(archive: &PathBuf, dest_dir: &PathBuf) -> anyhow::Result<()> {
-    let f = std::fs::File::open(archive).context("打开 zip 失败")?;
-    let mut z = zip::ZipArchive::new(f).context("解析 zip 失败")?;
+    let f = std::fs::File::open(archive).context(t!("err.extract.open_zip"))?;
+    let mut z = zip::ZipArchive::new(f).context(t!("err.extract.parse_zip"))?;
     for i in 0..z.len() {
         let mut entry = z.by_index(i)?;
         let rel = entry.name().to_string();
@@ -177,7 +178,7 @@ fn extract_whole_zip(archive: &PathBuf, dest_dir: &PathBuf) -> anyhow::Result<()
             std::fs::create_dir_all(parent)?;
         }
         let mut out = std::fs::File::create(&out_path)?;
-        std::io::copy(&mut entry, &mut out).context("写入条目失败")?;
+        std::io::copy(&mut entry, &mut out).context(t!("err.extract.write_entry"))?;
         set_exec(&out_path);
     }
     Ok(())
@@ -192,7 +193,7 @@ fn safe_rel(rel: &str) -> anyhow::Result<PathBuf> {
         out.push(comp);
     }
     if out.as_os_str().is_empty() {
-        anyhow::bail!("非法路径: {rel}");
+        anyhow::bail!(t!("err.extract.illegal_path", rel = rel));
     }
     Ok(out)
 }

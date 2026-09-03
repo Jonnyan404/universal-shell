@@ -4,18 +4,19 @@ use std::io::Read;
 use std::path::Path;
 
 use anyhow::{anyhow, bail, Context};
+use rust_i18n::t;
 use sha2::{Digest, Sha256};
 
 /// 计算文件 sha256，返回小写 hex
 pub fn sha256_hex(path: &Path) -> anyhow::Result<String> {
     let mut f = std::fs::File::open(path)
-        .with_context(|| format!("无法打开 {} 计算 sha256", path.display()))?;
+        .with_context(|| t!("err.checksum.open", path = path.display()).to_string())?;
     let mut hasher = Sha256::new();
     let mut buf = [0u8; 64 * 1024];
     loop {
         let n = f
             .read(&mut buf)
-            .with_context(|| format!("读取 {} 失败", path.display()))?;
+            .with_context(|| t!("err.checksum.read", path = path.display()).to_string())?;
         if n == 0 {
             break;
         }
@@ -36,7 +37,7 @@ fn normalize_expected(s: &str) -> anyhow::Result<String> {
         None => s.strip_prefix("SHA256:").unwrap_or(s),
     };
     if hex.len() != 64 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        bail!("非法 sha256 期望值: {s}");
+        bail!(t!("err.checksum.invalid_sha", s = s));
     }
     Ok(hex.to_ascii_lowercase())
 }
@@ -47,10 +48,12 @@ pub fn verify_download(path: &Path, expected: &str) -> anyhow::Result<()> {
     let want = normalize_expected(expected)?;
     let got = sha256_hex(path)?;
     if got != want {
-        return Err(anyhow!(
-            "sha256 校验失败 {}：期望 {want}，实际 {got}",
-            path.display()
-        ));
+        return Err(anyhow!(t!(
+            "err.checksum.mismatch",
+            path = path.display(),
+            want = want,
+            got = got
+        )));
     }
     Ok(())
 }
@@ -85,7 +88,7 @@ mod tests {
         // 把正确摘要首字符改掉，必须被拒
         let bad = format!("3cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
         let err = verify_download(&p, &bad).unwrap_err();
-        assert!(err.to_string().contains("sha256 校验失败"));
+        assert!(err.to_string().contains("sha256"));
         let _ = std::fs::remove_file(&p);
     }
 

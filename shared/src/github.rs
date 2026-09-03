@@ -1,6 +1,7 @@
 //! GitHub API 交互：查询最新版本、下载资产。
 
 use anyhow::{anyhow, Context};
+use rust_i18n::t;
 use std::path::PathBuf;
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
@@ -114,15 +115,15 @@ impl GitHub {
         if let Some(token) = &self.token {
             req = req.header("Authorization", format!("Bearer {token}"));
         }
-        let resp = req.send().context("请求 GitHub API 失败")?;
+        let resp = req.send().context(t!("err.github.request"))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().unwrap_or_default();
-            return Err(anyhow!("GitHub API 返回 {status}: {body}"));
+            return Err(anyhow!(t!("err.github.api_status", status = status, body = body)));
         }
         let rel = resp
             .json::<LatestRelease>()
-            .context("解析 GitHub API 响应失败")?;
+            .context(t!("err.github.parse"))?;
         // 3. 写入全局缓存
         if let Ok(mut c) = global_cache().lock() {
             c.insert(repo.to_string(), (Instant::now(), rel.clone()));
@@ -140,7 +141,7 @@ impl GitHub {
             .assets
             .iter()
             .find(|a| a.name == want_filename)
-            .ok_or_else(|| anyhow!("发行版中未找到资产 {want_filename}"))?;
+            .ok_or_else(|| anyhow!(t!("err.github.no_asset", name = want_filename)))?;
         let raw = asset.browser_download_url.clone();
         if let Some(p) = &self.proxy_prefix {
             if !p.is_empty() {
@@ -157,15 +158,15 @@ impl GitHub {
             .get(url)
             .header("User-Agent", "universal-shell")
             .send()
-            .context("下载失败")?;
+            .context(t!("err.github.download"))?;
         if !resp.status().is_success() {
-            return Err(anyhow!("下载返回 {}", resp.status()));
+            return Err(anyhow!(t!("err.github.download_status", status = resp.status())));
         }
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let mut file = std::fs::File::create(dest)
-            .with_context(|| format!("无法创建 {}", dest.display()))?;
+            .with_context(|| t!("err.github.create_dest", path = dest.display()).to_string())?;
         std::io::copy(&mut resp, &mut file)?;
         Ok(())
     }
@@ -195,10 +196,13 @@ impl GitHub {
         }
         let have: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
         anyhow::bail!(
-            "发行版中未找到匹配资产；期待候选 {:?}，实际有 {} 个资产(含 {:?})",
-            candidates,
-            have.len(),
-            have.iter().take(5).copied().collect::<Vec<_>>()
+            "{}",
+            t!(
+                "err.github.no_match",
+                candidates = format!("{:?}", candidates),
+                count = have.len(),
+                list = format!("{:?}", have.iter().take(5).copied().collect::<Vec<_>>())
+            )
         )
     }
 
@@ -212,7 +216,7 @@ impl GitHub {
         let release = self.latest(&program.repo)?;
         let (rule, candidates) = program
             .candidate_names(arch, version)
-            .ok_or_else(|| anyhow!("当前系统 {} 无对应资产规则", std::env::consts::OS))?;
+            .ok_or_else(|| anyhow!(t!("err.github.no_rule", os = std::env::consts::OS)))?;
         let (name, url, digest) = self.match_candidate(&release, &candidates)?;
         Ok((rule, name, url, digest))
     }

@@ -31,3 +31,64 @@ err.program_not_found: 'Program not found: %{id}'
 diff.add_field: 'Added field %{key} "%{label}" (default: %{def})'
 diff.field_changed: 'Field %{key} type/default changed "%{label}"'
 diff.remove_field: 'Removed field %{key} "%{label}"'
+err.checksum.open: 'Cannot open %{path} to compute sha256'
+err.checksum.read: 'Failed to read %{path}'
+err.checksum.invalid_sha: 'Invalid sha256 expected value: %{s}'
+err.checksum.mismatch: 'sha256 verification failed for %{path}: expected %{want}, got %{got}'
+err.runner.already: '%{id} is already running'
+err.runner.launch: 'Cannot start %{path}'
+err.runner.not_running: '%{id} is not running'
+err.runner.wait: Failed to wait for child process to exit
+log.runner.started: 'Started %{id} (pid=%{pid})'
+log.runner.nonzero: '%{id} nonzero exit code: %{code}'
+err.registry.sig_rejected: 'Refusing unsigned-invalid manifest: %{base}'
+err.registry.parse_manifest: Failed to parse manifest
+err.registry.empty_offline: Manifest is empty and in offline (cache) state
+err.registry.parse_template: 'Failed to parse template %{id}'
+err.sign.pubkey: Invalid public key format (should be 32-byte hex)
+err.sign.mismatch: 'Manifest signature verification failed: content or signature mismatches public key'
+err.sign.bad_len: 'Expected %{n} bytes, got %{len}'
+err.sign.bad_seed: seed should be 32 bytes (64 hex)
+err.sign.hex_even: hex length must be even
+err.sign.bad_hex: 'Invalid hex: %{s}'
+err.extract.copy_bin: Failed to copy raw binary
+err.extract.whole_unsupported: 'format %{format} does not support whole-package extraction'
+err.extract.open_tar: Failed to open tar.gz
+err.extract.read_tar: Failed to read tar
+err.extract.tar_entry: Failed to read tar entry
+err.extract.no_tar_member: Target member not found in tar.gz
+err.extract.create_dest: 'Cannot create %{path}'
+err.extract.extract: Extraction failed
+err.extract.open_zip: Failed to open zip
+err.extract.parse_zip: Failed to parse zip
+err.extract.read_zip: Failed to read zip member
+err.extract.no_zip_member: 'Target member %{m} not found in zip'
+err.extract.no_zip_file: Zip contains no non-directory members
+err.extract.write_entry: Failed to write entry
+err.extract.illegal_path: 'Illegal path: %{rel}'
+err.autostart.build: 'auto-launch build failed: %{e}'
+err.autostart.set: 'Failed to set autostart %{enabled}: %{e}'
+err.autostart.locate: 'Cannot locate shell path: %{e}'
+err.github.request: GitHub API request failed
+err.github.api_status: 'GitHub API returned %{status}: %{body}'
+err.github.parse: Failed to parse GitHub API response
+err.github.no_asset: 'Asset %{name} not found in release'
+err.github.download: Download failed
+err.github.download_status: 'Download returned %{status}'
+err.github.create_dest: 'Cannot create %{path}'
+err.github.no_match: 'No matching asset in release; expected candidates %{candidates}, actual %{count} assets (incl. %{list})'
+err.github.no_rule: 'No asset rule for current OS %{os}'
+log.config.load: 'Loading config %{path}'
+log.config.loaded: 'Loaded %{count} managed programs'
+log.config.saved: 'Config saved to %{path}'
+log.op_write_fail: 'Failed to write operation log: %{path}'
+log.version_latest: '%{id} latest version %{version}'
+log.version_skip: '%{id} is up to date, skipping download'
+log.downloading: 'Downloading %{url} to %{path}'
+log.download_done: 'Download complete, %{bytes} bytes'
+log.checksum_ok: '%{id} asset sha256 verification passed'
+log.stale_killed: 'Killed stale background process %{id}'
+log.autostart.launched: 'Autostart launched %{name}'
+log.autostart.launch_failed: 'Autostart launch %{name} failed: %{err}'
+log.stop_failed: 'Failed to stop "%{id}": %{err}'
+log.runner.stopped: 'Stopped %{id}'

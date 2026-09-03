@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, Context};
 use log::info;
+use rust_i18n::t;
 
 /// 把一路字节流逐行写入共享日志。`is_stderr` 时行首加 \x1F 标记(供前端着色)。
 fn copy_stream_lines<R: std::io::BufRead>(
@@ -174,7 +175,7 @@ impl Runner {
         log_dir: &PathBuf,
     ) -> anyhow::Result<()> {
         if self.is_running(id) {
-            return Err(anyhow!("{id} 已在运行"));
+            return Err(anyhow!(t!("err.runner.already", id = id)));
         }
 
         std::fs::create_dir_all(log_dir)?;
@@ -190,8 +191,8 @@ impl Runner {
 
         let mut child = cmd
             .spawn()
-            .with_context(|| format!("无法启动 {}", bin_path.display()))?;
-        info!("已启动 {id} (pid={})", child.id());
+            .with_context(|| t!("err.runner.launch", path = bin_path.display()).to_string())?;
+        info!("{}", t!("log.runner.started", id = id, pid = child.id()));
 
         // 后台线程把 stdout/stderr 两路写到同一文件；stderr 行加前缀
         let out = child.stdout.take();
@@ -218,16 +219,16 @@ impl Runner {
     /// 停止指定程序。等待几秒优雅退出，超时强杀。
     pub fn stop(&mut self, id: &str) -> anyhow::Result<()> {
         if !self.is_running(id) {
-            return Err(anyhow!("{id} 未在运行"));
+            return Err(anyhow!(t!("err.runner.not_running", id = id)));
         }
         let mut child = self.children.remove(id).unwrap();
         // 先试 SIGTERM
         child.kill().ok(); // kill() on std Child == SIGKILL on unix
-        let wait = child.wait().context("等待子进程退出失败")?;
+        let wait = child.wait().context(t!("err.runner.wait"))?;
         if !wait.success() {
-            info!("{id} 非零退出码: {:?}", wait.code());
+            info!("{}", t!("log.runner.nonzero", id = id, code = format!("{:?}", wait.code())));
         }
-        info!("已停止 {id}");
+        info!("{}", t!("log.runner.stopped", id = id));
         Ok(())
     }
 

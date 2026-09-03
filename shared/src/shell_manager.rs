@@ -126,7 +126,7 @@ impl ShellManager {
 
     /// 加载配置文件(JSON)。支持 `--config` 路径，默认从数据目录读 shell.json
     pub fn load_config(&mut self, path: &Path) -> anyhow::Result<()> {
-        info!("加载配置 {}", path.display());
+        info!("{}", t!("log.config.load", path = path.display()));
         let cfg = ShellConfig::load(&path.to_path_buf())?;
         self.programs = cfg.programs;
         // 未显式配置注册表时使用内置 GitHub 源（附 demo 公钥签名校验）
@@ -150,7 +150,7 @@ impl ShellManager {
         );
         self.proxy = cfg.proxy;
         self.locale = if cfg.locale.is_empty() { "auto".to_string() } else { cfg.locale };
-        info!("已加载 {} 个受管程序", self.programs.len());
+        info!("{}", t!("log.config.loaded", count = self.programs.len()));
         Ok(())
     }
 
@@ -169,7 +169,7 @@ impl ShellManager {
         }
         std::fs::write(path, json)
             .with_context(|| t!("err.write_config", path = path.display().to_string()))?;
-        info!("已保存配置 {}", path.display());
+        info!("{}", t!("log.config.saved", path = path.display()));
         Ok(())
     }
 
@@ -210,7 +210,7 @@ impl ShellManager {
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
             let _ = f.write_all(line.as_bytes());
         } else {
-            log::warn!("写入壳操作日志失败: {}", path.display());
+            log::warn!("{}", t!("log.op_write_fail", path = path.display()));
         }
     }
 
@@ -259,13 +259,13 @@ impl ShellManager {
         // 1. 查最新版本
         let release: LatestRelease = self.github.latest(&program.repo)?;
         let version = release.tag_name.trim_start_matches('v').to_string();
-        info!("{} 最新版本 {version}", program.id);
+        info!("{}", t!("log.version_latest", id = &program.id, version = &version));
 
         // 1b. 已安装且本地版本不低于最新版时，跳过重复下载
         if !crate::version::is_newer(&version, &self.local_version(program))
             && self.bin_path(program).exists()
         {
-            info!("{} 已是最新版本，跳过下载", program.id);
+            info!("{}", t!("log.version_skip", id = &program.id));
             return Ok((version.clone(), version));
         }
 
@@ -275,9 +275,9 @@ impl ShellManager {
 
         // 3. 下载到临时文件
         let dl_path = self.data_dir.join(format!(".dl-{}", &asset_name));
-        info!("下载 {} 到 {}", url, dl_path.display());
+        info!("{}", t!("log.downloading", url = url, path = dl_path.display()));
         self.github.download_to(&url, &dl_path)?;
-        info!("下载完成 {} bytes", std::fs::metadata(&dl_path).map(|m| m.len()).unwrap_or(0));
+        info!("{}", t!("log.download_done", bytes = std::fs::metadata(&dl_path).map(|m| m.len()).unwrap_or(0)));
 
         // 3b. sha256 校验：优先用 GitHub API 下发的 digest；模板显式 check_sha256 钉住时以它为准
         let expect = match (&program.check_sha256, &api_digest) {
@@ -293,7 +293,7 @@ impl ShellManager {
                     path = dl_path.display().to_string()
                 )));
             }
-            info!("{} 资产 sha256 校验通过", program.id);
+            info!("{}", t!("log.checksum_ok", id = &program.id));
         }
 
         // 4. 若为 whole 模式则整包解到 <id> 目录，再令 bin 指向其中 member
@@ -475,7 +475,7 @@ impl ShellManager {
                     .map(|p| self.bin_path(p));
                 if let Some(bin) = bin {
                     if self.runner.kill_orphan_by_path(&bin) {
-                        log::info!("已停止后台残留进程 {id}");
+                        log::info!("{}", t!("log.stale_killed", id = id));
                         return Ok(());
                     }
                 }
@@ -557,11 +557,11 @@ impl ShellManager {
             }
             match self.start(p, &values) {
                 Ok(()) => {
-                    log::info!("开机自启已拉起 {}", p.name);
+                    log::info!("{}", t!("log.autostart.launched", name = &p.name));
                     self.log_op(&t!("log.autostart.launch", name = &p.name));
                 }
                 Err(e) => {
-                    log::warn!("开机自启拉起 {} 失败: {}", p.name, e);
+                    log::warn!("{}", t!("log.autostart.launch_failed", name = &p.name, err = e));
                     self.log_op(&t!("log.autostart.fail", name = &p.name, err = e.to_string()));
                 }
             }
@@ -681,7 +681,7 @@ impl ShellManager {
         };
         let p = self.programs.remove(idx);
         if let Err(e) = self.runner.stop(&id) {
-            log::warn!("停止「{id}」失败: {e:#}");
+            log::warn!("{}", t!("log.stop_failed", id = id, err = format!("{e:#}")));
         }
         // 清理磁盘数据
         for f in [id.to_string() + ".version", id.to_string() + ".values.json"] {

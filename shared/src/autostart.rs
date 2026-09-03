@@ -6,6 +6,7 @@
 
 use anyhow::anyhow;
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
+use rust_i18n::t;
 
 pub struct AutoStart {
     apps: std::collections::BTreeMap<String, AutoLaunch>,
@@ -49,14 +50,14 @@ let app_path = path.to_string_lossy().into_owned();
         }
         let app = builder
             .build()
-            .map_err(|e| anyhow!("auto-launch 构建失败: {e}"))?;
+            .map_err(|e| anyhow!(t!("err.autostart.build", e = e)))?;
         let res = if enabled {
             app.enable()
         } else {
             app.disable()
         };
         if let Err(e) = res {
-            return Err(anyhow!("设置开机启动 {enabled} 失败: {e}"));
+            return Err(anyhow!(t!("err.autostart.set", enabled = enabled, e = e)));
         }
         self.apps.insert(id.to_string(), app);
         Ok(())
@@ -72,7 +73,7 @@ let app_path = path.to_string_lossy().into_owned();
 
     /// 注册/解除「壳自身」的开机启动。方案 B：由壳开机自启后再拉起程序。
     pub fn set_shell_enabled(&mut self, enabled: bool) -> anyhow::Result<()> {
-        let exe = std::env::current_exe().map_err(|e| anyhow!("无法定位壳路径: {e}"))?;
+        let exe = std::env::current_exe().map_err(|e| anyhow!(t!("err.autostart.locate", e = e)))?;
         self.set_enabled("universal-shell", &exe, enabled)
     }
 

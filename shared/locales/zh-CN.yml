@@ -31,3 +31,64 @@ err.program_not_found: '程序不存在: %{id}'
 diff.add_field: '新增字段 %{key}「%{label}」(默认: %{def})'
 diff.field_changed: '字段 %{key} 类型/默认值变化「%{label}」'
 diff.remove_field: '移除字段 %{key}「%{label}」'
+err.checksum.open: '无法打开 %{path} 计算 sha256'
+err.checksum.read: '读取 %{path} 失败'
+err.checksum.invalid_sha: '非法 sha256 期望值: %{s}'
+err.checksum.mismatch: 'sha256 校验失败 %{path}：期望 %{want}，实际 %{got}'
+err.runner.already: '%{id} 已在运行'
+err.runner.launch: '无法启动 %{path}'
+err.runner.not_running: '%{id} 未在运行'
+err.runner.wait: 等待子进程退出失败
+log.runner.started: '已启动 %{id} (pid=%{pid})'
+log.runner.nonzero: '%{id} 非零退出码: %{code}'
+err.registry.sig_rejected: '拒绝使用签名未通过的清单: %{base}'
+err.registry.parse_manifest: 解析清单失败
+err.registry.empty_offline: 清单为空且处于离线(缓存)状态
+err.registry.parse_template: '解析模板 %{id} 失败'
+err.sign.pubkey: 公钥格式非法（应为 32 字节 hex）
+err.sign.mismatch: 清单签名校验失败：内容或签名与公钥不匹配
+err.sign.bad_len: '期望 %{n} 字节，实际 %{len}'
+err.sign.bad_seed: seed 应为 32 字节（64 hex）
+err.sign.hex_even: hex 长度必须是偶数
+err.sign.bad_hex: '非法 hex: %{s}'
+err.extract.copy_bin: 复制裸二进制失败
+err.extract.whole_unsupported: 'format %{format} 不支持整包解压'
+err.extract.open_tar: 打开 tar.gz 失败
+err.extract.read_tar: 读取 tar 失败
+err.extract.tar_entry: tar 条目失败
+err.extract.no_tar_member: tar.gz 中未找到目标成员
+err.extract.create_dest: '无法创建 %{path}'
+err.extract.extract: 解压失败
+err.extract.open_zip: 打开 zip 失败
+err.extract.parse_zip: 解析 zip 失败
+err.extract.read_zip: 读取 zip 成员失败
+err.extract.no_zip_member: 'zip 中未找到目标成员 %{m}'
+err.extract.no_zip_file: zip 中没有非目录成员
+err.extract.write_entry: 写入条目失败
+err.extract.illegal_path: '非法路径: %{rel}'
+err.autostart.build: 'auto-launch 构建失败: %{e}'
+err.autostart.set: '设置开机启动 %{enabled} 失败: %{e}'
+err.autostart.locate: '无法定位壳路径: %{e}'
+err.github.request: 请求 GitHub API 失败
+err.github.api_status: 'GitHub API 返回 %{status}: %{body}'
+err.github.parse: 解析 GitHub API 响应失败
+err.github.no_asset: '发行版中未找到资产 %{name}'
+err.github.download: 下载失败
+err.github.download_status: '下载返回 %{status}'
+err.github.create_dest: '无法创建 %{path}'
+err.github.no_match: '发行版中未找到匹配资产；期待候选 %{candidates}，实际有 %{count} 个资产(含 %{list})'
+err.github.no_rule: '当前系统 %{os} 无对应资产规则'
+log.config.load: '加载配置 %{path}'
+log.config.loaded: '已加载 %{count} 个受管程序'
+log.config.saved: '已保存配置 %{path}'
+log.op_write_fail: '写入壳操作日志失败: %{path}'
+log.version_latest: '%{id} 最新版本 %{version}'
+log.version_skip: '%{id} 已是最新版本，跳过下载'
+log.downloading: '下载 %{url} 到 %{path}'
+log.download_done: '下载完成 %{bytes} bytes'
+log.checksum_ok: '%{id} 资产 sha256 校验通过'
+log.stale_killed: '已停止后台残留进程 %{id}'
+log.autostart.launched: '开机自启已拉起 %{name}'
+log.autostart.launch_failed: '开机自启拉起 %{name} 失败: %{err}'
+log.stop_failed: '停止「%{id}」失败: %{err}'
+log.runner.stopped: '已停止 %{id}'

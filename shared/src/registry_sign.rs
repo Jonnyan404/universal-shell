@@ -4,6 +4,7 @@
 //! 客户端在配置里带该注册表公钥时，拉取清单后先验签再使用。
 
 use anyhow::{anyhow, bail, Context};
+use rust_i18n::t;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
 pub fn pubkey_to_hex(pk: &VerifyingKey) -> String {
@@ -12,15 +13,15 @@ pub fn pubkey_to_hex(pk: &VerifyingKey) -> String {
 
 pub fn verify_manifest(manifest_bytes: &[u8], sig_hex: &str, pubkey_hex: &str) -> anyhow::Result<()> {
     let pk = VerifyingKey::from_bytes(&to_array::<32>(&dehex(pubkey_hex)?)?)
-        .context("公钥格式非法（应为 32 字节 hex）")?;
+        .context(t!("err.sign.pubkey"))?;
     let sig_bytes = to_array::<64>(&dehex(sig_hex)?)?;
     pk.verify_strict(manifest_bytes, &Signature::from_bytes(&sig_bytes))
-        .map_err(|_| anyhow!("清单签名校验失败：内容或签名与公钥不匹配"))
+        .map_err(|_| anyhow!(t!("err.sign.mismatch")))
 }
 
 fn to_array<const N: usize>(v: &[u8]) -> anyhow::Result<[u8; N]> {
     v.try_into()
-        .map_err(|_| anyhow!("期望 {N} 字节，实际 {}", v.len()))
+        .map_err(|_| anyhow!(t!("err.sign.bad_len", n = N, len = v.len())))
 }
 
 pub fn sign_manifest(manifest_bytes: &[u8], signing_key: &SigningKey) -> String {
@@ -32,7 +33,7 @@ pub fn sign_manifest(manifest_bytes: &[u8], signing_key: &SigningKey) -> String 
 pub fn signing_key_from_seed_hex(seed_hex: &str) -> anyhow::Result<SigningKey> {
     let seed: [u8; 32] = dehex(seed_hex)?
         .try_into()
-        .map_err(|_| anyhow!("seed 应为 32 字节（64 hex）"))?;
+        .map_err(|_| anyhow!(t!("err.sign.bad_seed")))?;
     Ok(SigningKey::from_bytes(&seed))
 }
 
@@ -47,12 +48,12 @@ pub fn dehex(s: &str) -> anyhow::Result<Vec<u8>> {
     }
     let s = s.trim();
     if s.len() % 2 != 0 {
-        bail!("hex 长度必须是偶数");
+        bail!(t!("err.sign.hex_even"));
     }
     s.as_bytes()
         .chunks(2)
-        .map(|w| Ok((val(w[0]).ok_or_else(|| anyhow!("非法 hex: {s}"))? << 4)
-            | val(w[1]).ok_or_else(|| anyhow!("非法 hex: {s}"))?))
+        .map(|w| Ok((val(w[0]).ok_or_else(|| anyhow!(t!("err.sign.bad_hex", s = s)))? << 4)
+            | val(w[1]).ok_or_else(|| anyhow!(t!("err.sign.bad_hex", s = s)))?))
         .collect()
 }
 
