@@ -798,7 +798,7 @@ impl ShellApp {
     fn show_sidebar(&mut self, ui: &mut egui::Ui) {
         // 顶部按钮行：主题 / 语言 / 设置
         ui.horizontal(|ui| {
-            let theme_label = if self.dark_mode { "☀" } else { "☾" };
+            let theme_label = if self.dark_mode { "☀" } else { "◑" };
             let theme_hint = if self.dark_mode { t!("ui.theme.light") } else { t!("ui.theme.dark") };
             if ui.small_button(theme_label).on_hover_text(theme_hint).clicked() {
                 self.dark_mode = !self.dark_mode;
@@ -1203,7 +1203,7 @@ impl ShellApp {
                 self.log_op(&t!("op.restart", name = &p.name));
             }
             ui.separator();
-            if ui.button("📂").on_hover_text(t!("act.open_app_dir")).clicked() {
+            if ui.button("🗁").on_hover_text(t!("act.open_app_dir")).clicked() {
                 let app_dir = self.manager.app_dir(&p);
                 let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
             }
@@ -2140,7 +2140,7 @@ impl ShellApp {
                     if ui.small_button("↻").on_hover_text(t!("act.refresh")).clicked() {
                         ctx.request_repaint();
                     }
-                    if ui.small_button("📂").on_hover_text(t!("act.open_log_dir")).clicked() {
+                    if ui.small_button("🗁").on_hover_text(t!("act.open_log_dir")).clicked() {
                         let d = self.manager.data_dir.join("logs");
                         let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
                     }
