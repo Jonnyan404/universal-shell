@@ -690,8 +690,20 @@ impl ShellApp {
                     self.shell_update_checking = false;
                     match result {
                         Ok(Some(u)) => {
-                            self.shell_update = Some(u);
-                            self.show_shell_update = true;
+                            self.shell_update = Some(u.clone());
+                            if manual {
+                                self.show_shell_update = true;
+                            } else {
+                                // 启动自动检查：只 toast 通知，不强制弹窗（下载入口留在设置页）
+                                self.show_toast(
+                                    t!(
+                                        "upd.available",
+                                        latest = u.latest_tag,
+                                        current = u.current
+                                    )
+                                    .to_string(),
+                                );
+                            }
                         }
                         Ok(None) => {
                             if manual {
@@ -989,8 +1001,9 @@ impl ShellApp {
             if ui.small_button("⚙").on_hover_text(t!("ui.settings")).clicked() {
                 self.show_settings = true;
             }
+            // 内嵌字体无 ⎇ 字形会显示口，改用 ASCII "GH"
             if ui
-                .small_button("⎇")
+                .small_button("GH")
                 .on_hover_text(t!("ui.github"))
                 .clicked()
             {
@@ -1212,6 +1225,13 @@ impl ShellApp {
                         .clicked()
                     {
                         self.spawn_check_shell_update(true);
+                    }
+                    // 已检出新版时在此直接给下载入口（自动检查只 toast，不弹窗）
+                    if let Some(u) = self.shell_update.clone() {
+                        ui.hyperlink_to(
+                            format!("{} {}", t!("upd.goto_download"), u.latest_tag),
+                            &u.release_url,
+                        );
                     }
                 });
                 ui.add_space(6.0);
