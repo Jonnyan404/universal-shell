@@ -207,7 +207,12 @@ impl ShellManager {
         self.data_dir.join("shell.log")
     }
 
+    /// 壳操作日志容量上限（字节）。超过后 `log_op` 自动截末一半，
+    /// 审计链在容量内完好、不让文件无限增长占用磁盘。
+    const OP_LOG_MAX: u64 = 512 * 1024;
+
     /// 追加一条壳操作日志。带本地时间戳；落盘失败仅记录，不影响功能。
+    /// 追加后若超过 `OP_LOG_MAX`，保留末尾一半（丢最旧会话），就地截写。
     pub fn log_op(&self, msg: &str) {
         let stamp = || {
             use time::format_description::well_known::Rfc3339;
@@ -221,6 +226,21 @@ impl ShellManager {
             let _ = f.write_all(line.as_bytes());
         } else {
             log::warn!("{}", t!("log.op_write_fail", path = path.display()));
+            return;
+        }
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.len() > Self::OP_LOG_MAX {
+                // 超阈值 → 保留末尾一半的完整行，丢弃最旧的会话
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    let half = text.len().saturating_sub((Self::OP_LOG_MAX / 2) as usize);
+                    let start = text[half..].find('\n').map(|i| half + i + 1).unwrap_or(0);
+                    let keep = if start == 0 { text } else { text[start..].to_string() };
+                    let _ = std::fs::write(&path, keep);
+                } else if let Err(e) = std::fs::remove_file(&path) {
+                    log::warn!("{}", t!("log.op_write_fail", path = path.display()));
+                    log::warn!("failed to trim oversized shell log: {e:#}");
+                }
+            }
         }
     }
 
@@ -884,5 +904,37 @@ mod tests {
             mgr.registry_pubkeys.get(DEFAULT_REGISTRY).map(|s| s.as_str()),
             Some(DEFAULT_REGISTRY_PUBKEY)
         );
+    }
+
+    /// 追加足够多条日志越过容量上限后，文件被截末一半，体积不再无限增长。
+    #[test]
+    fn shell_log_is_trimmed_when_over_capacity() {
+        let dir = std::env::temp_dir().join("cc-shell-log-trim");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mgr = ShellManager::new(dir.clone()).unwrap();
+        let meta = || std::fs::metadata(mgr.op_log_path()).map(|m| m.len()).unwrap_or(0);
+
+        // 一条 msg 驱动阈值：先写入一批短日志逼近上限，再用长日志触发截尾
+        let big_line = "x".repeat(64 * 1024); // 64KB
+        // 阈值 512KB：连续写满再多条
+        let mut count = 0;
+        let mut guard = 0;
+        while meta() < ShellManager::OP_LOG_MAX + 32 * 1024 && guard < 2000 {
+            mgr.log_op(if count % 10 == 0 { &big_line } else { "short" });
+            count += 1;
+            guard += 1;
+        }
+        // 最后一次 log_op 内部已把超出的部分截掉 → 体积应显著小于满载、且 < 上限
+        let size = meta();
+        assert!(size < ShellManager::OP_LOG_MAX, "size {size} should be trimmed below {}",
+            ShellManager::OP_LOG_MAX);
+
+        // 合理性：保留下来的都是完整行（以 \n 结尾）
+        let text = std::fs::read_to_string(mgr.op_log_path()).unwrap();
+        assert!(!text.is_empty());
+        assert!(text.ends_with('\n'));
+        assert!(text.len() as u64 <= ShellManager::OP_LOG_MAX);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
