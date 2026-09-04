@@ -119,7 +119,6 @@ nav#program-tabs.room-list { flex: 1; overflow-y: auto; margin: 4px -6px; paddin
   color: var(--sidebar-fg); font-size: 12px; cursor: pointer; text-align: center;
 }
 .sidebar-settings:hover { background: var(--sidebar-active); border-color: var(--sidebar-active-border); color: var(--sidebar-head); }
-a.sidebar-settings { display: block; text-decoration: none; box-sizing: border-box; }
 .sidebar-foot { font-size: 10px; color: var(--sidebar-sub); padding: 8px 6px 0; }
 .app-btn-label { white-space: nowrap; }
 

@@ -2004,8 +2004,7 @@ window.addEventListener("DOMContentLoaded", async () => {
     shellLogModal.hidden = true;
   }
   document.querySelector("#shell-log-link").onclick = openShellLogModal;
-  document.querySelector("#github-link").onclick = (e) => {
-    e.preventDefault();
+  document.querySelector("#github-btn").onclick = () => {
     window.__TAURI__.opener.openUrl("https://github.com/Jonnyan404/universal-shell");
   };
   document.querySelector("#shell-log-modal-close").onclick = closeShellLogModal;

@@ -989,14 +989,23 @@ impl ShellApp {
             if ui.small_button("⚙").on_hover_text(t!("ui.settings")).clicked() {
                 self.show_settings = true;
             }
+            if ui
+                .small_button("⎇")
+                .on_hover_text(t!("ui.github"))
+                .clicked()
+            {
+                let _ = std::process::Command::new(open_cmd())
+                    .arg(format!("https://github.com/{}", shared::SHELL_REPO))
+                    .spawn();
+            }
         });
         ui.separator();
 
-        // 程序列表（可滚动），预留底部链接空间（批量/模板库/壳日志/GitHub）
+        // 程序列表（可滚动），预留底部链接空间
         let programs = self.manager.all_programs();
         let visible: Vec<_> = programs.iter().filter(|p| !p.hidden).collect();
         let selected_id = self.current_id.clone();
-        let list_height = (ui.available_height() - 112.0).max(80.0);
+        let list_height = (ui.available_height() - 86.0).max(80.0);
         egui::ScrollArea::vertical()
             .id_salt("sidebar_scroll")
             .auto_shrink([false, false])
@@ -1118,11 +1127,6 @@ impl ShellApp {
         if ui.selectable_label(self.show_shell_log, format!("📖 {}", t!("ui.shell_log_short"))).clicked() {
             self.show_shell_log = true;
         }
-        // 左下角 GitHub 链接
-        ui.hyperlink_to(
-            format!("⎇ {}", t!("ui.github")),
-            "https://github.com/Jonnyan404/universal-shell",
-        );
     }
 
     /// 主内容区：标题栏 + 视图分派
