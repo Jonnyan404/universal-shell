@@ -1,0 +1,140 @@
+name: Build Windows (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: 0.1.0)'
+        required: false
+        default: '0.1.0'
+      arch:
+        description: '架构'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - x86_64
+          - arm64
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (windows-${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x86_64
+            os: windows-latest
+          - label: arm64
+            os: windows-11-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Install Tauri frontend deps
+        run: |
+          cd app-tauri
+          npm install
+        shell: bash
+
+      - name: Install WiX Toolset (Windows .msi)
+        run: |
+          cargo install cargo-wix --locked
+          # cargo-wix 需要 candle/light（WiX v3，经 PATH 暴露）；用 chocolatey 装
+          choco install wixtoolset -y --no-progress
+        shell: pwsh
+
+      - name: Resolve version
+        id: version
+        run: |
+          V="${{ github.event.inputs.version }}"
+          V=$(echo "$V" | sed 's/^v//')
+          echo "value=$V" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Filter arch
+        run: |
+          if [ "${{ github.event.inputs.arch }}" != "all" ] \
+             && [ "${{ github.event.inputs.arch }}" != "${{ matrix.label }}" ]; then
+            echo "skip=1" >> "$GITHUB_ENV"
+          fi
+        shell: bash
+
+      - name: Build egui binary
+        if: env.skip != '1'
+        run: |
+          if [ "${{ matrix.label }}" = "arm64" ]; then
+            TGT="aarch64-pc-windows-msvc"
+          else
+            TGT="x86_64-pc-windows-msvc"
+          fi
+          cargo build --release --target "$TGT" -p app-egui
+        shell: bash
+
+      - name: Package egui (Windows .exe + .msi)
+        if: env.skip != '1'
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          APP="universal-shell-egui"
+          EGUI="dist/egui/windows"
+          if [ "${{ matrix.label }}" = "arm64" ]; then
+            TGT="aarch64-pc-windows-msvc"
+          else
+            TGT="x86_64-pc-windows-msvc"
+          fi
+          mkdir -p "$EGUI"
+          cp "target/$TGT/release/$APP.exe" "$EGUI/$APP-$VERSION-$TGT.exe"
+          # choco 装的 WiX v3 在安装时才加 PATH，当前 bash 会话拿不到；
+          # 直接定位 bin 目录(含 candle/light)并通过 --bin-path 传给 cargo-wix
+          WIXBIN_ARG=""
+          if command -v candle >/dev/null 2>&1; then
+            WIXBIN_ARG="--bin-path $(dirname "$(command -v candle)")"
+          else
+            WIXBIN="$(ls -d "/c/Program Files"*/WiX\ Toolset\ v*/bin 2>/dev/null | head -1)"
+            if [ -n "$WIXBIN" ]; then
+              WIXBIN_ARG="--bin-path $WIXBIN"
+            fi
+          fi
+          (cd app-egui && cargo wix --nocapture --no-build -p app-egui \
+            --target "$TGT" --target-bin-dir "$GITHUB_WORKSPACE/target/$TGT/release" \
+            $WIXBIN_ARG \
+            -o "../$EGUI/$APP-$VERSION-$TGT.msi")
+        shell: bash
+
+      - name: SHA256
+        if: env.skip != '1'
+        run: |
+          : > dist/sha256.txt
+          find dist -type f -not -name sha256.txt -print0 \
+            | while IFS= read -r -d '' f; do
+                echo "$(sha256sum "$f" | awk '{print $1}')  ${f#dist/}" >> dist/sha256.txt
+              done
+        shell: bash
+
+      - name: Inspect artifacts
+        if: env.skip != '1'
+        run: |
+          find dist -maxdepth 3 -type f
+        shell: bash
+
+      - name: Upload artifacts
+        if: env.skip != '1'
+        uses: actions/upload-artifact@v7
+        with:
+          name: universal-shell-windows-${{ matrix.label }}
+          path: dist/
+          retention-days: 7

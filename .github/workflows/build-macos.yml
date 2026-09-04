@@ -1,0 +1,149 @@
+name: Build macOS (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: 0.1.0)'
+        required: false
+        default: '0.1.0'
+      arch:
+        description: '架构'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - x86_64
+          - arm64
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (macOS-${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 官方 macOS runner 默认即 arm64；x64 需显式 -intel
+          - label: x86_64
+            os: macos-15-intel
+          - label: arm64
+            os: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Install Tauri frontend deps
+        run: |
+          cd app-tauri
+          npm install
+        shell: bash
+
+      - name: Resolve version
+        id: version
+        run: |
+          V="${{ github.event.inputs.version }}"
+          V=$(echo "$V" | sed 's/^v//')
+          echo "value=$V" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Filter arch
+        run: |
+          if [ "${{ github.event.inputs.arch }}" != "all" ] \
+             && [ "${{ github.event.inputs.arch }}" != "${{ matrix.label }}" ]; then
+            echo "skip=1" >> "$GITHUB_ENV"
+          fi
+        shell: bash
+
+      - name: Build egui binary
+        if: env.skip != '1'
+        run: cargo build --release -p app-egui
+        shell: bash
+
+      - name: Package egui (macOS .app + .dmg)
+        if: env.skip != '1'
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          cd "$GITHUB_WORKSPACE"
+          APP="universal-shell-egui"
+          EGUI="dist/egui/macos"
+          APPNAME="$EGUI/$APP.app"
+          mkdir -p "$APPNAME/Contents/MacOS" "$APPNAME/Contents/Resources"
+          cp "target/release/$APP" "$APPNAME/Contents/MacOS/$APP"
+          cp "assets/icons/egui-bundle/icon.icns" "$APPNAME/Contents/Resources/icon.icns"
+          cat > "$APPNAME/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Universal Shell</string>
+            <key>CFBundleDisplayName</key><string>Universal Shell</string>
+            <key>CFBundleIdentifier</key><string>com.universal.shell.egui</string>
+            <key>CFBundleVersion</key><string>$VERSION</string>
+            <key>CFBundleShortVersionString</key><string>$VERSION</string>
+            <key>CFBundleExecutable</key><string>$APP</string>
+            <key>CFBundleIconFile</key><string>icon</string>
+            <key>LSMinimumSystemVersion</key><string>12.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+            <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+          </dict>
+          </plist>
+          PLIST
+          chmod +x "$APPNAME/Contents/MacOS/$APP"
+          STAGE="$EGUI/.dmg-stage"
+          mkdir -p "$STAGE"
+          cp -R "$APPNAME" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "Universal Shell $VERSION" -srcfolder "$STAGE" \
+            -ov -format UDZO "$EGUI/$APP-$VERSION-${{ matrix.label }}.dmg" >/dev/null
+          rm -rf "$STAGE"
+        shell: bash
+
+      - name: Build tauri bundle
+        if: env.skip != '1'
+        run: |
+          (cd app-tauri && npx tauri build) \
+            && cp -R target/release/bundle dist/bundle
+        shell: bash
+
+      - name: SHA256
+        if: env.skip != '1'
+        run: |
+          : > dist/sha256.txt
+          if command -v sha256sum >/dev/null; then
+            HASH="sha256sum"
+          else
+            HASH="shasum -a 256"
+          fi
+          find dist -type f -not -name sha256.txt -print0 \
+            | while IFS= read -r -d '' f; do
+                $HASH "$f" | awk -v p="${f#dist/}" '{print $1"  "p}' >> dist/sha256.txt
+              done
+        shell: bash
+
+      - name: Inspect artifacts
+        if: env.skip != '1'
+        run: |
+          find dist -maxdepth 3 -type f
+        shell: bash
+
+      - name: Upload artifacts
+        if: env.skip != '1'
+        uses: actions/upload-artifact@v7
+        with:
+          name: universal-shell-macos-${{ matrix.label }}
+          path: dist/
+          retention-days: 7
