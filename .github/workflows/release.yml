@@ -11,10 +11,14 @@ on:
         description: '版本号 (例如: 0.1.0)'
         required: true
         default: '0.1.0'
-      deploy_to_release:
-        description: '部署到哪个 release tag (留空则只构建产物，不部署)'
+      deploy:
+        description: '构建后部署到 release tag v<version> (确认已存在 release)'
         required: false
-        default: ''
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
       overwrite_assets:
         description: '覆盖重名资产 (否则同名资产会跳过)'
         required: false
@@ -232,11 +236,11 @@ jobs:
     name: Publish release
     needs: build
     runs-on: ubuntu-latest
-    # release 事件，或手动触发且填了 deploy_to_release 时才部署
+    # release 事件，或手动触发且勾选了 deploy 时才部署
     if: >-
       ${{
         github.event_name == 'release' ||
-        (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_to_release != '')
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'true')
       }}
     steps:
       - name: Checkout
@@ -246,7 +250,8 @@ jobs:
         id: tag
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ github.event.inputs.deploy_to_release }}" >> "$GITHUB_OUTPUT"
+            # 复用 version 输入，拼出带 v 前缀的 tag：v0.1.0
+            echo "value=v${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
           else
             echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
           fi
