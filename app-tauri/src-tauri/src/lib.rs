@@ -1238,8 +1238,15 @@ pub fn run() {
             }
             let menu = Menu::with_items(app, &[&show_i, &auto_i, &quit_i])?;
 
+            // 托盘专用小图标：实心六边形 + 插头镂空（raw RGBA，避免 image 解码依赖）
+            const TRAY_RGBA: &[u8] =
+                include_bytes!("../../../assets/icons/rgba/tray-tauri-32.rgba");
+            let tray_icon = tauri::image::Image::new_owned(TRAY_RGBA.to_vec(), 32, 32);
             let tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+                .icon(tray_icon)
+                // macOS 菜单栏以 template 加载，深浅模式自适应；Win/Linux 用同形深色图标
+                .icon_as_template(true)
+                .tooltip("Universal Shell")
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event({

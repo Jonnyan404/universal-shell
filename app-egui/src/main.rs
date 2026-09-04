@@ -54,10 +54,15 @@ fn main() -> eframe::Result {
     };
     shared::locale::apply(override_locale, &system_hint());
 
+    let mut viewport = eframe::egui::ViewportBuilder::default()
+        .with_inner_size([820.0, 560.0])
+        .with_min_inner_size([640.0, 420.0]);
+    // dock/任务栏图标：egui 轻量版（深底绿插头），缺失则回退默认
+    if let Some(icon) = dock_icon() {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([820.0, 560.0])
-            .with_min_inner_size([640.0, 420.0]),
+        viewport,
         // glow (OpenGL) 后端，避免 wgpu 在无 GPU/远程会话下 Device lost 崩溃
         renderer: eframe::Renderer::Glow,
         ..Default::default()
@@ -368,13 +373,16 @@ impl ShellApp {
         self.tray_auto = Some(auto.clone());
         let menu = Menu::with_items(&[&show, &auto, &quit]).ok()?;
 
-        // 做一个 32×32 的纯色图标（避免引入 image 依赖）
-        let icon = Icon::from_rgba(solid_icon_rgba(), 32, 32).ok()?;
+        // 托盘 glyph：描边六边形 + 实心插头（raw RGBA，避免引入 image 依赖）
+        const TRAY_RAW: &[u8] = include_bytes!("../../assets/icons/rgba/tray-egui-32.rgba");
+        let icon = Icon::from_rgba(TRAY_RAW.to_vec(), 32, 32).ok()?;
 
         TrayIconBuilder::new()
             .with_tooltip("Universal Shell (egui)")
             .with_menu(Box::new(menu))
             .with_icon(icon)
+            // macOS 菜单栏以 template 加载，深浅模式自适应
+            .with_icon_as_template(true)
             .build()
             .ok()
     }
@@ -943,14 +951,14 @@ impl ShellApp {
 
         // 底部链接：批量 / 模板库 / 壳日志（对齐 Tauri sidebar 底部 + foot）
         ui.separator();
-        if ui.selectable_label(matches!(self.view, View::Batch), t!("batch.title")).clicked() {
+        if ui.selectable_label(matches!(self.view, View::Batch), format!("☰ {}", t!("batch.title"))).clicked() {
             self.view = View::Batch;
         }
-        if ui.selectable_label(matches!(self.view, View::Library), t!("lib.title")).clicked() {
+        if ui.selectable_label(matches!(self.view, View::Library), format!("▤ {}", t!("lib.title"))).clicked() {
             self.view = View::Library;
         }
         ui.separator();
-        if ui.selectable_label(matches!(self.view, View::Library), t!("ui.shell_log_short")).clicked() {
+        if ui.selectable_label(matches!(self.view, View::Library), format!("📖 {}", t!("ui.shell_log_short"))).clicked() {
             self.show_shell_log = true;
         }
     }
@@ -2852,19 +2860,17 @@ fn install_cjk_font(ctx: &egui::Context) {
     }
 }
 
-/// 生成一个 32×32 的纯色 RGBA 托盘图标（青蓝色圆角方块）
-fn solid_icon_rgba() -> Vec<u8> {
-    let size = 32u32;
-    let mut rgba = Vec::with_capacity((size * size * 4) as usize);
-    for y in 0..size {
-        for x in 0..size {
-            let edge = x == 0 || y == 0 || x == size - 1 || y == size - 1;
-            if edge {
-                rgba.extend_from_slice(&[0, 0, 0, 0]);
-            } else {
-                rgba.extend_from_slice(&[0x20, 0xc9, 0x97, 255]);
-            }
-        }
+/// dock/窗口图标：256×256 raw RGBA（scripts/render_icons.py 生成，零解码依赖）
+fn dock_icon() -> Option<std::sync::Arc<egui::IconData>> {
+    const W: usize = 256;
+    const RAW: &[u8] = include_bytes!("../../assets/icons/rgba/dock-egui-256.rgba");
+    if RAW.len() != W * W * 4 {
+        log::warn!("dock 图标尺寸异常，回退为默认图标");
+        return None;
     }
-    rgba
+    Some(std::sync::Arc::new(egui::IconData {
+        rgba: RAW.to_vec(),
+        width: W as u32,
+        height: W as u32,
+    }))
 }

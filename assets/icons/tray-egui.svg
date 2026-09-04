@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- universal-shell · egui 托盘/菜单栏图标母版（描边六边形 + 实心小插头；与 tauri 实心版区分；template 加载） -->
+  <polygon points="240,128 184,225 72,225 16,128 72,31 184,31" fill="#FFFFFF"/>
+  <path fill="#000000" fill-rule="evenodd" d="M240,128 L184,225 L72,225 L16,128 L72,31 L184,31 Z M216.5,128 L171.7,205.5 L84.3,205.5 L39.5,128 L84.3,50.5 L171.7,50.5 Z"/>
+  <rect x="106" y="72" width="16" height="62" rx="8" fill="#000000"/>
+  <rect x="134" y="72" width="16" height="62" rx="8" fill="#000000"/>
+  <rect x="92" y="130" width="72" height="60" rx="12" fill="#000000"/>
+</svg>
