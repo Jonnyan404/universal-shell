@@ -71,13 +71,25 @@ PLIST
 
 elif [ "$OS" = "mingw" ] || [ "$OS" = "windows" ] || [ "$OSTYPE" = "msys" ] || [ "$OSTYPE" = "cygwin" ]; then
   TGT=x86_64-pc-windows-msvc
-  cargo xwin build --release --target "$TGT" -p app-egui
-  mkdir -p "$EGUI"
-  cp "target/$TGT/release/$APP.exe" "$EGUI/$APP-$VERSION.exe"
-  if have cargo wix && [ -f wix/main.wxs ]; then
-    (cd app-egui && cargo wix --nocapture -o "../$EGUI/$APP-$VERSION.msi")
+  # macOS 交叉 .exe 用 cargo-xwin；原生 Windows 直接 cargo build
+  if [ "$(uname -s)" = "Darwin" ]; then
+    cargo xwin build --release --target "$TGT" -p app-egui
+    BIN="target/$TGT/release/$APP.exe"
   else
-    echo "!! WiX 模板/工具未就绪，egui 仅产出 .exe（.msi 需 WiX）"
+    cargo build --release --target "$TGT" -p app-egui
+    BIN="target/$TGT/release/$APP.exe"
+  fi
+  mkdir -p "$EGUI"
+  cp "$BIN" "$EGUI/$APP-$VERSION.exe"
+
+  # .msi 用 WiX (candle/light) + cargo-wix：WiX 本身仅 Windows 原生，
+  # 因此在 macOS 上交叉出 .msi 不可行，仅当 WiX 在 PATH 时才产出
+  if have candle && [ -f wix/main.wxs ]; then
+    (cd app-egui && cargo wix --nocapture --no-build \
+      --target "$TGT" --target-bin-dir "../../../target/$TGT/release" \
+      -o "../$EGUI/$APP-$VERSION.msi")
+  else
+    echo "!! WiX Toolset(candle) 不在 PATH：egui 仅产出 .exe（.msi 需在 Windows/WiX 环境构建）"
   fi
 else
   # Linux：egui 暂为单二进制，安装包留 CI（与 tauri 原生 .deb/.rpm/.AppImage 一致）

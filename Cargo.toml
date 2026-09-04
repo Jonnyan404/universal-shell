@@ -6,6 +6,7 @@ members = ["shared", "app-egui", "app-tauri/src-tauri"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+authors = ["Universal Shell"]
 
 [workspace.dependencies]
 shared = { path = "shared" }
