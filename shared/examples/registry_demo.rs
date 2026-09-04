@@ -43,15 +43,8 @@ fn main() {
     thread::sleep(Duration::from_millis(1200));
 
     let base = "http://127.0.0.1:8123/";
-    // C6: 从 demo/shell.json 读公钥（模拟客户端配置）
-    let demo_cfg: shared::ShellConfig = serde_json::from_str(
-        &std::fs::read_to_string(
-            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../demo/shell.json")),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    let pubkey = demo_cfg.registry_pubkeys.values().next().unwrap().clone();
+    // C6: 使用内置默认源公钥（模拟客户端配置验签）
+    let pubkey: String = shared::shell_manager::DEFAULT_REGISTRY_PUBKEY.to_string();
     println!("使用公钥(前8位): {}…", &pubkey[..8]);
 
     // 1. 拉清单(带签名校验)

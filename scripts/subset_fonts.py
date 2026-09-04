@@ -27,7 +27,7 @@ OUT = os.path.join(ROOT, "assets", "fonts", "NotoSansSC-subset.otf")
 
 def collect_chars():
     pats = ["shared/locales/*.yml", "app-egui/src/main.rs",
-            "templates/*.json", "registry/*.json", "demo/shell.json"]
+            "templates/*.json", "registry/*.json"]
     files = [f for p in pats for f in glob.glob(os.path.join(ROOT, p))]
     chars = set()
     for f in files:

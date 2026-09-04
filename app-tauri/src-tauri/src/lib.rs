@@ -1206,11 +1206,10 @@ pub fn run() {
             .load_config(&config_path)
             .expect(&t!("err.load_config"));
     } else if let Ok(cwd) = std::env::current_dir() {
-        for cand in [cwd.join("shell.json"), cwd.join("demo/shell.json")] {
-            if cand.exists() {
-                manager.load_config(&cand).unwrap();
-                break;
-            }
+        // 就近找一个 shell.json（内置程序已保证界面非空，这里仅补充用户就地配置）
+        let cand = cwd.join("shell.json");
+        if cand.exists() {
+            manager.load_config(&cand).unwrap();
         }
     }
 

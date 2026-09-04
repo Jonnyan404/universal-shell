@@ -25,13 +25,17 @@ Get the package for your OS from **Releases**.
 
 ### 2. Run
 
-Try it immediately with the sample config (egui starts fastest):
+A built-in demo program is ready on first launch — just run (egui starts fastest):
 
 ```bash
-cargo run -p app-egui -- demo/shell.json
+cargo run -p app-egui
 ```
 
-Or launch the installed app and point it at your own config file.
+Or launch the installed app and point it at your own config file:
+
+```bash
+cargo run -p app-egui -- /path/to/shell.json
+```
 
 ### 3. Configure
 
@@ -100,7 +104,7 @@ Prerequisites: [Rust](https://rustup.rs/) (stable), [Node.js](https://nodejs.org
 
 ```bash
 # egui (fastest start)
-cargo run -p app-egui -- demo/shell.json
+cargo run -p app-egui
 
 # Tauri
 cd app-tauri && npm install && npm run tauri dev
@@ -168,7 +172,7 @@ MIT — see [LICENSE](LICENSE).
 用示例配置直接体验（egui 启动最快）：
 
 ```bash
-cargo run -p app-egui -- demo/shell.json
+cargo run -p app-egui
 ```
 
 或启动已安装的应用，指向你自己的配置文件。
@@ -240,7 +244,7 @@ cargo run -p app-egui -- demo/shell.json
 
 ```bash
 # egui（启动最快）
-cargo run -p app-egui -- demo/shell.json
+cargo run -p app-egui
 
 # Tauri
 cd app-tauri && npm install && npm run tauri dev

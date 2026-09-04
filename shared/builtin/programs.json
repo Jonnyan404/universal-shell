@@ -26,7 +26,7 @@
       },
       "arch_map": {
         "x86_64": "x86_64",
-        "aarch64": "aarch64"
+        "aarch64": "arm64"
       },
       "fields": [
         { "key": "host", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
