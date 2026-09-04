@@ -44,7 +44,7 @@
 | # | 任务 | 验收标准 | 状态 |
 |---|---|---|---|
 | D1 | 托盘/最小化到托盘（tray-icon） | 最小化隐藏，托盘可唤出/退出 | ☑ (Tauri: 内置 tray-icon feature + 关闭即隐藏 + 托盘菜单显隐/退出; egui: tray-icon crate 主线程建盘 + 后台线程转发菜单/点击) |
-| D2 | 打包：egui 单二进制 + tauri bundle | 两版可分发 | ☑ (scripts/build-release.sh: egui 单二进制 + cargo tauri build 产出 .app/.dmg 与 sha256.txt，产物架构/DMG 校验通过) |
+| D2 | 打包：egui + tauri 各平台安装包 | 两版可分发，Release 发布时多平台矩阵打包 | ☑ (scripts/build-release.sh：macOS egui=通用 .app+.dmg，Windows=egui .exe+.msi / tauri=.app/.msi；GitHub Actions release 事件触发，矩阵含 linux/macOS/windows 的 x64+arm64，egui 安装包含 ARM64 Windows runner) |
 | D3 | README 更新（模板源、配置、安全说明） | — | ☑ (README 补全：远程模板库、packaging、配置含 template_registries、校验/签名/安全说明) |
 
 ## 阶段 E — 本地实例管理（Tauri）
