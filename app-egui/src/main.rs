@@ -73,6 +73,12 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             install_cjk_font(&cc.egui_ctx);
             let mut app = ShellApp::new(manager, config_path);
+            // 按持久化的主题设置初始视觉（重启后记住暗/亮）
+            cc.egui_ctx.set_visuals(if app.dark_mode {
+                egui::Visuals::dark()
+            } else {
+                egui::Visuals::light()
+            });
             app.install_tray(cc.egui_ctx.clone());
             Ok(Box::new(app))
         }),
@@ -231,6 +237,10 @@ struct ShellApp {
 }
 
 impl ShellApp {
+    fn prefs_path(manager: &ShellManager) -> PathBuf {
+        manager.data_dir.join("app-prefs")
+    }
+
     fn new(mut manager: ShellManager, config_path: PathBuf) -> Self {
         let (tx, rx) = mpsc::channel();
         let mut info_for_values = vec![];
@@ -252,6 +262,11 @@ impl ShellApp {
             parse_proxy(&manager.proxy.http_proxy);
         let settings_shell_auto = manager.autostart.shell_is_enabled();
         let sources_rows = manager.template_registries.clone();
+        // 深浅主题状态持久化：从数据目录读上次选择的主题（默认暗色），切换时同步写回
+        let dark_mode = std::fs::read_to_string(ShellApp::prefs_path(&manager))
+            .ok()
+            .and_then(|s| s.trim().parse::<bool>().ok())
+            .unwrap_or(true);
         // shell.log 按会话划分：启动分隔线（重启不清档、可审计，手动点 🗑 清空）
         manager.log_op(&t!("log.shell_started"));
         // 壳启动后自动拉起所有开启了「自启动」的程序（方案 B：壳管理，对齐 Tauri）
@@ -311,7 +326,7 @@ impl ShellApp {
             edit_args: String::new(),
             edit_fields: Vec::new(),
             show_settings: false,
-            dark_mode: true,
+            dark_mode,
             op_logs: Vec::new(),
             latest_versions,
             confirm_delete: None,
@@ -887,6 +902,11 @@ impl ShellApp {
             let theme_hint = if self.dark_mode { t!("ui.theme.light") } else { t!("ui.theme.dark") };
             if ui.small_button(theme_label).on_hover_text(theme_hint).clicked() {
                 self.dark_mode = !self.dark_mode;
+                // 主题持久化：写回数据目录，重启后记住上次选择
+                let _ = std::fs::write(
+                    ShellApp::prefs_path(&self.manager),
+                    self.dark_mode.to_string(),
+                );
                 let visuals = if self.dark_mode {
                     egui::Visuals::dark()
                 } else {
