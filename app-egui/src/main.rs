@@ -100,6 +100,8 @@ enum Msg {
     TrayAutoToggle,
     /// 后台存活轮询结果：(程序 id, 路径探测是否存活)，约每 3s 一次
     RunningPolled(Vec<(String, bool)>),
+    /// 壳自身更新检查完成：(是否手动触发, 有新版时携带版本信息)
+    ShellUpdateChecked(bool, Result<Option<shared::ShellUpdate>, String>),
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -228,6 +230,12 @@ struct ShellApp {
     tray: Option<tray_icon::TrayIcon>,
     /// 托盘菜单「开机自启」CheckMenuItem 句柄（用于同步勾选状态）
     tray_auto: Option<tray_icon::menu::CheckMenuItem>,
+    /// 壳自身更新检查进行中（设置里的检查按钮置灰 + 显示检查中）
+    shell_update_checking: bool,
+    /// 检查到的壳新版本（有值时弹更新提示窗）
+    shell_update: Option<shared::ShellUpdate>,
+    /// 壳更新提示窗是否打开
+    show_shell_update: bool,
     /// 是否已在托盘菜单里点了「退出」
     quit: Arc<AtomicBool>,
 }
@@ -331,9 +339,14 @@ impl ShellApp {
             running_watch_tx: None,
             tray: None,
             tray_auto: None,
+            shell_update_checking: false,
+            shell_update: None,
+            show_shell_update: false,
             quit: Arc::new(AtomicBool::new(false)),
         };
         app.spawn_running_poller();
+        // 启动即后台检查壳自身更新（静默：无新版不打扰，断网失败也不弹）
+        app.spawn_check_shell_update(false);
         app
     }
 
@@ -505,6 +518,27 @@ impl ShellApp {
             .map(|b| b.to_string())
     }
 
+    /// 后台检查壳自身更新，结果经 Msg::ShellUpdateChecked 回 UI 线程；
+    /// manual=true（设置里手动点）时无新版/失败会弹 toast，启动自动检查则静默。
+    fn spawn_check_shell_update(&mut self, manual: bool) {
+        if self.shell_update_checking {
+            return;
+        }
+        self.shell_update_checking = true;
+        let current = env!("CARGO_PKG_VERSION").to_string();
+        let accel = self.manager.proxy.accelerate_prefix.clone();
+        let proxy = self.manager.proxy.http_proxy.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let result = shared::check_shell_update(&current, &accel, &proxy);
+            tx.send(Msg::ShellUpdateChecked(
+                manual,
+                result.map_err(|e| format!("{e:#}")),
+            ))
+            .ok();
+        });
+    }
+
     /// 后台拉取该程序来源注册表里的最新模板，UI 线程据此展示 diff / 应用更新
     fn spawn_check_template_update(&mut self, program: shared::config::Program) {
         if self.update_checks.contains_key(&program.id) {
@@ -650,6 +684,27 @@ impl ShellApp {
                 Msg::RunningPolled(list) => {
                     for (id, alive) in list {
                         self.path_alive.insert(id, alive);
+                    }
+                }
+                Msg::ShellUpdateChecked(manual, result) => {
+                    self.shell_update_checking = false;
+                    match result {
+                        Ok(Some(u)) => {
+                            self.shell_update = Some(u);
+                            self.show_shell_update = true;
+                        }
+                        Ok(None) => {
+                            if manual {
+                                self.show_toast(
+                                    t!("upd.latest", ver = env!("CARGO_PKG_VERSION")).to_string(),
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            if manual {
+                                self.show_toast(t!("upd.fail", err = e).to_string());
+                            }
+                        }
                     }
                 }
                 Msg::TrayAutoToggle => {
@@ -937,11 +992,11 @@ impl ShellApp {
         });
         ui.separator();
 
-        // 程序列表（可滚动），预留底部链接空间
+        // 程序列表（可滚动），预留底部链接空间（批量/模板库/壳日志/GitHub）
         let programs = self.manager.all_programs();
         let visible: Vec<_> = programs.iter().filter(|p| !p.hidden).collect();
         let selected_id = self.current_id.clone();
-        let list_height = (ui.available_height() - 86.0).max(80.0);
+        let list_height = (ui.available_height() - 112.0).max(80.0);
         egui::ScrollArea::vertical()
             .id_salt("sidebar_scroll")
             .auto_shrink([false, false])
@@ -1065,7 +1120,7 @@ impl ShellApp {
         }
         // 左下角 GitHub 链接
         ui.hyperlink_to(
-            egui::RichText::new(format!("⎇ {}", t!("ui.github"))).weak(),
+            format!("⎇ {}", t!("ui.github")),
             "https://github.com/Jonnyan404/universal-shell",
         );
     }
@@ -1139,6 +1194,22 @@ impl ShellApp {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.settings_shell_auto, t!("sett.shell_auto_label"));
                 });
+                // 壳自身更新：当前版本 + 手动检查按钮
+                ui.horizontal(|ui| {
+                    ui.add_sized([100.0, 0.0], egui::Label::new(t!("upd.check")));
+                    ui.label(t!("upd.current_version", ver = env!("CARGO_PKG_VERSION")).to_string());
+                    let label = if self.shell_update_checking {
+                        t!("upd.checking").to_string()
+                    } else {
+                        t!("upd.check").to_string()
+                    };
+                    if ui
+                        .add_enabled(!self.shell_update_checking, egui::Button::new(label))
+                        .clicked()
+                    {
+                        self.spawn_check_shell_update(true);
+                    }
+                });
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1167,6 +1238,42 @@ impl ShellApp {
                 });
             });
         self.show_settings = open;
+    }
+
+    /// 壳新版提示窗：显示远端版本与当前版本，前往下载用系统浏览器打开 Release 页
+    fn show_shell_update_dialog(&mut self, ctx: &egui::Context) {
+        let Some(u) = self.shell_update.clone() else {
+            return;
+        };
+        let mut open = self.show_shell_update;
+        let mut goto_download = false;
+        let mut dismissed = false;
+        egui::Window::new(t!("upd.check"))
+            .id(egui::Id::new("shell_update_dialog"))
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(
+                    t!("upd.available", latest = u.latest_tag, current = u.current).to_string(),
+                );
+                ui.horizontal(|ui| {
+                    if ui.button(t!("upd.goto_download")).clicked() {
+                        goto_download = true;
+                    }
+                    if ui.button(t!("act.cancel")).clicked() {
+                        dismissed = true;
+                    }
+                });
+            });
+        if goto_download {
+            let _ = std::process::Command::new(open_cmd())
+                .arg(&u.release_url)
+                .spawn();
+            open = false;
+        }
+        if dismissed {
+            open = false;
+        }
+        self.show_shell_update = open;
     }
 
     fn show_manage(&mut self, ui: &mut egui::Ui) {
@@ -2687,6 +2794,9 @@ impl eframe::App for ShellApp {
         }
         if self.show_settings {
             self.show_settings_window(ui.ctx());
+        }
+        if self.show_shell_update {
+            self.show_shell_update_dialog(ui.ctx());
         }
         if let Some(id) = self.confirm_delete.clone() {
             self.show_delete_confirm(ui.ctx(), &id);

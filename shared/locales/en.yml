@@ -104,6 +104,13 @@ dl.working: Working…
 dl.checking: Checking updates…
 dl.checking_short: Checking…
 dl.done: Check complete
+upd.check: Check for updates
+upd.checking: Checking for shell updates…
+upd.latest: Shell is up to date (%{ver})
+upd.available: New shell version %{latest} available (current %{current})
+upd.goto_download: Download
+upd.fail: 'Update check failed: %{err}'
+upd.current_version: 'v%{ver}'
 log.just: Just now
 log.equal_parts: Last update
 log.remote_ready: 'Remote source update:'

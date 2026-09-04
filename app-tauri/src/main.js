@@ -907,6 +907,13 @@ function openSettings() {
       document.querySelector("#sett-shell-auto").checked = !!on;
     })
     .catch(() => {});
+  // 设置页展示壳当前版本 + 上次检查到的更新（打开设置不联网，只读缓存）
+  invoke("get_shell_version")
+    .then((v) => {
+      if (!shellUpdate) shellUpdate = { current: v, latest_tag: null, release_url: null };
+      renderShellUpdate();
+    })
+    .catch(() => {});
   modal.hidden = false;
 }
 
@@ -934,6 +941,57 @@ async function saveSettings() {
     showNotice(String(e), true);
   }
   closeSettings();
+}
+
+// ---------- 壳自身更新检查 ----------
+let shellUpdate = null; // {current, latest_tag, release_url}，有新版时后两项非空
+let shellChecking = false;
+
+function renderShellUpdate() {
+  const verEl = document.querySelector("#sett-shell-version");
+  if (verEl)
+    verEl.textContent = shellUpdate
+      ? t("upd.current_version", { ver: shellUpdate.current })
+      : "";
+  const link = document.querySelector("#sett-update-link");
+  const linkText = document.querySelector("#sett-update-text");
+  if (link) {
+    const has = !!(shellUpdate && shellUpdate.latest_tag);
+    link.hidden = !has;
+    if (has) {
+      linkText.textContent = t("upd.goto_download") + " " + shellUpdate.latest_tag;
+      link.href = shellUpdate.release_url;
+    }
+  }
+  const btn = document.querySelector("#sett-check-update");
+  if (btn) {
+    btn.disabled = shellChecking;
+    btn.textContent = shellChecking ? t("upd.checking") : t("upd.check");
+  }
+}
+
+async function checkShellUpdate(manual) {
+  if (shellChecking) return;
+  shellChecking = true;
+  renderShellUpdate();
+  try {
+    const r = await invoke("check_shell_update");
+    shellUpdate = r;
+    if (r.latest_tag) {
+      showNotice(
+        t("upd.available", { latest: r.latest_tag, current: r.current }),
+        false,
+        8000
+      );
+    } else if (manual) {
+      showNotice(t("upd.latest", { ver: r.current }));
+    }
+  } catch (e) {
+    if (manual) showNotice(t("upd.fail", { err: e }), true);
+  } finally {
+    shellChecking = false;
+    renderShellUpdate();
+  }
 }
 
 // ---------- 日志查看（合并 stdout/stderr 单窗口，stderr 红色）----------
@@ -1810,6 +1868,8 @@ window.addEventListener("DOMContentLoaded", async () => {
       if (view === "manage" && pid === current?.id) refreshStatusLocal();
     })
     .catch(() => {});
+  // 启动即后台检查壳自身更新（静默：无新版/断网失败不打扰，有新版弹 toast + 设置页留下载入口）
+  checkShellUpdate(false);
   const langBtn = document.querySelector("#lang-btn");
   if (langBtn) {
     const updateLangBtn = () => {
@@ -1865,6 +1925,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.querySelector("#settings-form").onsubmit = (e) => {
     e.preventDefault();
     saveSettings();
+  };
+  document.querySelector("#sett-check-update").onclick = () => checkShellUpdate(true);
+  document.querySelector("#sett-update-link").onclick = (e) => {
+    e.preventDefault();
+    const url = shellUpdate && shellUpdate.release_url;
+    if (url) window.__TAURI__.opener.openUrl(url);
   };
   settModal.addEventListener("click", (e) => {
     if (e.target === settModal) closeSettings();

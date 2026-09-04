@@ -697,6 +697,48 @@ struct LocaleView {
     available: Vec<String>,
 }
 
+/// 壳自身版本（编译时 workspace version），供设置页展示当前版本。
+#[tauri::command]
+fn get_shell_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[derive(serde::Serialize)]
+struct ShellUpdateView {
+    /// 当前壳版本
+    current: String,
+    /// 有新版时为远端最新 tag，否则 None
+    latest_tag: Option<String>,
+    /// 有新版时为对应 Release 页 URL，否则 None
+    release_url: Option<String>,
+}
+
+/// 检查壳自身更新：查本仓库 Releases 最新 tag，比当前版本新则返回下载页。
+/// 无新版时 latest_tag/release_url 为 None；断网等失败直接 Err（前端按失败提示）。
+#[tauri::command]
+fn check_shell_update(state: State<AppState>) -> Result<ShellUpdateView, String> {
+    let (accel, proxy) = {
+        let mgr = state.manager.lock().unwrap();
+        (
+            mgr.proxy.accelerate_prefix.clone(),
+            mgr.proxy.http_proxy.clone(),
+        )
+    };
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    match shared::check_shell_update(&current, &accel, &proxy).map_err(|e| format!("{e:#}"))? {
+        Some(u) => Ok(ShellUpdateView {
+            current: u.current,
+            latest_tag: Some(u.latest_tag),
+            release_url: Some(u.release_url),
+        }),
+        None => Ok(ShellUpdateView {
+            current,
+            latest_tag: None,
+            release_url: None,
+        }),
+    }
+}
+
 /// 系统语言提示（用于 `auto` 跟随系统）。
 fn system_hint() -> String {
     sys_locale::get_locale().unwrap_or_else(|| "en".to_string())
@@ -1342,7 +1384,9 @@ pub fn run() {
             set_locale,
             get_shell_log,
             log_shell_op,
-            clear_shell_log
+            clear_shell_log,
+            get_shell_version,
+            check_shell_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

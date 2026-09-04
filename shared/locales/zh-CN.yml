@@ -104,6 +104,13 @@ dl.working: 处理中…
 dl.checking: 正在检查更新…
 dl.checking_short: 检查中…
 dl.done: 检查完成
+upd.check: 检查更新
+upd.checking: 正在检查壳更新…
+upd.latest: 壳已是最新（%{ver}）
+upd.available: 发现壳新版本 %{latest}（当前 %{current}）
+upd.goto_download: 前往下载
+upd.fail: '检查更新失败：%{err}'
+upd.current_version: 'v%{ver}'
 log.just: 刚刚
 log.equal_parts: 上次更新
 log.remote_ready: 远程源更新：
