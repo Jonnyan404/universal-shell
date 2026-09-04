@@ -87,7 +87,17 @@ jobs:
 
       # ---- egui：各平台原生自产自的安装包（不复用本地 build-release.sh，其专为单机多目标设计）----
       - name: Build egui binary
-        run: cargo build --release -p app-egui
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            if echo "${{ matrix.label }}" | grep -q arm64; then
+              TGT="aarch64-pc-windows-msvc"
+            else
+              TGT="x86_64-pc-windows-msvc"
+            fi
+            cargo build --release --target "$TGT" -p app-egui
+          else
+            cargo build --release -p app-egui
+          fi
         shell: bash
 
       - name: Package egui (Windows .exe + .msi)
@@ -158,11 +168,11 @@ jobs:
           chmod +x "$EGUI/$APP-$VERSION-${{ matrix.label }}"
         shell: bash
 
-      # ---- tauri：仅在 Linux/macOS 由 cargo tauri build 原生产出 ----
+      # ---- tauri：仅在 Linux/macOS 由 tauri build 原生产出 ----
       - name: Build tauri bundle (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          (cd app-tauri && cargo tauri build) \
+          (cd app-tauri && npx tauri build) \
             && cp -R target/release/bundle dist/bundle
         shell: bash
 

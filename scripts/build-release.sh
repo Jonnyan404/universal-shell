@@ -115,7 +115,8 @@ echo "==> build tauri bundle"
 # 即便失败也保留已千辛万苦产出的 egui 安装包，仅记警告
 case "$OS" in
   darwin|linux)
-    if (cd app-tauri && cargo tauri build); then
+    # 优先用已装的 cargo-tauri-cli；否则回退到 app-tauri 的 node_modules 里的 @tauri-apps/cli
+    if (cd app-tauri && cargo tauri build) || (cd app-tauri && npx tauri build); then
       if [ -d target/release/bundle ]; then
         cp -R target/release/bundle dist/bundle
       fi
