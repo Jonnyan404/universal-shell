@@ -63,15 +63,15 @@ jobs:
           sudo apt-get install -y xvfb x11-utils libxkbcommon0 libxcb1 libegl1 \
             libglib2.0-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev \
             libfontconfig-dev \
-            libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev
+            libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev xdg-utils
         shell: bash
 
       - name: Install WiX Toolset (Windows .msi)
         if: runner.os == 'Windows'
         run: |
           cargo install cargo-wix --locked
-          dotnet tool install --global wix
-          echo "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+          # cargo-wix 需要 candle/light（WiX v3，经 PATH 暴露）；用 chocolatey 装
+          choco install wixtoolset -y --no-progress
         shell: pwsh
 
       - name: Resolve version
@@ -115,7 +115,7 @@ jobs:
           mkdir -p "$EGUI"
           cp "target/$TGT/release/$APP.exe" "$EGUI/$APP-$VERSION-$TGT.exe"
           (cd app-egui && cargo wix --nocapture --no-build -p app-egui \
-            --target "$TGT" --target-bin-dir "../../../target/$TGT/release" \
+            --target "$TGT" --target-bin-dir "$GITHUB_WORKSPACE/target/$TGT/release" \
             -o "../$EGUI/$APP-$VERSION-$TGT.msi")
         shell: bash
 

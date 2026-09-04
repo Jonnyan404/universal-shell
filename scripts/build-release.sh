@@ -97,7 +97,7 @@ elif [ "$OS" = "mingw" ] || [ "$OS" = "windows" ] || [ "$OSTYPE" = "msys" ] || [
   if { have candle || have wix; } && [ -f wix/main.wxs ]; then
     mkdir -p "$EGUI"
     (cd app-egui && cargo wix --nocapture --no-build -p app-egui \
-      --target "$TGT" --target-bin-dir "../../../target/$TGT/release" \
+      --target "$TGT" --target-bin-dir "$(pwd)/../target/$TGT/release" \
       -o "../$EGUI/$APP-$VERSION-$TGT.msi")
   else
     echo "!! WiX Toolset(candle) 不在 PATH：egui 仅产出 .exe（.msi 需在 Windows/WiX 环境构建）"
