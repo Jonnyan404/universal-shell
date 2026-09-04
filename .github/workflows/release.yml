@@ -4,13 +4,25 @@ on:
   # 创建/发布 GitHub Release 时自动构建并上传到该 Release
   release:
     types: [published]
-  # 手动触发（不发布，仅构建产物供预览/测试）
+  # 手动触发：可直接构建产物，也可选择部署到 release（追加/覆盖资产）
   workflow_dispatch:
     inputs:
       version:
         description: '版本号 (例如: 0.1.0)'
         required: true
         default: '0.1.0'
+      deploy_to_release:
+        description: '部署到哪个 release tag (留空则只构建产物，不部署)'
+        required: false
+        default: ''
+      overwrite_assets:
+        description: '覆盖重名资产 (否则同名资产会跳过)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 permissions:
   contents: write
@@ -220,10 +232,25 @@ jobs:
     name: Publish release
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    # release 事件，或手动触发且填了 deploy_to_release 时才部署
+    if: >-
+      ${{
+        github.event_name == 'release' ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_to_release != '')
+      }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Resolve target tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ github.event.inputs.deploy_to_release }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
 
       - name: Download artifacts
         uses: actions/download-artifact@v8
@@ -246,7 +273,9 @@ jobs:
       - name: Upload assets to Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event.release.tag_name }}
+          tag_name: ${{ steps.tag.outputs.value }}
+          # overwrite=true 时先删除同名旧资产再上传，实现"追加/覆盖"
+          overwrite: ${{ github.event.inputs.overwrite_assets != 'false' }}
           files: |
             dist/**/*
         env:
