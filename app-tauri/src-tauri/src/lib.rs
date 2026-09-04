@@ -188,7 +188,7 @@ fn to_field_view(f: &Field) -> FieldView {
 #[tauri::command]
 fn get_programs(state: State<AppState>) -> Vec<ProgramView> {
     let mgr = state.manager.lock().unwrap();
-    mgr.programs.iter().map(to_view).collect()
+    mgr.all_programs().iter().map(to_view).collect()
 }
 
 /// 用当前网络设置(加速前缀 + 通用代理)构建 GitHub 客户端
@@ -201,10 +201,10 @@ fn proxied_github(proxy: &shared::ProxySettings) -> shared::GitHub {
 #[tauri::command]
 fn get_values(state: State<AppState>, program_id: String) -> BTreeMap<String, String> {
     let mgr = state.manager.lock().unwrap();
-    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id) else {
+    let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
         return BTreeMap::new();
     };
-    mgr.load_field_values(p)
+    mgr.load_field_values(&p)
 }
 
 #[tauri::command]
@@ -214,10 +214,10 @@ fn save_values(
     values: BTreeMap<String, String>,
 ) -> Result<(), String> {
     let mgr = state.manager.lock().unwrap();
-    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id) else {
+    let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
         return Err(t!("err.program_not_found", id = program_id).into());
     };
-    mgr.save_field_values(p, &values);
+    mgr.save_field_values(&p, &values);
     Ok(())
 }
 
@@ -231,7 +231,7 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
     let repo;
     {
         let mut mgr = state.manager.lock().unwrap();
-        let Some(found) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+        let Some(found) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
             return Err(t!("err.program_not_found", id = program_id).into());
         };
         p = found;
@@ -261,7 +261,7 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
 #[tauri::command]
 fn get_status_local(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
     let mut mgr = state.manager.lock().unwrap();
-    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+    let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
         return Err(t!("err.program_not_found", id = program_id).into());
     };
     let bin = mgr.bin_path(&p);
@@ -273,7 +273,7 @@ fn get_status_local(state: State<AppState>, program_id: String) -> Result<Status
 #[tauri::command]
 fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String> {
     let mut mgr = state.manager.lock().unwrap();
-    let progs = mgr.programs.clone();
+    let progs = mgr.all_programs();
     let vcheck = mgr.load_version_check();
     Ok(progs
         .into_iter()
@@ -298,7 +298,7 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
     let layout;
     let mut locals: Vec<(Program, PathBuf, shared::ProgramStatus, bool)> = {
         let mut mgr = state.manager.lock().unwrap();
-        let progs = mgr.programs.clone();
+        let progs = mgr.all_programs();
         layout = mgr.proxy.clone();
         progs
             .into_iter()
@@ -375,7 +375,7 @@ struct DownloadEvent {
 #[tauri::command]
 fn install(app: AppHandle, state: State<AppState>, program_id: String) -> Result<(), String> {
     let mgr = state.manager.lock().unwrap();
-    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+    let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
         return Err(t!("err.program_not_found", id = program_id).into());
     };
     let data_dir = mgr.data_dir.clone();
@@ -455,7 +455,7 @@ fn spawn_exit_watcher(app: AppHandle, program_id: String) {
             let running = {
                 let st = handle.state::<AppState>();
                 let mut mgr = st.manager.lock().unwrap();
-                match mgr.programs.iter().find(|p| p.id == program_id).cloned() {
+                match mgr.all_programs().into_iter().find(|p| p.id == program_id) {
                     Some(p) => mgr.status_local(&p).running,
                     None => break, // 程序已被移除/卸载：停止监听
                 }
@@ -480,7 +480,7 @@ fn start_program(
     payload: StartPayload,
 ) -> Result<StatusView, String> {
     let mut mgr = state.manager.lock().unwrap();
-    let Some(p) = mgr.programs.iter().find(|p| p.id == payload.program_id).cloned() else {
+    let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == payload.program_id) else {
         return Err(t!("err.program_not_found", id = payload.program_id).into());
     };
     mgr.save_field_values(&p, &payload.values);
@@ -498,7 +498,7 @@ fn start_program(
 #[tauri::command]
 fn stop_program(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
     let mut mgr = state.manager.lock().unwrap();
-    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+    let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
         return Err(t!("err.program_not_found", id = program_id).into());
     };
     mgr.stop(&program_id).map_err(|e| format!("{e:#}"))?;
@@ -517,7 +517,7 @@ fn restart_program(
     payload: StartPayload,
 ) -> Result<StatusView, String> {
     let mut mgr = state.manager.lock().unwrap();
-    let Some(p) = mgr.programs.iter().find(|p| p.id == payload.program_id).cloned() else {
+    let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == payload.program_id) else {
         return Err(t!("err.program_not_found", id = payload.program_id).into());
     };
     mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
@@ -581,7 +581,7 @@ fn set_autostart(
     enabled: bool,
 ) -> Result<(), String> {
     let mgr = state.manager.lock().unwrap();
-    let Some(p) = mgr.programs.iter().find(|p| p.id == program_id).cloned() else {
+    let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
         return Err(t!("err.program_not_found", id = program_id).into());
     };
     // 方案 B：把自启动状态写进该程序的字段值(壳启动时据此决定是否拉起)
@@ -755,7 +755,7 @@ struct LogsView {
 #[tauri::command]
 fn get_logs(state: State<AppState>, program_id: String) -> Result<LogsView, String> {
     let mgr = state.manager.lock().unwrap();
-    if !mgr.programs.iter().any(|p| p.id == program_id) {
+    if !mgr.all_programs().iter().any(|p| p.id == program_id) {
         return Err(t!("err.program_not_found", id = program_id).into());
     }
     let (out, _err) = mgr.read_logs(&program_id, 64 * 1024);
@@ -852,7 +852,7 @@ fn edit_program(
     payload: EditProgramPayload,
 ) -> Result<ProgramView, String> {
     let mut mgr = state.manager.lock().unwrap();
-    let Some(base) = mgr.programs.iter().find(|p| p.id == payload.id).cloned() else {
+    let Some(base) = mgr.all_programs().into_iter().find(|p| p.id == payload.id) else {
         return Err(t!("err.program_not_found", id = payload.id).into());
     };
     let updated = build_program_from_edit(&payload, &base);

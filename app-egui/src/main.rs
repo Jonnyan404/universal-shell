@@ -245,7 +245,7 @@ impl ShellApp {
         let (tx, rx) = mpsc::channel();
         let mut info_for_values = vec![];
         let mut values = BTreeMap::new();
-        for p in &manager.programs {
+        for p in &manager.all_programs() {
             info_for_values.push((p.id.clone(), manager.load_field_values(p)));
         }
         for (id, v) in info_for_values {
@@ -256,7 +256,7 @@ impl ShellApp {
             .first()
             .cloned()
             .unwrap_or_default();
-        let current_id = manager.programs.first().map(|p| p.id.clone());
+        let current_id = manager.all_programs().first().map(|p| p.id.clone());
         let settings_accel = manager.proxy.accelerate_prefix.clone();
         let (settings_proxy_type, settings_proxy_host, settings_proxy_user, settings_proxy_pass) =
             parse_proxy(&manager.proxy.http_proxy);
@@ -275,7 +275,7 @@ impl ShellApp {
         let vcheck = manager.load_version_check();
         let mut latest_versions: BTreeMap<String, (Option<String>, String)> = BTreeMap::new();
         let mut latest_checked_at: Option<i64> = None;
-        for p in &manager.programs {
+        for p in &manager.all_programs() {
             if let Some((v, t)) = vcheck.get(&p.repo) {
                 latest_versions.insert(p.id.clone(), (Some(v.clone()), String::new()));
                 let t64 = *t as i64;
@@ -605,15 +605,14 @@ impl ShellApp {
                     self.update_checks.remove(&pid);
                     match result {
                         Ok(remote) => {
-                            let cur = self.shown_program().cloned();
-                            let cur = cur.as_ref().or_else(|| {
-                                self.manager.programs.iter().find(|p| p.id == pid).clone()
+                            let cur = self.shown_program().or_else(|| {
+                                self.manager.all_programs().into_iter().find(|p| p.id == pid)
                             });
                             let Some(cur) = cur else {
                                 self.show_toast(t!("eg.not_found_instance").to_string());
                                 return;
                             };
-                            let diff = self.manager.template_diff(cur, &remote);
+                            let diff = self.manager.template_diff(&cur, &remote);
                             if diff.is_empty() {
                                 self.pending_updates.remove(&pid);
                                 self.show_toast(t!("eg.no_diff").to_string());
@@ -645,7 +644,7 @@ impl ShellApp {
                     // 落盘版本检查缓存（按 repo 缓存最新版本 + 检查时间，重启后再读）
                     let checked = now.max(0) as u64;
                     let mut vc: BTreeMap<String, (String, u64)> = BTreeMap::new();
-                    for p in &self.manager.programs {
+                    for p in &self.manager.all_programs() {
                         if let Some((Some(v), _)) = self.latest_versions.get(&p.id) {
                             vc.insert(p.repo.clone(), (v.clone(), checked));
                         }
@@ -689,7 +688,7 @@ impl ShellApp {
 
     fn refresh_status(&mut self) {
         // 后台异步刷新各程序最新版本（联网，避免主线程卡顿）
-        let programs = self.manager.programs.clone();
+        let programs = self.manager.all_programs();
         let proxy = self.manager.proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
@@ -819,13 +818,13 @@ impl ShellApp {
         self.manager.save_config(&self.config_path)
     }
 
-    fn shown_program(&self) -> Option<&shared::config::Program> {
+    fn shown_program(&self) -> Option<shared::config::Program> {
         let id = self.current_id.as_deref()?;
-        self.manager.programs.iter().find(|p| p.id == id)
+        self.manager.all_programs().into_iter().find(|p| p.id == id)
     }
 
     fn show_form(&mut self, ui: &mut egui::Ui) {
-        let Some(p) = self.shown_program().cloned() else {
+        let Some(p) = self.shown_program() else {
             return;
         };
         let pid = p.id.clone();
@@ -937,7 +936,7 @@ impl ShellApp {
         ui.separator();
 
         // 程序列表（可滚动），预留底部链接空间
-        let programs = self.manager.programs.clone();
+        let programs = self.manager.all_programs();
         let visible: Vec<_> = programs.iter().filter(|p| !p.hidden).collect();
         let selected_id = self.current_id.clone();
         let list_height = (ui.available_height() - 86.0).max(80.0);
@@ -1164,7 +1163,7 @@ impl ShellApp {
     }
 
     fn show_manage(&mut self, ui: &mut egui::Ui) {
-        let Some(p) = self.shown_program().cloned() else {
+        let Some(p) = self.shown_program() else {
             ui.label(t!("eg.no_program"));
             return;
         };
@@ -1461,7 +1460,7 @@ impl ShellApp {
                         self.import_local_path(path);
                     }
                 }
-                if ui.button(format!("{} ({})", t!("lib.local"), self.manager.programs.len())).clicked() {
+                if ui.button(format!("{} ({})", t!("lib.local"), self.manager.all_programs().len())).clicked() {
                     self.show_local_drawer = !self.show_local_drawer;
                 }
             });
@@ -1592,7 +1591,7 @@ impl ShellApp {
         base: String,
         merged: &shared::MergedSource,
     ) {
-        let imported = self.manager.programs.iter().any(|p| p.id == id);
+        let imported = self.manager.all_programs().iter().any(|p| p.id == id);
         egui::Frame::group(ui.style())
             .inner_margin(egui::Margin::same(8))
             .show(ui, |ui| {
@@ -1757,7 +1756,7 @@ impl ShellApp {
     /// 本地模板抽屉：列出已导入程序 + 管理按钮（对齐 Tauri renderLocalTemplates）
     fn show_local_drawer_ui(&mut self, ui: &mut egui::Ui) {
         ui.strong(t!("lib.local_has"));
-        let list = self.manager.programs.clone();
+        let list = self.manager.all_programs();
         if list.is_empty() {
             ui.label(t!("lib.empty_local"));
             ui.separator();
@@ -2012,7 +2011,7 @@ impl ShellApp {
 
     /// 批量管理视图：列出所有受管程序，每行 start/stop + 打开应用目录，统一刷新/停止。
     fn show_batch(&mut self, ui: &mut egui::Ui) {
-        let programs = self.manager.programs.clone();
+        let programs = self.manager.all_programs();
         // 工具栏：刷新状态 / 检查更新 / 停止所有（匹配 Tauri batch-toolbar）
         ui.horizontal(|ui| {
             ui.heading(t!("batch.title"));
@@ -2226,7 +2225,7 @@ impl ShellApp {
 
     /// 程序日志查看器：浮窗展示当前程序日志尾部（对齐 Tauri log-modal，含复制/刷新/打开日志目录/关闭）。
     fn show_log_window(&mut self, ctx: &egui::Context) {
-        let Some(p) = self.shown_program().cloned() else {
+        let Some(p) = self.shown_program() else {
             self.show_log = false;
             return;
         };
@@ -2342,7 +2341,7 @@ impl ShellApp {
 
     /// 打开编辑弹窗，按程序当前定义填充表单缓冲。
     fn open_edit(&mut self, id: &str) {
-        let Some(base) = self.manager.programs.iter().find(|p| p.id == id).cloned() else {
+        let Some(base) = self.manager.all_programs().iter().find(|p| p.id == id).cloned() else {
             return;
         };
         self.edit_id = Some(id.to_string());
@@ -2480,7 +2479,7 @@ impl ShellApp {
     /// 提交编辑：用表单缓冲构建新 Program 并写入配置（对齐 Tauri build_program_from_edit + edit_program）。
     fn commit_edit(&mut self) {
         let Some(id) = self.edit_id.clone() else { return };
-        let Some(base) = self.manager.programs.iter().find(|p| p.id == id).cloned() else {
+        let Some(base) = self.manager.all_programs().iter().find(|p| p.id == id).cloned() else {
             return;
         };
         let fields: Vec<shared::config::Field> = self

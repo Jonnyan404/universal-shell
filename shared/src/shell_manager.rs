@@ -94,6 +94,8 @@ pub struct ShellManager {
     /// 数据目录：存放下载的二进制、日志、运行时配置
     pub data_dir: PathBuf,
     pub programs: Vec<Program>,
+    /// 内置受管程序（编译期嵌入，始终存在；用户同 id 配置优先）
+    pub builtin_programs: Vec<Program>,
     /// 远程模板注册表基地址列表
     pub template_registries: Vec<String>,
     /// 各注册表 base -> Ed25519 公钥(hex)，签名校验
@@ -114,6 +116,8 @@ impl ShellManager {
         Ok(Self {
             data_dir,
             programs: vec![],
+            // 内置程序编译期固定；用户加载 shell.json 时按同 id 覆盖，未覆盖的多保留。
+            builtin_programs: crate::builtin::builtin_programs().to_vec(),
             // 默认内置官方 GitHub 源(附 demo 公钥验签)，保证全新数据目录也能看到官方模板；
             // 若后续加载了 shell.json 且用户显式配置了其它源，由 load_config 覆盖之。
             template_registries: vec![DEFAULT_REGISTRY.to_string()],
@@ -126,6 +130,21 @@ impl ShellManager {
             proxy: crate::config::ProxySettings::default(),
             locale: "auto".to_string(),
         })
+    }
+
+    /// 全部受管程序 = 内置 + 用户配置，用户同 id 优先（覆盖内置）。内置始终并存。
+    pub fn all_programs(&self) -> Vec<Program> {
+        let mut all = self.builtin_programs.clone();
+        let mut ids: std::collections::HashSet<String> = all.iter().map(|p| p.id.clone()).collect();
+        for p in &self.programs {
+            if ids.insert(p.id.clone()) {
+                all.push(p.clone());
+            } else if let Some(existing) = all.iter_mut().find(|e| e.id == p.id) {
+                // 用户同 id 覆盖内置
+                *existing = p.clone();
+            }
+        }
+        all
     }
 
     /// 加载配置文件(JSON)。支持 `--config` 路径，默认从数据目录读 shell.json
@@ -537,7 +556,7 @@ impl ShellManager {
             Ok(()) => return Ok(()),
             Err(e1) => {
                 let bin = self
-                    .programs
+                    .all_programs()
                     .iter()
                     .find(|p| p.id == id)
                     .map(|p| self.bin_path(p));
@@ -609,7 +628,7 @@ impl ShellManager {
 
     /// 壳启动后自动拉起所有开启「自启动」的程序（方案 B：壳管理）。    /// 逐个用保存的字段值渲染参数并启动，失败仅记日志不影响后续。
     pub fn start_autostart_programs(&mut self) {
-        let programs = self.programs.clone();
+        let programs = self.all_programs();
         for p in &programs {
             let values = self.load_field_values(p);
             let enabled = p
@@ -735,26 +754,61 @@ impl ShellManager {
         remote: &Program,
         path: &Path,
     ) -> anyhow::Result<()> {
-        let Some(idx) = self.programs.iter().position(|p| p.id == id) else {
+        let is_builtin = if self.programs.iter().any(|p| p.id == id) {
+            false
+        } else if self.builtin_programs.iter().any(|p| p.id == id) {
+            true
+        } else {
             anyhow::bail!(t!("err.program_not_found", id = &id));
         };
-        let old_values = self.load_field_values(&self.programs[idx]);
-        let hidden = self.programs[idx].hidden;
-        let merged = Self::apply_template_update(&mut self.programs[idx], remote, &old_values);
-        self.programs[idx].hidden = hidden;
+
+        let find = |list: &[Program]| list.iter().find(|p| p.id == id).cloned();
+        let mut current = if is_builtin {
+            find(&self.builtin_programs)
+        } else {
+            find(&self.programs)
+        }
+        .ok_or_else(|| anyhow::anyhow!(t!("err.program_not_found", id = &id)))?;
+
+        let old_values = self.load_field_values(&current);
+        let hidden = current.hidden;
+        let merged = Self::apply_template_update(&mut current, remote, &old_values);
+        current.hidden = hidden;
         // id 跟随实例(用户不改 id)，避免改动脏掉关联文件
-        self.programs[idx].id = id.to_string();
+        current.id = id.to_string();
         // apply_template_update 已按 remote.fields 迁移/补齐字段值
-        self.save_field_values(&self.programs[idx], &merged);
+        self.save_field_values(&current, &merged);
+
+        let target = if is_builtin {
+            &mut self.builtin_programs
+        } else {
+            &mut self.programs
+        };
+        if let Some(slot) = target.iter_mut().find(|p| p.id == id) {
+            *slot = current;
+        }
         self.save_config(path)
     }
 
     /// 删除实例：从配置移除程序，并清理其二进制/版本/字段值文件。
     pub fn delete_program(&mut self, id: &str, path: &Path) -> anyhow::Result<()> {
-        let Some(idx) = self.programs.iter().position(|p| p.id == id) else {
+        let is_builtin = if self.programs.iter().any(|p| p.id == id) {
+            false
+        } else if self.builtin_programs.iter().any(|p| p.id == id) {
+            true
+        } else {
             anyhow::bail!(t!("err.program_not_found", id = &id));
         };
-        let p = self.programs.remove(idx);
+        let p = if is_builtin {
+            self.builtin_programs.remove(
+                self.builtin_programs
+                    .iter()
+                    .position(|x| x.id == id)
+                    .unwrap(),
+            )
+        } else {
+            self.programs.remove(self.programs.iter().position(|x| x.id == id).unwrap())
+        };
         if let Err(e) = self.runner.stop(&id) {
             log::warn!("{}", t!("log.stop_failed", id = id, err = format!("{e:#}")));
         }
@@ -771,10 +825,23 @@ impl ShellManager {
     /// 设置实例的隐藏状态；写出配置。隐藏后侧栏/主管理不展示，
     /// 批量管理始终可见，故不会出现「全部程序失联」的情况。
     pub fn set_hidden(&mut self, id: &str, hidden: bool, path: &Path) -> anyhow::Result<()> {
-        let Some(p) = self.programs.iter_mut().find(|p| p.id == id) else {
+        let is_builtin = if self.programs.iter().any(|p| p.id == id) {
+            false
+        } else if self.builtin_programs.iter().any(|p| p.id == id) {
+            true
+        } else {
             anyhow::bail!(t!("err.program_not_found", id = &id));
         };
-        p.hidden = hidden;
+        {
+            let target = if is_builtin {
+                &mut self.builtin_programs
+            } else {
+                &mut self.programs
+            };
+            if let Some(p) = target.iter_mut().find(|p| p.id == id) {
+                p.hidden = hidden;
+            }
+        }
         self.save_config(path)
     }
 
@@ -904,6 +971,38 @@ mod tests {
             mgr.registry_pubkeys.get(DEFAULT_REGISTRY).map(|s| s.as_str()),
             Some(DEFAULT_REGISTRY_PUBKEY)
         );
+    }
+
+    /// 内置程序始终存在；用户同 id 配置优先；用户新增程序追加。
+    #[test]
+    fn all_programs_merges_builtin_with_user_override() {
+        let dir = std::env::temp_dir().join("cc-all-programs");
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        // 全新 manager：内置应立即可见
+        let ids: Vec<String> = mgr.all_programs().iter().map(|p| p.id.clone()).collect();
+        assert!(!ids.is_empty(), "应内置至少一个程序");
+        let builtin_id = ids[0].clone();
+
+        // 用户配置：覆盖内置同 id 程序 + 追加一个新程序
+        let mut user = crate::config::ShellConfig::default();
+        let mut override_p = crate::builtin::builtin_programs()[0].clone();
+        override_p.name = "用户改名的内置".to_string();
+        let extra: Program = serde_json::from_str(
+            r#"{"id":"dufs","name":"dufs","repo":"sigoden/dufs","binary":"dufs","fields":[],"args":[]}"#,
+        )
+        .unwrap();
+        user.programs = vec![override_p.clone(), extra.clone()];
+        let cfg_path = dir.join("cfg.json");
+        std::fs::write(&cfg_path, serde_json::to_string(&user).unwrap()).unwrap();
+        mgr.load_config(&cfg_path).unwrap();
+
+        let all = mgr.all_programs();
+        let by_id: std::collections::HashMap<String, Program> =
+            all.into_iter().map(|p| (p.id.clone(), p)).collect();
+        // 用户覆盖内置同名程序
+        assert_eq!(by_id.get(&builtin_id).unwrap().name, "用户改名的内置");
+        // 用户新增程序保留
+        assert_eq!(by_id.get("dufs").unwrap().repo, "sigoden/dufs");
     }
 
     /// 追加足够多条日志越过容量上限后，文件被截末一半，体积不再无限增长。

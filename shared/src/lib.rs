@@ -3,6 +3,7 @@
 //! 提供给 GUI(egui / Tauri)复用，也可被 CLI 调用。
 
 pub mod autostart;
+pub mod builtin;
 pub mod checksum;
 pub mod config;
 pub mod extract;
