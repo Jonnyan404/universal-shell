@@ -3,7 +3,7 @@
 #
 # egui / tauri 均按平台产出自带安装包（单一构建主机只能原生产出自己系统的包，
 # 与 tauri bundles "all" 行为一致；Linux .deb/.rpm/.AppImage 需 Linux 环境）：
-#   macOS:  egui=.app+.dmg(arm64+x86_64 通用)  tauri=.app+.dmg(.app 目录)
+#   macOS:  egui=.app+.dmg(原生单架构)          tauri=.app+.dmg(.app 目录)
 #   Windows: egui=.exe+.msi(xwin+WiX)          tauri=.msi+.exe
 #   Linux:  egui 单二进制(暂)                  tauri=.deb/.rpm/.AppImage
 # 同时输出每个产物的 SHA256（写入 dist/sha256.txt），便于发布与校验。
@@ -31,15 +31,12 @@ have() { command -v "$1" >/dev/null 2>&1; }
 echo "==> build egui installers"
 EGUI="dist/egui/$OS"
 if [ "$OS" = "darwin" ]; then
-  cargo build --release --target aarch64-apple-darwin -p app-egui
-  cargo build --release --target x86_64-apple-darwin -p app-egui
+  cargo build --release -p app-egui
 
   mkdir -p "$EGUI"
   APPNAME="$EGUI/$APP.app"
   mkdir -p "$APPNAME/Contents/MacOS" "$APPNAME/Contents/Resources"
-  lipo -create -output "$APPNAME/Contents/MacOS/$APP" \
-    target/aarch64-apple-darwin/release/$APP \
-    target/x86_64-apple-darwin/release/$APP
+  cp target/release/$APP "$APPNAME/Contents/MacOS/$APP"
   cp "$ICONS/icon.icns" "$APPNAME/Contents/Resources/icon.icns"
   cat > "$APPNAME/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -66,17 +63,23 @@ PLIST
   cp -R "$APPNAME" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
   hdiutil create -volname "Universal Shell $VERSION" -srcfolder "$STAGE" \
-    -ov -format UDZO "$EGUI/$APP-$VERSION.dmg" >/dev/null
+    -ov -format UDZO "$EGUI/$APP-$VERSION-$ARCH.dmg" >/dev/null
   rm -rf "$STAGE"
 
 elif [ "$OS" = "mingw" ] || [ "$OS" = "windows" ] || [ "$OSTYPE" = "msys" ] || [ "$OSTYPE" = "cygwin" ]; then
   # 按宿主架构选 MSVC target（原生 Windows ARM64 runner 也能直接编译 aarch64）；
   # 可用 EGUI_TARGET 显式覆盖（例如在 macOS 上用 xwin 交叉出其它 arch）。
-  case "${PROCESSOR_ARCHITECTURE:-$(uname -m)}" in
-    ARM64|aarch64) TGT="${EGUI_TARGET:-aarch64-pc-windows-msvc}" ;;
-    AMD64|x86_64)  TGT="${EGUI_TARGET:-x86_64-pc-windows-msvc}" ;;
-    *)             TGT="${EGUI_TARGET:-x86_64-pc-windows-msvc}" ;;
-  esac
+  # 注意：Git Bash 在 ARM64 Windows 上跑在 x86_64 仿真下，uname -m 返回 x86_64，
+  # 但 uname -s 会带 -arm64 后缀（如 mingw64_nt-10.0-26200-arm64），
+  # 以此为可靠判据；PROCESSOR_ARCHITECTURE 在 MSYS 下也是 AMD64，不可靠。
+  if [ -n "${EGUI_TARGET:-}" ]; then
+    TGT="$EGUI_TARGET"
+  else
+    case "$OS" in
+      *-arm64) TGT=aarch64-pc-windows-msvc ;;
+      *)       TGT=x86_64-pc-windows-msvc ;;
+    esac
+  fi
   echo "==> [Windows] target: $TGT"
   # macOS 交叉 .exe 用 cargo-xwin；原生 Windows 直接 cargo build
   if [ "$(uname -s)" = "Darwin" ]; then
