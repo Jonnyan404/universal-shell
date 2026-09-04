@@ -94,7 +94,8 @@ elif [ "$OS" = "mingw" ] || [ "$OS" = "windows" ] || [ "$OSTYPE" = "msys" ] || [
 
   # .msi 用 WiX (candle/light) + cargo-wix：WiX 本身仅 Windows 原生，
   # 因此在 macOS 上交叉出 .msi 不可行，仅当 WiX 在 PATH 时才产出
-  if have candle && [ -f wix/main.wxs ]; then
+  if { have candle || have wix; } && [ -f wix/main.wxs ]; then
+    mkdir -p "$EGUI"
     (cd app-egui && cargo wix --nocapture --no-build \
       --target "$TGT" --target-bin-dir "../../../target/$TGT/release" \
       -o "../$EGUI/$APP-$VERSION-$TGT.msi")
@@ -110,20 +111,32 @@ else
 fi
 
 echo "==> build tauri bundle"
-# tauri 打包在某些架构/环境下可能失败（如 ARM64 Windows 的 NSIS 生成器）；
+# tauri 仅在 Linux/macOS 打包（Windows 上无 cargo-tauri/NSIS 支持，跳过）；
 # 即便失败也保留已千辛万苦产出的 egui 安装包，仅记警告
-if (cd app-tauri && cargo tauri build); then
-  if [ -d target/release/bundle ]; then
-    cp -R target/release/bundle dist/bundle
-  fi
-else
-  echo "!! tauri bundle 打包失败（egui 产物已生成，继续收尾）"
-fi
+case "$OS" in
+  darwin|linux)
+    if (cd app-tauri && cargo tauri build); then
+      if [ -d target/release/bundle ]; then
+        cp -R target/release/bundle dist/bundle
+      fi
+    else
+      echo "!! tauri bundle 打包失败（egui 产物已生成，继续收尾）"
+    fi
+    ;;
+  *)
+    echo "!! 当前平台($OS)无 tauri 打包环境，跳过 tauri bundle"
+    ;;
+esac
 
 echo "==> sha256"
 : > dist/sha256.txt
+if have sha256sum; then
+  HASH="sha256sum"
+else
+  HASH="shasum -a 256"
+fi
 find dist -type f -not -name sha256.txt -not -name '.DS_Store' -print0 | while IFS= read -r -d '' f; do
-  shasum -a 256 "$f" | sed "s#dist/##" >> dist/sha256.txt
+  $HASH "$f" | sed "s#dist/##" >> dist/sha256.txt
 done
 cat dist/sha256.txt
 echo "==> done: $(pwd)/dist"

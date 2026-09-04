@@ -65,6 +65,14 @@ jobs:
             libfontconfig-dev
         shell: bash
 
+      - name: Install WiX Toolset (Windows .msi)
+        if: runner.os == 'Windows'
+        run: |
+          cargo install cargo-wix --locked
+          dotnet tool install --global wix
+          echo "$HOME/.dotnet/tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+        shell: pwsh
+
       - name: Build + package
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
