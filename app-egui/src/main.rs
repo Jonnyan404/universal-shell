@@ -4,7 +4,7 @@
 //! string=文本框 / file=文件选择(rfd) / directory=目录选择(rfd) /
 //! boolean=复选框 / autostart=开机启动(立即生效)。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -94,6 +94,8 @@ enum Msg {
     StatusRefreshed(Vec<(String, Option<String>, String)>),
     /// 托盘菜单「开机自启」被点击：请求主线程切换壳自身自启
     TrayAutoToggle,
+    /// 后台存活轮询结果：(程序 id, 路径探测是否存活)，约每 3s 一次
+    RunningPolled(Vec<(String, bool)>),
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -215,6 +217,11 @@ struct ShellApp {
     checking_updates: bool,
     /// 最近一次「检查更新」完成时间（unix 秒），用于「上次检查更新」提示
     latest_checked_at: Option<i64>,
+    /// 各程序的路径存活探测结果（后台线程约每 3s 轮询；渲染只读缓存，
+    /// 避免 UI 线程 fork pgrep/tasklist 造成切换卡顿）。key = 程序 id
+    path_alive: HashMap<String, bool>,
+    /// 存活轮询线程的监听列表通道（程序增删后刷新监听对象）
+    running_watch_tx: Option<Sender<Vec<(String, PathBuf)>>>,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
     /// 托盘菜单「开机自启」CheckMenuItem 句柄（用于同步勾选状态）
@@ -245,6 +252,8 @@ impl ShellApp {
             parse_proxy(&manager.proxy.http_proxy);
         let settings_shell_auto = manager.autostart.shell_is_enabled();
         let sources_rows = manager.template_registries.clone();
+        // shell.log 按会话划分：启动分隔线（重启不清档、可审计，手动点 🗑 清空）
+        manager.log_op(&t!("log.shell_started"));
         // 壳启动后自动拉起所有开启了「自启动」的程序（方案 B：壳管理，对齐 Tauri）
         manager.start_autostart_programs();
         // 启动即读版本检查缓存（曾经联网查过 → 回填最新版本与上次检查时间，对齐 Tauri from_local）
@@ -258,7 +267,7 @@ impl ShellApp {
                 latest_checked_at = Some(latest_checked_at.map_or(t64, |m| m.max(t64)));
             }
         }
-        Self {
+        let mut app = Self {
             manager,
             values,
             toasts: Vec::new(),
@@ -308,10 +317,14 @@ impl ShellApp {
             confirm_delete: None,
             checking_updates: false,
             latest_checked_at,
+            path_alive: HashMap::new(),
+            running_watch_tx: None,
             tray: None,
             tray_auto: None,
             quit: Arc::new(AtomicBool::new(false)),
-        }
+        };
+        app.spawn_running_poller();
+        app
     }
 
     /// D1: 创建托盘图标（macOS 要求主线程创建，此处在 eframe AppCreator 内调用）。
@@ -625,6 +638,11 @@ impl ShellApp {
                     self.manager.save_version_check(&vc);
                     self.show_toast(t!("dl.done").to_string());
                 }
+                Msg::RunningPolled(list) => {
+                    for (id, alive) in list {
+                        self.path_alive.insert(id, alive);
+                    }
+                }
                 Msg::TrayAutoToggle => {
                     let next = !self.manager.autostart.shell_is_enabled();
                     match self.manager.autostart.set_shell_enabled(next) {
@@ -674,9 +692,67 @@ impl ShellApp {
         });
     }
 
-    /// 渲染用状态：本地状态 + 后台缓存的最新版本（不在渲染时联网）。
+    /// UI 线程运行态：句柄持有（try_wait，无派生）OR 后台路径探测缓存。
+    /// 渲染路径禁止调用 manager.is_program_running（内含 pgrep 派生，会卡 UI）。
+    fn ui_running(&mut self, p: &shared::config::Program) -> bool {
+        self.manager.is_held(&p.id) || self.path_alive.get(&p.id).copied().unwrap_or(false)
+    }
+
+    /// 存活轮询的监听列表：(程序 id, 可执行文件路径)
+    fn running_watch_list(&self) -> Vec<(String, PathBuf)> {
+        self.manager
+            .programs
+            .iter()
+            .map(|p| (p.id.clone(), self.manager.bin_path(p)))
+            .collect()
+    }
+
+    /// 程序增删后刷新后台轮询的监听对象
+    fn refresh_running_watch(&self) {
+        if let Some(tx) = &self.running_watch_tx {
+            let _ = tx.send(self.running_watch_list());
+        }
+    }
+
+    /// 后台存活轮询线程：约每 3s 用路径探测刷新各程序存活态，经 Msg 回主线程。
+    /// pgrep/tasklist 派生全部发生在工作线程，UI 线程只读 path_alive 缓存。
+    fn spawn_running_poller(&mut self) {
+        let (list_tx, list_rx) = mpsc::channel::<Vec<(String, PathBuf)>>();
+        let _ = list_tx.send(self.running_watch_list());
+        self.running_watch_tx = Some(list_tx);
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let runner = shared::runner::Runner::new();
+            let mut list: Vec<(String, PathBuf)> = Vec::new();
+            loop {
+                while let Ok(l) = list_rx.try_recv() {
+                    list = l;
+                }
+                let out: Vec<(String, bool)> = list
+                    .iter()
+                    .map(|(id, bin)| (id.clone(), runner.is_process_alive(bin)))
+                    .collect();
+                if tx.send(Msg::RunningPolled(out)).is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_secs(3));
+            }
+        });
+    }
+
+    /// 渲染用状态：本地状态 + 后台缓存的最新版本（不在渲染时联网，
+    /// 也不在渲染时派生进程查存活；运行态走 ui_running 缓存）。
     fn display_status(&mut self, p: &shared::config::Program) -> shared::ProgramStatus {
-        let mut st = self.manager.status_local(p);
+        let installed = self.manager.bin_path(p).exists();
+        let running = self.ui_running(p);
+        let local_version = self.manager.local_version(p);
+        let mut st = shared::ProgramStatus {
+            installed,
+            running,
+            local_version,
+            latest_version: None,
+            latest_published: String::new(),
+        };
         if let Some((v, ts)) = self.latest_versions.get(&p.id) {
             st.latest_version = v.clone();
             st.latest_published = ts.clone();
@@ -724,6 +800,7 @@ impl ShellApp {
             }
             self.manager.programs.push(program.clone());
         }
+        self.refresh_running_watch();
         self.manager.save_config(&self.config_path)
     }
 
@@ -859,7 +936,7 @@ impl ShellApp {
                 }
                 for p in visible {
                     let active = selected_id.as_deref() == Some(p.id.as_str());
-                    let st = self.manager.status_local(p);
+                    let st = self.display_status(p);
                     let initial = p
                         .name
                         .trim()
@@ -942,6 +1019,8 @@ impl ShellApp {
                     if nav_req {
                         self.current_id = Some(p.id.clone());
                         self.view = View::Manage;
+                        // 切菜单即关壳日志弹窗（高亮跟随弹窗开关）
+                        self.show_shell_log = false;
                     }
                     if edit_req {
                         self.open_edit(&p.id);
@@ -953,9 +1032,11 @@ impl ShellApp {
         ui.separator();
         if ui.selectable_label(matches!(self.view, View::Batch), format!("☰ {}", t!("batch.title"))).clicked() {
             self.view = View::Batch;
+            self.show_shell_log = false;
         }
         if ui.selectable_label(matches!(self.view, View::Library), format!("📚 {}", t!("lib.title"))).clicked() {
             self.view = View::Library;
+            self.show_shell_log = false;
         }
         ui.separator();
         if ui.selectable_label(self.show_shell_log, format!("📖 {}", t!("ui.shell_log_short"))).clicked() {
@@ -1110,7 +1191,7 @@ impl ShellApp {
             if status.latest_version.is_some() {
                 ui.label(t!("eg.latest_ver_fmt", ver = status.latest_version.as_deref().unwrap_or("")));
             }
-            if self.manager.is_program_running(&p) {
+            if status.running {
                 ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
             } else {
                 ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.stopped"));
@@ -1178,7 +1259,7 @@ impl ShellApp {
         // 操作区：启动/停止/重启（对齐 Tauri renderActions，处于运行态时停/重启可用、启动禁用）+ 图标按钮
         let values = self.values.get(&p.id).cloned().unwrap_or_default();
         let url = web_url(&p, &values);
-        let running = self.manager.is_program_running(&p);
+        let running = status.running;
         ui.horizontal(|ui| {
             let values_for_start = values;
             let running_now = running;
@@ -1247,7 +1328,7 @@ impl ShellApp {
 
     /// 内嵌程序日志终端：显示当前程序日志（stderr 行以 \x1F 开头标红）。
     fn show_manage_log(&mut self, ui: &mut egui::Ui, p: &shared::config::Program) {
-        if !self.manager.is_program_running(p) {
+        if !self.ui_running(p) {
             return;
         }
         ui.add_space(4.0);
@@ -1672,6 +1753,7 @@ impl ShellApp {
                         if ui.button(t!("act.manage")).clicked() {
                             self.current_id = Some(p.id.clone());
                             self.view = View::Manage;
+                            self.show_shell_log = false;
                         }
                     },
                 );
@@ -2092,6 +2174,7 @@ impl ShellApp {
                     if ui.small_button(t!("act.manage")).clicked() {
                         self.current_id = Some(p.id.clone());
                         self.view = View::Manage;
+                        self.show_shell_log = false;
                     }
                     if ui.small_button(t!("act.delete")).clicked() {
                         self.confirm_delete = Some(p.id.clone());
@@ -2213,13 +2296,16 @@ impl ShellApp {
                 ui.separator();
                 let content = std::fs::read_to_string(self.manager.op_log_path())
                     .unwrap_or_default();
+                // 只渲染末尾 400 行：shell.log 长期追加会变大，逐帧全量布局会卡
+                let lines: Vec<&str> = content.lines().collect();
+                let start = lines.len().saturating_sub(400);
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        if content.trim().is_empty() {
+                        if lines.is_empty() {
                             ui.weak(t!("shell_log.empty"));
                         } else {
-                            for line in content.lines() {
+                            for line in lines[start..].iter().copied() {
                                 ui.monospace(line);
                             }
                         }
@@ -2506,6 +2592,8 @@ impl ShellApp {
                         }
                         self.values.remove(&id);
                         self.latest_versions.remove(&id);
+                        self.path_alive.remove(&id);
+                        self.refresh_running_watch();
                         self.show_toast(
                             t!("toast.deleted", name = name.unwrap_or(id)).to_string(),
                         );

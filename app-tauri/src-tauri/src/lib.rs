@@ -1293,13 +1293,14 @@ pub fn run() {
                 });
             tray.build(app)?;
 
+            // shell.log 按会话划分：启动分隔线（重启不清档、可审计）
             // 方案 B：壳启动后自动拉起开启了「自启动」的程序
             {
                 let mgr = app.state::<AppState>();
-                let _ = mgr
-                    .manager
-                    .lock()
-                    .map(|mut m| m.start_autostart_programs());
+                let _ = mgr.manager.lock().map(|mut m| {
+                    m.log_op(&t!("log.shell_started"));
+                    m.start_autostart_programs()
+                });
             }
             Ok(())
         })

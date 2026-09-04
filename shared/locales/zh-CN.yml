@@ -235,6 +235,8 @@ eg.autostart_fail: '设置开机启动失败: %{err}'
 eg.no_source_registry: 该程序无来源注册表，无法检查更新
 log.autostart.launch: '应用自启动：拉起「%{name}」'
 log.autostart.fail: '应用自启动：拉起「%{name}」失败 - %{err}'
+log.autostart.skip: '应用自启动：跳过「%{name}」(已在运行)'
+log.shell_started: '壳启动（本次会话开始）'
 err.datadir: '无法创建数据目录 %{path}'
 err.init_datadir: 初始化数据目录失败
 err.load_config: 加载配置失败

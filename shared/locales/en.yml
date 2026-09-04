@@ -235,6 +235,8 @@ eg.autostart_fail: 'Failed to set autostart: %{err}'
 eg.no_source_registry: This program has no source registry; cannot check for updates
 log.autostart.launch: 'Autostart: launching "%{name}"'
 log.autostart.fail: 'Autostart: launching "%{name}" failed - %{err}'
+log.autostart.skip: 'Autostart: skipping "%{name}" (already running)'
+log.shell_started: 'Shell started (new session)'
 err.datadir: 'Cannot create data dir %{path}'
 err.init_datadir: Failed to initialize data directory
 err.load_config: Failed to load config

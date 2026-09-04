@@ -427,8 +427,15 @@ impl ShellManager {
         st
     }
 
+    /// 壳是否仍持有该程序的子进程句柄（try_wait 轮询回收，无进程派生，
+    /// 可在 UI 线程每帧调用；路径存活探测必须走后台线程）。
+    pub fn is_held(&mut self, id: &str) -> bool {
+        self.runner.is_running(id)
+    }
+
     /// 该程序是否在运行：壳持有子进程句柄，或系统上仍有该程序的进程
     /// （壳上次退出后残留、仍在后台运行）。避免只查句柄而漏判孤儿进程。
+    /// 注意：含 pgrep/tasklist 派生，禁止在 UI 渲染路径逐帧调用。
     pub fn is_program_running(&mut self, program: &Program) -> bool {
         self.runner.is_running(&program.id) || self.runner.is_process_alive(&self.bin_path(program))
     }
@@ -598,7 +605,10 @@ impl ShellManager {
             let held = self.runner.is_running(&p.id);
             let orphan = !held && self.runner.is_process_alive(&bin);
             if held || orphan {
-                continue; // 已在运行/残留进程在跑，不重复拉起
+                // 已在运行/残留进程在跑，不重复拉起（落盘，方便在壳日志里确认跳过）
+                log::info!("{}", t!("log.autostart.skip", name = &p.name));
+                self.log_op(&t!("log.autostart.skip", name = &p.name));
+                continue;
             }
             match self.start(p, &values) {
                 Ok(()) => {
