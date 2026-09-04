@@ -11,6 +11,16 @@ on:
         description: '版本号 (例如: 0.1.0)'
         required: true
         default: '0.1.0'
+      platforms:
+        description: '构建哪些平台 (release 触发时始终全平台)'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+          - linux
 
 permissions:
   contents: write
@@ -19,24 +29,32 @@ jobs:
   build:
     name: Build (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
+    # release 触发跑全部；workflow_dispatch 时按 platforms 输入过滤（空值按 all）
+    if: ${{ matrix.selected }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: linux-x86_64
             os: ubuntu-latest
+            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","linux"]'), github.event.inputs.platforms) }}
           - label: linux-arm64
             os: ubuntu-24.04-arm
+            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","linux"]'), github.event.inputs.platforms) }}
           - label: macOS-x86_64
             # 标准 macOS runner 默认即为 arm64（Apple Silicon）；x64 需显式 -intel
             os: macos-15-intel
+            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","macos"]'), github.event.inputs.platforms) }}
           - label: macOS-arm64
             os: macos-15
+            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","macos"]'), github.event.inputs.platforms) }}
           - label: windows-x86_64
             os: windows-latest
+            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","windows"]'), github.event.inputs.platforms) }}
           - label: windows-arm64
             # 官方原生 Windows ARM64 runner（Ampere Altra，非仿真）
             os: windows-11-arm
+            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","windows"]'), github.event.inputs.platforms) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
