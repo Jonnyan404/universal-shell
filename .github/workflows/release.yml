@@ -71,7 +71,7 @@ jobs:
         run: |
           cargo install cargo-wix --locked
           dotnet tool install --global wix
-          echo "$HOME/.dotnet/tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+          echo "$env:USERPROFILE\.dotnet\tools" | Out-File -FilePath $env:GITHUB_PATH -Append
         shell: pwsh
 
       - name: Resolve version
