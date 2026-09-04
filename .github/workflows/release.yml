@@ -29,32 +29,18 @@ jobs:
   build:
     name: Build (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
-    # release 触发跑全部；workflow_dispatch 时按 platforms 输入过滤（空值按 all）
-    if: ${{ matrix.selected }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - label: linux-x86_64
-            os: ubuntu-latest
-            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","linux"]'), github.event.inputs.platforms) }}
-          - label: linux-arm64
-            os: ubuntu-24.04-arm
-            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","linux"]'), github.event.inputs.platforms) }}
-          - label: macOS-x86_64
-            # 标准 macOS runner 默认即为 arm64（Apple Silicon）；x64 需显式 -intel
-            os: macos-15-intel
-            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","macos"]'), github.event.inputs.platforms) }}
-          - label: macOS-arm64
-            os: macos-15
-            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","macos"]'), github.event.inputs.platforms) }}
-          - label: windows-x86_64
-            os: windows-latest
-            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","windows"]'), github.event.inputs.platforms) }}
-          - label: windows-arm64
-            # 官方原生 Windows ARM64 runner（Ampere Altra，非仿真）
-            os: windows-11-arm
-            selected: ${{ github.event_name == 'release' || contains(fromJson('["all","windows"]'), github.event.inputs.platforms) }}
+          # release 触发跑全部；workflow_dispatch 时按 platforms 输入过滤。
+          # 用条件表达式产出整个 include 对象：条件为假时得到 {}，GitHub 忽略之。
+          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'linux') && {label: 'linux-x86_64', os: 'ubuntu-latest'} || {} }}"
+          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'linux') && {label: 'linux-arm64', os: 'ubuntu-24.04-arm'} || {} }}"
+          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'macos') && {label: 'macOS-x86_64', os: 'macos-15-intel'} || {} }}"
+          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'macos') && {label: 'macOS-arm64', os: 'macos-15'} || {} }}"
+          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'windows') && {label: 'windows-x86_64', os: 'windows-latest'} || {} }}"
+          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'windows') && {label: 'windows-arm64', os: 'windows-11-arm'} || {} }}"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
