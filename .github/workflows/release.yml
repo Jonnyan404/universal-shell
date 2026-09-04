@@ -199,11 +199,24 @@ jobs:
         shell: bash
 
       # ---- tauri：仅在 Linux/macOS 由 tauri build 原生产出 ----
+      # 只把最终可分发的安装包拷入 dist/bundle，丢弃 tauri 中间目录
+      # （AppImage/deb 的展开内容、control、*.so、gschemas、desktop 等大量无关文件），
+      # 避免它们混进 Release / sha256.txt。按平台限定 bundle 目标，防止 Linux 上产出 dmg 等跨平台产物。
       - name: Build tauri bundle (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          (cd app-tauri && npx tauri build) \
-            && cp -R target/release/bundle dist/bundle
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            BUNDLES="app,dmg"
+          else
+            BUNDLES="deb,rpm,appimage"
+          fi
+          (cd app-tauri && npx tauri build --bundles "$BUNDLES")
+          mkdir -p dist/bundle
+          # 仅保留最终安装包，丢开 tauri 的中间/展开文件
+          find target/release/bundle -type f \
+            \( -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
+               -o -name '*.msi' -o -name '*.exe' \) \
+            -exec cp {} dist/bundle/ \;
         shell: bash
 
       - name: SHA256
