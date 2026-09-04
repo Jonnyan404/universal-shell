@@ -1,9 +1,10 @@
 name: Release (universal-shell Rust)
 
 on:
-  push:
-    tags:
-      - 'v*'
+  # 创建/发布 GitHub Release 时自动构建并上传到该 Release
+  release:
+    types: [published]
+  # 手动触发（不发布，仅构建产物供预览/测试）
   workflow_dispatch:
     inputs:
       version:
@@ -32,6 +33,9 @@ jobs:
             os: macos-15-arm64
           - label: windows-x86_64
             os: windows-latest
+          - label: windows-arm64
+            # 官方原生 Windows ARM64 runner（Ampere Altra，非仿真）
+            os: windows-11-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -60,7 +64,11 @@ jobs:
 
       - name: Build + package
         run: |
-          VERSION=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${{ github.event.release.tag_name }}"
+          fi
           VERSION=$(echo "$VERSION" | sed 's/^v//')
           ./scripts/build-release.sh "$VERSION"
         shell: bash
@@ -81,7 +89,7 @@ jobs:
     name: Publish release
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: github.event_name == 'release'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -93,20 +101,10 @@ jobs:
           path: dist/
           merge-multiple: true
 
-      - name: Publish release
+      - name: Upload assets to Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
-          body: |
-            ## universal-shell ${{ github.ref_name }}
-
-            配置驱动的二进制程序管理壳（egui + Tauri 双前端）。
-
-            - `universal-shell-egui-<version>-<os>-<arch>` — egui 单二进制
-            - `bundle/...` — Tauri 系统原生安装包
-            - `sha256.txt` — 各产物 SHA256 核验
-
-            校验清单：见各产物旁 `sha256.txt`。
+          tag_name: ${{ github.event.release.tag_name }}
           files: |
             dist/**/*
         env:

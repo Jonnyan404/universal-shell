@@ -70,7 +70,14 @@ PLIST
   rm -rf "$STAGE"
 
 elif [ "$OS" = "mingw" ] || [ "$OS" = "windows" ] || [ "$OSTYPE" = "msys" ] || [ "$OSTYPE" = "cygwin" ]; then
-  TGT=x86_64-pc-windows-msvc
+  # 按宿主架构选 MSVC target（原生 Windows ARM64 runner 也能直接编译 aarch64）；
+  # 可用 EGUI_TARGET 显式覆盖（例如在 macOS 上用 xwin 交叉出其它 arch）。
+  case "${PROCESSOR_ARCHITECTURE:-$(uname -m)}" in
+    ARM64|aarch64) TGT="${EGUI_TARGET:-aarch64-pc-windows-msvc}" ;;
+    AMD64|x86_64)  TGT="${EGUI_TARGET:-x86_64-pc-windows-msvc}" ;;
+    *)             TGT="${EGUI_TARGET:-x86_64-pc-windows-msvc}" ;;
+  esac
+  echo "==> [Windows] target: $TGT"
   # macOS 交叉 .exe 用 cargo-xwin；原生 Windows 直接 cargo build
   if [ "$(uname -s)" = "Darwin" ]; then
     cargo xwin build --release --target "$TGT" -p app-egui
@@ -80,14 +87,14 @@ elif [ "$OS" = "mingw" ] || [ "$OS" = "windows" ] || [ "$OSTYPE" = "msys" ] || [
     BIN="target/$TGT/release/$APP.exe"
   fi
   mkdir -p "$EGUI"
-  cp "$BIN" "$EGUI/$APP-$VERSION.exe"
+  cp "$BIN" "$EGUI/$APP-$VERSION-$TGT.exe"
 
   # .msi 用 WiX (candle/light) + cargo-wix：WiX 本身仅 Windows 原生，
   # 因此在 macOS 上交叉出 .msi 不可行，仅当 WiX 在 PATH 时才产出
   if have candle && [ -f wix/main.wxs ]; then
     (cd app-egui && cargo wix --nocapture --no-build \
       --target "$TGT" --target-bin-dir "../../../target/$TGT/release" \
-      -o "../$EGUI/$APP-$VERSION.msi")
+      -o "../$EGUI/$APP-$VERSION-$TGT.msi")
   else
     echo "!! WiX Toolset(candle) 不在 PATH：egui 仅产出 .exe（.msi 需在 Windows/WiX 环境构建）"
   fi
@@ -100,9 +107,14 @@ else
 fi
 
 echo "==> build tauri bundle"
-(cd app-tauri && cargo tauri build)
-if [ -d target/release/bundle ]; then
-  cp -R target/release/bundle dist/bundle
+# tauri 打包在某些架构/环境下可能失败（如 ARM64 Windows 的 NSIS 生成器）；
+# 即便失败也保留已千辛万苦产出的 egui 安装包，仅记警告
+if (cd app-tauri && cargo tauri build); then
+  if [ -d target/release/bundle ]; then
+    cp -R target/release/bundle dist/bundle
+  fi
+else
+  echo "!! tauri bundle 打包失败（egui 产物已生成，继续收尾）"
 fi
 
 echo "==> sha256"
