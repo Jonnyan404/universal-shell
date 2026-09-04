@@ -1938,6 +1938,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     shellLogModal.hidden = true;
   }
   document.querySelector("#shell-log-link").onclick = openShellLogModal;
+  document.querySelector("#github-link").onclick = (e) => {
+    e.preventDefault();
+    window.__TAURI__.opener.openUrl("https://github.com/Jonnyan404/universal-shell");
+  };
   document.querySelector("#shell-log-modal-close").onclick = closeShellLogModal;
   document.querySelector("#shell-log-refresh").onclick = loadShellLog;
   document.querySelector("#shell-log-clear").onclick = async () => {

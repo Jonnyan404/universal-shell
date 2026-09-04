@@ -23,6 +23,7 @@ ui.batch: Batch management
 ui.library: Template library
 ui.shell_log: View shell operation log
 ui.shell_log_short: Shell log
+ui.github: GitHub
 ui.collapse: Collapse sidebar
 ui.expand: Expand sidebar
 ui.log: Log

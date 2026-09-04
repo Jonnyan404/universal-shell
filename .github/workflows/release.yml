@@ -152,6 +152,13 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           VERSION="${{ steps.version.outputs.value }}"
+          # egui 是各 runner 原生架构编译，非通用二进制；须带架构区分文件名，
+          # 否则 arm64/x86_64 两个 job 产出同名 dmg 互相覆盖，只留一份且被误标为"通用"
+          if echo "${{ matrix.label }}" | grep -q arm64; then
+            ARCH="aarch64"
+          else
+            ARCH="x86_64"
+          fi
           cd "$GITHUB_WORKSPACE"
           APP="universal-shell-egui"
           EGUI="dist/egui/macos"
@@ -183,7 +190,7 @@ jobs:
           cp -R "$APPNAME" "$STAGE/"
           ln -s /Applications "$STAGE/Applications"
           hdiutil create -volname "Universal Shell $VERSION" -srcfolder "$STAGE" \
-            -ov -format UDZO "$EGUI/$APP-$VERSION.dmg" >/dev/null
+            -ov -format UDZO "$EGUI/$APP-$VERSION-$ARCH.dmg" >/dev/null
           rm -rf "$STAGE"
           # dist/**/* 会上传整个 dist，删掉 .app 目录避免其内部文件
           # (Info.plist / icon.icns / 裸二进制)当独立资产混进 Release
@@ -208,12 +215,15 @@ jobs:
       - name: Build tauri bundle (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
+          VERSION="${{ steps.version.outputs.value }}"
           if [ "$RUNNER_OS" = "macOS" ]; then
             BUNDLES="app,dmg"
           else
             BUNDLES="deb,rpm,appimage"
           fi
-          (cd app-tauri && npx tauri build --bundles "$BUNDLES")
+          # 用解析出的 VERSION 覆盖 tauri.conf.json 里写死的 version，保证安装包版本与 release tag 一致
+          (cd app-tauri && npx tauri build --bundles "$BUNDLES" \
+            --config "{\"version\":\"$VERSION\"}")
           mkdir -p dist/bundle
           # 仅保留最终安装包，丢开 tauri 的中间/展开文件
           find target/release/bundle -type f \

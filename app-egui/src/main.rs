@@ -1063,6 +1063,11 @@ impl ShellApp {
         if ui.selectable_label(self.show_shell_log, format!("📖 {}", t!("ui.shell_log_short"))).clicked() {
             self.show_shell_log = true;
         }
+        // 左下角 GitHub 链接
+        ui.hyperlink_to(
+            egui::RichText::new(format!("⎇ {}", t!("ui.github"))).weak(),
+            "https://github.com/Jonnyan404/universal-shell",
+        );
     }
 
     /// 主内容区：标题栏 + 视图分派

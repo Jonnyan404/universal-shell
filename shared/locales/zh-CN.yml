@@ -23,6 +23,7 @@ ui.batch: 批量管理
 ui.library: 模板库
 ui.shell_log: 查看壳自身操作日志
 ui.shell_log_short: 壳日志
+ui.github: GitHub
 ui.collapse: 收窄侧栏
 ui.expand: 展开侧栏
 ui.log: 日志
