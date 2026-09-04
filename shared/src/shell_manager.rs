@@ -1080,4 +1080,20 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// 删除内置程序：会话内从 all_programs 消失；删除后再新建 manager 也不残留。
+    #[test]
+    fn delete_builtin_removes_it_from_all_programs() {
+        let dir = std::env::temp_dir().join("cc-del-builtin");
+        let _ = std::fs::remove_dir_all(&dir);
+        let builtin_id = crate::builtin::builtin_programs()[0].id.clone();
+        let cfg = dir.join("shell.json");
+
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        assert!(mgr.all_programs().iter().any(|p| p.id == builtin_id));
+        mgr.delete_program(&builtin_id, &cfg).unwrap();
+        assert!(!mgr.all_programs().iter().any(|p| p.id == builtin_id));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

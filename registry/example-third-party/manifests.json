@@ -1,0 +1,16 @@
+{
+  "revision": "rev-1",
+  "categories": [
+    "search",
+    "utility"
+  ],
+  "templates": [
+    {
+      "id": "fd",
+      "name": "fd",
+      "category": "search",
+      "description": "fd — 简洁快速的 find 替代品（Rust 编写，单裸二进制）。第三方程示例模板源。",
+      "repo": "sharkdp/fd"
+    }
+  ]
+}

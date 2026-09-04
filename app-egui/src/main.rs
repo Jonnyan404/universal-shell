@@ -210,8 +210,6 @@ struct ShellApp {
     show_settings: bool,
     /// 暗色主题
     dark_mode: bool,
-    /// 会话内操作日志（本程序页底部滚动条显示，最多保留 200 条）
-    op_logs: Vec<String>,
     /// 各程序的最新版本缓存（后台异步刷新，避免渲染时联网卡顿）
     /// key = 程序 id, value = (最新版本, 发布时间)
     latest_versions: BTreeMap<String, (Option<String>, String)>,
@@ -325,7 +323,6 @@ impl ShellApp {
             edit_fields: Vec::new(),
             show_settings: false,
             dark_mode,
-            op_logs: Vec::new(),
             latest_versions,
             confirm_delete: None,
             checking_updates: false,
@@ -826,14 +823,12 @@ impl ShellApp {
             return;
         };
         let pid = p.id.clone();
-        let values = self.values.entry(pid.clone()).or_default();
-
-        for field in &p.fields {
-            // 开机启动统一由批量管理页管理，程序页不再显示该字段
-            if matches!(field.kind, FieldKind::AutoStart { .. }) {
-                continue;
-            }
-            match &field.kind {
+        // 自启动开关走壳状态，因需 &mut self 调用 set_autostart，故先记录、循环后统一应用
+        let mut pending_autostart: Option<bool> = None;
+        {
+            let values = self.values.entry(pid.clone()).or_default();
+            for field in &p.fields {
+                match &field.kind {
                 FieldKind::String { label, placeholder, .. } => {
                     ui.horizontal(|ui| {
                         let v = values.entry(field.key.clone()).or_default();
@@ -885,9 +880,18 @@ impl ShellApp {
                         *v = if b { "true" } else { "false" }.to_string();
                     }
                 }
-                // 开机启动统一由批量管理页管理（外层已 continue），此臂仅为满足 match 穷尽性
-                FieldKind::AutoStart { .. } => {}
+                // 自启动由壳统一管理（program-autostart.json），模板字段值仅作展示；切换即写壳状态
+                FieldKind::AutoStart { label, .. } => {
+                    let mut b = self.manager.program_autostart(&pid);
+                    if ui.checkbox(&mut b, label).changed() {
+                        pending_autostart = Some(b);
+                    }
+                }
             }
+        }
+        }
+        if let Some(b) = pending_autostart {
+            self.set_autostart(&p, b);
         }
     }
 
@@ -1325,20 +1329,6 @@ impl ShellApp {
             }
         });
 
-        // 操作日志条（op-log）
-        if !self.op_logs.is_empty() {
-            ui.add_space(4.0);
-            ui.separator();
-            egui::ScrollArea::vertical()
-                .id_salt("op_log_scroll")
-                .max_height(90.0)
-                .show(ui, |ui| {
-                    for line in &self.op_logs {
-                        ui.monospace(format!("▪ {line}"));
-                    }
-                });
-        }
-
         // 内嵌程序日志终端（manage-log，仅运行中显示日志内容）
         self.show_manage_log(ui, &p);
     }
@@ -1384,14 +1374,9 @@ impl ShellApp {
             });
     }
 
-    /// 记录一条会话操作日志（推入 UI 数组 + 持久化到壳日志），最多保留 200 条。
+    /// 记录一条会话操作日志（持久化到壳日志 + 右上角 toast 反馈）。
     fn log_op(&mut self, msg: &str) {
         self.manager.log_op(msg);
-        self.op_logs.push(msg.to_string());
-        if self.op_logs.len() > 200 {
-            let over = self.op_logs.len() - 200;
-            self.op_logs.drain(..over);
-        }
         // 操作日志同样以右上角 toast 呈现，给用户可见反馈
         self.show_toast(msg.to_string());
     }
@@ -2558,8 +2543,8 @@ impl ShellApp {
         let mut closing = false;
         let name = self
             .manager
-            .programs
-            .iter()
+            .all_programs()
+            .into_iter()
             .find(|p| p.id == id)
             .map(|p| p.name.clone())
             .unwrap_or_else(|| id.to_string());
@@ -2581,15 +2566,12 @@ impl ShellApp {
                     }
                 });
             });
-        if !open || closing {
-            self.confirm_delete = None;
-        }
         if confirmed {
             if let Some(id) = self.confirm_delete.take() {
                 let name = self
                     .manager
-                    .programs
-                    .iter()
+                    .all_programs()
+                    .into_iter()
                     .find(|p| p.id == id)
                     .map(|p| p.name.clone());
                 match self.manager.delete_program(&id, &self.config_path) {
@@ -2612,6 +2594,8 @@ impl ShellApp {
                     }
                 }
             }
+        } else if !open || closing {
+            self.confirm_delete = None;
         }
     }
 }

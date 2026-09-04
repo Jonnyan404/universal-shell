@@ -1,0 +1,40 @@
+{
+  "id": "fd",
+  "name": "fd",
+  "description": "fd — 简洁快速的 find 替代品（Rust 编写，单裸二进制）。第三方程示例模板源。",
+  "repo": "sharkdp/fd",
+  "binary": "fd",
+  "category": "search",
+  "assets": {
+    "darwin": {
+      "candidates": ["fd-v{version}-aarch64-apple-darwin.tar.gz", "fd-v{version}-x86_64-apple-darwin.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "fd"
+    },
+    "linux": {
+      "candidates": ["fd-v{version}-x86_64-unknown-linux-gnu.tar.gz", "fd-v{version}-aarch64-unknown-linux-gnu.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "fd"
+    },
+    "windows": {
+      "candidates": ["fd-v{version}-x86_64-pc-windows-msvc.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "fd.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "x86_64",
+    "aarch64": "aarch64"
+  },
+  "os_map": {
+    "macos": "apple-darwin"
+  },
+  "fields": [
+    { "key": "dir", "kind": "directory", "label": "搜索目录", "default": "", "required": true },
+    { "key": "pattern", "kind": "string", "label": "匹配模式", "default": "", "placeholder": "*.rs" }
+  ],
+  "args": ["{pattern}", "{dir}"]
+}
