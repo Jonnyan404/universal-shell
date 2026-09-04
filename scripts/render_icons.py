@@ -380,20 +380,22 @@ def main():
         os.remove(tmp)
     save_ico(ico_blobs, os.path.join(TAURI_ICONS, "icon.ico"))
 
-    # egui runtime assets: 256 dock (png preview + raw rgba for include_bytes!)
+    # egui runtime assets: 256 dock raw rgba for include_bytes!
+    # (viewable masters live in assets/icons/*.svg + *-1024.png)
     ecur, esz = dock_e, 1024
     while esz > 256:
         ecur = halve(ecur)
         esz //= 2
-    save_png(ecur, os.path.join(PNGDIR, "dock-egui-256.png"))
     save_rgba(ecur, os.path.join(RGBADIR, "dock-egui-256.rgba"))
+
+    # tray runtime assets: raw rgba for include_bytes!
+    # (tray-tauri.png preview intentionally NOT emitted: bundle icons dir
+    # keeps only tauri.conf inputs; viewable masters are the SVGs)
 
     # tray
     print("render tray ...", flush=True)
     tray_t = render_tray(32, "tauri")
     tray_e = render_tray(32, "egui")
-    save_png(tray_t, os.path.join(TAURI_ICONS, "tray-tauri.png"))
-    save_png(tray_e, os.path.join(PNGDIR, "tray-egui-32.png"))
     save_rgba(tray_t, os.path.join(RGBADIR, "tray-tauri-32.rgba"))
     save_rgba(tray_e, os.path.join(RGBADIR, "tray-egui-32.rgba"))
     print("done.")
