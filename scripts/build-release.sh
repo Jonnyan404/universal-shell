@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# D2: 打包 universal-shell 两版可分发产物。
+# 打包 universal-shell 两版可分发产物。
 #
-# 产物（按平台不同）：
-#   egui:  dist/universal-shell-egui-<version>-<os>-<arch>[.exe]
-#   tauri: dist/bundle/ 下 由系统原生工具生成的安装包(.dmg/.msi/.AppImage 等) 及 .app 目录
+# egui / tauri 均按平台产出自带安装包（单一构建主机只能原生产出自己系统的包，
+# 与 tauri bundles "all" 行为一致；Linux .deb/.rpm/.AppImage 需 Linux 环境）：
+#   macOS:  egui=.app+.dmg(arm64+x86_64 通用)  tauri=.app+.dmg(.app 目录)
+#   Windows: egui=.exe+.msi(xwin+WiX)          tauri=.msi+.exe
+#   Linux:  egui 单二进制(暂)                  tauri=.deb/.rpm/.AppImage
 # 同时输出每个产物的 SHA256（写入 dist/sha256.txt），便于发布与校验。
 #
 # 用法:
@@ -16,18 +18,73 @@ OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 export MACOSX_DEPLOYMENT_TARGET=12.0
 
+APP="universal-shell-egui"
+ICONS="assets/icons/egui-bundle"
+
 echo "==> version: $VERSION, os: $OS, arch: $ARCH"
 
 rm -rf dist
 mkdir -p dist
 
-echo "==> build egui single binary"
-cargo build --release -p app-egui
-EGUI="dist/universal-shell-egui-$VERSION-$OS-$ARCH"
-cp target/release/universal-shell-egui "$EGUI"
+have() { command -v "$1" >/dev/null 2>&1; }
+
+echo "==> build egui installers"
+EGUI="dist/egui/$OS"
 if [ "$OS" = "darwin" ]; then
-  # egui 无打包需求，单二进制即可；补 x 权限
-  chmod +x "$EGUI"
+  cargo build --release --target aarch64-apple-darwin -p app-egui
+  cargo build --release --target x86_64-apple-darwin -p app-egui
+
+  mkdir -p "$EGUI"
+  APPNAME="$EGUI/$APP.app"
+  mkdir -p "$APPNAME/Contents/MacOS" "$APPNAME/Contents/Resources"
+  lipo -create -output "$APPNAME/Contents/MacOS/$APP" \
+    target/aarch64-apple-darwin/release/$APP \
+    target/x86_64-apple-darwin/release/$APP
+  cp "$ICONS/icon.icns" "$APPNAME/Contents/Resources/icon.icns"
+  cat > "$APPNAME/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Universal Shell</string>
+  <key>CFBundleDisplayName</key><string>Universal Shell</string>
+  <key>CFBundleIdentifier</key><string>com.universal.shell.egui</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleExecutable</key><string>$APP</string>
+  <key>CFBundleIconFile</key><string>icon</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+</dict>
+</plist>
+PLIST
+  chmod +x "$APPNAME/Contents/MacOS/$APP"
+
+  STAGE="$EGUI/.dmg-stage"
+  mkdir -p "$STAGE"
+  cp -R "$APPNAME" "$STAGE/"
+  ln -s /Applications "$STAGE/Applications"
+  hdiutil create -volname "Universal Shell $VERSION" -srcfolder "$STAGE" \
+    -ov -format UDZO "$EGUI/$APP-$VERSION.dmg" >/dev/null
+  rm -rf "$STAGE"
+
+elif [ "$OS" = "mingw" ] || [ "$OS" = "windows" ] || [ "$OSTYPE" = "msys" ] || [ "$OSTYPE" = "cygwin" ]; then
+  TGT=x86_64-pc-windows-msvc
+  cargo xwin build --release --target "$TGT" -p app-egui
+  mkdir -p "$EGUI"
+  cp "target/$TGT/release/$APP.exe" "$EGUI/$APP-$VERSION.exe"
+  if have cargo wix && [ -f wix/main.wxs ]; then
+    (cd app-egui && cargo wix --nocapture -o "../$EGUI/$APP-$VERSION.msi")
+  else
+    echo "!! WiX 模板/工具未就绪，egui 仅产出 .exe（.msi 需 WiX）"
+  fi
+else
+  # Linux：egui 暂为单二进制，安装包留 CI（与 tauri 原生 .deb/.rpm/.AppImage 一致）
+  cargo build --release -p app-egui
+  mkdir -p "$EGUI"
+  cp target/release/$APP "$EGUI/$APP-$VERSION-$OS-$ARCH"
+  chmod +x "$EGUI/$APP-$VERSION-$OS-$ARCH"
 fi
 
 echo "==> build tauri bundle"
@@ -43,4 +100,4 @@ find dist -type f -not -name sha256.txt -not -name '.DS_Store' -print0 | while I
 done
 cat dist/sha256.txt
 echo "==> done: $(pwd)/dist"
-find dist -maxdepth 3 -type f | sed 's#^#  #' | sort
+find dist -maxdepth 4 -type f | sed 's#^#  #' | sort

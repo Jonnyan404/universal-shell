@@ -388,6 +388,43 @@ def main():
         esz //= 2
     save_rgba(ecur, os.path.join(RGBADIR, "dock-egui-256.rgba"))
 
+    # egui bundle icon set (app installer / msi / exe) from egui branding
+    # macOS `.app`+`.dmg` bundling and Windows installer both consume these,
+    # mirroring tauri's per-bundle icon inputs.
+    eicons = os.path.join(ASSETS, "egui-bundle")
+    os.makedirs(eicons, exist_ok=True)
+    echain = {}
+    ec = dock_e
+    esz3 = 1024
+    while esz3 >= 16:
+        echain[esz3] = ec
+        if esz3 == 16:
+            break
+        ec = halve(ec)
+        esz3 //= 2
+    iconset = os.path.join(eicons, "tmp.iconset")
+    os.makedirs(iconset, exist_ok=True)
+    epairs = [("icon_16x16.png", 16), ("icon_16x16@2x.png", 32),
+              ("icon_32x32.png", 32), ("icon_32x32@2x.png", 64),
+              ("icon_128x128.png", 128), ("icon_128x128@2x.png", 256),
+              ("icon_256x256.png", 256), ("icon_256x256@2x.png", 512),
+              ("icon_512x512.png", 512), ("icon_512x512@2x.png", 1024)]
+    for name, sz in epairs:
+        save_png(echain[sz], os.path.join(iconset, name))
+    subprocess.run(["iconutil", "-c", "icns", iconset, "-o",
+                    os.path.join(eicons, "icon.icns")], check=True)
+    for f in os.listdir(iconset):
+        os.remove(os.path.join(iconset, f))
+    os.rmdir(iconset)
+    eico = []
+    for sz in (16, 32, 64, 256):
+        tmp = os.path.join(PNGDIR, f"_eico_{sz}.png")
+        save_png(echain[sz], tmp)
+        eico.append((sz, read_png(tmp)))
+        os.remove(tmp)
+    save_ico(eico, os.path.join(eicons, "icon.ico"))
+    save_png(echain[512], os.path.join(eicons, "icon.png"))
+
     # tray runtime assets: raw rgba for include_bytes!
     # (tray-tauri.png preview intentionally NOT emitted: bundle icons dir
     # keeps only tauri.conf inputs; viewable masters are the SVGs)
