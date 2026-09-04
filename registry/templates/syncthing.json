@@ -30,8 +30,7 @@
     "aarch64": "arm64"
   },
   "fields": [
-    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-home … --no-browser" },
-    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-home … --no-browser" }
   ],
   "args": ["-no-browser", "{args_extra}"]
 }

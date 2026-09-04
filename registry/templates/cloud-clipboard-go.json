@@ -30,8 +30,7 @@
     { "key": "host", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1", "required": true },
     { "key": "port", "kind": "string", "label": "端口", "default": "9000", "placeholder": "9000", "required": true },
     { "key": "config", "kind": "file", "label": "配置文件", "default": "", "filter": "*.json,*.yaml,*.toml" },
-    { "key": "data_dir", "kind": "directory", "label": "数据目录", "default": "" },
-    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+    { "key": "data_dir", "kind": "directory", "label": "数据目录", "default": "" }
   ],
   "args": ["-host", "{host}", "-port", "{port}", "-config", "{config}"]
 }

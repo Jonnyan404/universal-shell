@@ -1,14 +1,21 @@
 {
-  "revision": "rev-1788432316",
+  "revision": "rev-1788522201",
   "categories": [
     "file-sharing",
     "sync",
     "proxy",
+    "utility",
     "clipboard",
-    "vcs",
-    "utility"
+    "vcs"
   ],
   "templates": [
+    {
+      "id": "age",
+      "name": "age",
+      "category": "utility",
+      "description": "age — 简单、现代的加密工具，用于文件加密与密钥管理。单次运行即退出。",
+      "repo": "FiloSottile/age"
+    },
     {
       "id": "brook",
       "name": "brook",
@@ -17,18 +24,18 @@
       "repo": "txthinking/brook"
     },
     {
-      "id": "rclone",
-      "name": "rclone (serve http)",
-      "category": "file-sharing",
-      "description": "rclone — 云存储同步工具。此处用 `rclone serve http` 常驻模式，把远程/本地目录映射为可浏览的 HTTP 服务。默认只绑定 127.0.0.1。",
-      "repo": "rclone/rclone"
-    },
-    {
       "id": "cloud-clipboard-go",
       "name": "cloud-clipboard-go",
       "category": "clipboard",
       "description": "cloud-clipboard-go — 云剪贴板核心程序 (Go)，支持监听/端口/配置/数据目录配置。",
       "repo": "Jonnyan404/cloud-clipboard-go"
+    },
+    {
+      "id": "croc",
+      "name": "croc",
+      "category": "file-sharing",
+      "description": "croc — 点对点文件传输工具，一条命令在两台电脑之间传文件/文件夹。无需服务器，端到端加密。",
+      "repo": "schollz/croc"
     },
     {
       "id": "dufs",
@@ -52,18 +59,18 @@
       "repo": "fatedier/frp"
     },
     {
-      "id": "syncthing",
-      "name": "syncthing",
-      "category": "sync",
-      "description": "syncthing — 开源、去中心化的文件同步工具（不依赖云）。整包含 config/脚本，使用 whole 解包模式。",
-      "repo": "syncthing/syncthing"
-    },
-    {
       "id": "gitea",
       "name": "gitea",
       "category": "vcs",
       "description": "gitea — 开源自托管 Git 服务（GitHub 轻量替代）。单裸二进制，首次启动用 sqlite。默认只绑定 127.0.0.1。",
       "repo": "go-gitea/gitea"
+    },
+    {
+      "id": "lazygit",
+      "name": "lazygit",
+      "category": "vcs",
+      "description": "lazygit — 终端里的 Git 客户端，简单直接。单次运行的 TUI 程序。",
+      "repo": "jesseduffield/lazygit"
     },
     {
       "id": "mihomo",
@@ -73,25 +80,18 @@
       "repo": "MetaCubeX/mihomo"
     },
     {
-      "id": "croc",
-      "name": "croc",
-      "category": "file-sharing",
-      "description": "croc — 点对点文件传输工具，一条命令在两台电脑之间传文件/文件夹。无需服务器，端到端加密。",
-      "repo": "schollz/croc"
-    },
-    {
-      "id": "age",
-      "name": "age",
-      "category": "utility",
-      "description": "age — 简单、现代的加密工具，用于文件加密与密钥管理。单次运行即退出。",
-      "repo": "FiloSottile/age"
-    },
-    {
       "id": "miniserve",
       "name": "miniserve",
       "category": "file-sharing",
       "description": "miniserve — RIIR 风格极简文件服务器，单个裸二进制，无任何依赖。默认只绑定 127.0.0.1。",
       "repo": "svenstaro/miniserve"
+    },
+    {
+      "id": "rclone",
+      "name": "rclone (serve http)",
+      "category": "file-sharing",
+      "description": "rclone — 云存储同步工具。此处用 `rclone serve http` 常驻模式，把远程/本地目录映射为可浏览的 HTTP 服务。默认只绑定 127.0.0.1。",
+      "repo": "rclone/rclone"
     },
     {
       "id": "sing-box",
@@ -101,11 +101,11 @@
       "repo": "SagerNet/sing-box"
     },
     {
-      "id": "lazygit",
-      "name": "lazygit",
-      "category": "vcs",
-      "description": "lazygit — 终端里的 Git 客户端，简单直接。单次运行的 TUI 程序。",
-      "repo": "jesseduffield/lazygit"
+      "id": "syncthing",
+      "name": "syncthing",
+      "category": "sync",
+      "description": "syncthing — 开源、去中心化的文件同步工具（不依赖云）。整包含 config/脚本，使用 whole 解包模式。",
+      "repo": "syncthing/syncthing"
     }
   ]
 }

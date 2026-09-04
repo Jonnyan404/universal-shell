@@ -30,8 +30,7 @@
     "aarch64": "arm64"
   },
   "fields": [
-    { "key": "config", "kind": "file", "label": "frpc.toml 配置", "default": "", "filter": "*.toml,*.ini", "required": true },
-    { "key": "autostart", "kind": "autostart", "label": "开机启动", "default": false }
+    { "key": "config", "kind": "file", "label": "frpc.toml 配置", "default": "", "filter": "*.toml,*.ini", "required": true }
   ],
   "args": ["-c", "{config}"]
 }

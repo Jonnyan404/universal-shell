@@ -26,6 +26,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # 显式检出分支引用，避免处于 detached HEAD 时 commit 后无法 git push 回仓库
+          ref: ${{ github.ref }}
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

@@ -29,6 +29,8 @@ fn main() {
             .replace(".json", "");
         texts.push((id, std::fs::read_to_string(entry.path()).unwrap()));
     }
+    // 按 id 排序，保证生成产物跨环境、跨运行确定一致，避免 registry 反复大改
+    texts.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut indices = Vec::new();
     let mut categories = vec!["file-sharing".to_string(), "sync".to_string(), "proxy".to_string()];
