@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- universal-shell · egui 轻量版 dock 图标母版（同构，石墨→深绿渐变 + 绿色插头 + 白 LED） -->
+  <!-- universal-shell · egui 轻量版 dock 图标母版（motif B，同构：石墨→深绿渐变 + 绿色 > + 白 _） -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#1E293B"/>
@@ -7,8 +7,6 @@
     </linearGradient>
   </defs>
   <polygon points="912,512 712,858.4 312,858.4 112,512 312,165.6 712,165.6" fill="url(#bg)"/>
-  <rect x="455" y="392" width="46" height="168" rx="23" fill="#4ADE80"/>
-  <rect x="523" y="392" width="46" height="168" rx="23" fill="#4ADE80"/>
-  <rect x="417" y="545" width="190" height="180" rx="44" fill="#4ADE80"/>
-  <circle cx="512" cy="635" r="32" fill="#FFFFFF"/>
+  <polygon points="395,370 565,500 395,630 395,545 480,500 395,455" fill="#4ADE80"/>
+  <rect x="395" y="666" width="200" height="46" rx="23" fill="#FFFFFF"/>
 </svg>

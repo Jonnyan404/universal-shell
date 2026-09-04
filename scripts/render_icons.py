@@ -145,7 +145,30 @@ def subtract_spans(base, holes):
     return out
 
 
-# ---- dock: gradient hexagon + plug + LED -----------------------------------
+def poly_spans(pts, y):
+    """Span(s) of polygon on row-center y; [] if none."""
+    xs = []
+    n = len(pts)
+    for i in range(n):
+        x0, y0 = pts[i]
+        x1, y1 = pts[(i + 1) % n]
+        if (y0 <= y < y1) or (y1 <= y < y0):
+            t = (y - y0) / (y1 - y0)
+            xs.append(x0 + t * (x1 - x0))
+    xs.sort()
+    return [(xs[i], xs[i + 1]) for i in range(0, len(xs) - 1, 2)]
+
+
+# ---- dock: gradient hexagon + terminal chevron + underscore (motif B) --------
+# Chevron > + bar, 1024 units. Tray uses the same glyph scaled to 256 units.
+CHEVRON = [(395, 370), (565, 500), (395, 630),
+           (395, 545), (480, 500), (395, 455)]
+UNDERSCORE = (395, 666, 595, 712, 23)
+TRAY_CHEV = [(107.5, 107.5), (150, 140), (107.5, 172.5),
+             (107.5, 151.25), (128.75, 140), (107.5, 128.75)]
+TRAY_BAR = (107.5, 181.5, 157.5, 193, 5.75)
+
+
 def render_dock(size, top, bottom, plug_c, led_c):
     W = size * SS
     cv = Canvas(W, W)
@@ -155,12 +178,11 @@ def render_dock(size, top, bottom, plug_c, led_c):
     top_c, bot_c = hx(top), hx(bottom)
     y_lo = cy - R * SQRT3_2
     y_hi = cy + R * SQRT3_2
-    # plug geometry (1024 units)
-    prongs = [(455, 392, 501, 560, 23), (523, 392, 569, 560, 23)]
-    body = (417, 545, 607, 725, 44)
-    led = (512, 635, 32)
-    plug = hx(plug_c)
-    ledcol = hx(led_c)
+    # chevron glyph (1024 units); plug_c = chevron color, led_c = bar color
+    chev = [(x * k, y * k) for x, y in CHEVRON]
+    ux0, uy0, ux1, uy1, urad = UNDERSCORE
+    glyph = hx(plug_c)
+    accent = hx(led_c)
     for y in range(W):
         yc = y + 0.5
         dx = hex_span(cx, R, yc - cy)
@@ -168,17 +190,12 @@ def render_dock(size, top, bottom, plug_c, led_c):
             continue
         t = (yc - y_lo) / (y_hi - y_lo)
         cv.fill_span(y, cx - dx, cx + dx, lerp(top_c, bot_c, t))
-        if 392 * k <= yc <= 725 * k:
-            holes = []
-            for (x0, y0, x1, y1, rad) in prongs:
-                holes += rrect_spans(x0 * k, y0 * k, x1 * k, y1 * k, rad * k, yc)
-            holes += rrect_spans(body[0] * k, body[1] * k, body[2] * k,
-                                 body[3] * k, body[4] * k, yc)
-            for s in merge_spans(holes):
-                cv.fill_span(y, s[0], s[1], plug)
-        if (635 - 32) * k <= yc <= (635 + 32) * k:
-            for s in circle_span(512 * k, 635 * k, 32 * k, yc):
-                cv.fill_span(y, s[0], s[1], ledcol)
+        if 370 * k <= yc <= 630 * k:
+            for s in poly_spans(chev, yc):
+                cv.fill_span(y, s[0], s[1], glyph)
+        if uy0 * k <= yc <= uy1 * k:
+            for s in rrect_spans(ux0 * k, uy0 * k, ux1 * k, uy1 * k, urad * k, yc):
+                cv.fill_span(y, s[0], s[1], accent)
     return downscale(cv, SS)
 
 
@@ -197,15 +214,20 @@ def render_tray(size, variant):
     white = (255, 255, 255, 255)
     y_lo = cy - (R + 6 * k) * SQRT3_2
     y_hi = cy + (R + 6 * k) * SQRT3_2
+    tchev = [(x * k, y * k) for x, y in TRAY_CHEV]
+    bx0, by0, bx1, by1, brad = TRAY_BAR
     if variant == "tauri":
-        holes_src = [(104, 64, 122, 132, 9), (134, 64, 152, 132, 9),
-                     (88, 126, 168, 196, 16)]
+        solid_glyph = False  # knockout: glyph becomes transparent holes
     else:
-        holes_src = []  # egui draws ring + solid plug instead
+        solid_glyph = True  # egui draws ring + solid glyph instead
     for y in range(W):
         yc = y + 0.5
         if not (y_lo <= yc <= y_hi):
             continue
+        # glyph spans for this row (chevron polygon + underscore bar)
+        gs = poly_spans(tchev, yc)
+        gs += rrect_spans(bx0 * k, by0 * k, bx1 * k, by1 * k, brad * k, yc)
+        gs = merge_spans(gs)
         # 1) white keyline ring (outer R+6, inner R-1)
         dxo = hex_span(cx, R + 6 * k, yc - cy)
         dxi = hex_span(cx, R - 1 * k, yc - cy)
@@ -218,11 +240,8 @@ def render_tray(size, variant):
         dx = hex_span(cx, R, yc - cy)
         if dx < 0:
             continue
-        if variant == "tauri":
-            holes = []
-            for (x0, y0, x1, y1, rad) in holes_src:
-                holes += rrect_spans(x0 * k, y0 * k, x1 * k, y1 * k, rad * k, yc)
-            segs = subtract_spans([(cx - dx, cx + dx)], merge_spans(holes))
+        if not solid_glyph:
+            segs = subtract_spans([(cx - dx, cx + dx)], gs)
             cv.fill_segments(y, segs, black)
         else:
             dxi2 = hex_span(cx, 88 * k, yc - cy)
@@ -230,12 +249,7 @@ def render_tray(size, variant):
             if dxi2 >= 0:
                 segs = subtract_spans(segs, [(cx - dxi2, cx + dxi2)])
             cv.fill_segments(y, segs, black)
-            plug_src = [(106, 50, 122, 134, 8), (134, 50, 150, 134, 8),
-                        (92, 130, 164, 190, 12)]
-            ps = []
-            for (x0, y0, x1, y1, rad) in plug_src:
-                ps += rrect_spans(x0 * k, y0 * k, x1 * k, y1 * k, rad * k, yc)
-            for s in merge_spans(ps):
+            for s in gs:
                 cv.fill_span(y, s[0], s[1], black)
     return downscale(cv, SS)
 
