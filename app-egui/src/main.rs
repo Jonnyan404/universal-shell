@@ -954,11 +954,11 @@ impl ShellApp {
         if ui.selectable_label(matches!(self.view, View::Batch), format!("☰ {}", t!("batch.title"))).clicked() {
             self.view = View::Batch;
         }
-        if ui.selectable_label(matches!(self.view, View::Library), format!("▤ {}", t!("lib.title"))).clicked() {
+        if ui.selectable_label(matches!(self.view, View::Library), format!("📚 {}", t!("lib.title"))).clicked() {
             self.view = View::Library;
         }
         ui.separator();
-        if ui.selectable_label(matches!(self.view, View::Library), format!("📖 {}", t!("ui.shell_log_short"))).clicked() {
+        if ui.selectable_label(self.show_shell_log, format!("📖 {}", t!("ui.shell_log_short"))).clicked() {
             self.show_shell_log = true;
         }
     }

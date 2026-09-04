@@ -136,8 +136,8 @@ lib.empty_local: 尚未导入任何模板。从上方远程源点击「导入」
 lib.empty_remote: 尚未加载清单。点击「刷新」从远程源拉取(离线时可查看上次刷新的列表)。
 lib.pull: 拉取中…
 lib.checked_at: 上次更新
-lib.prev: ‹ 上一页
-lib.next: 下一页 ›
+lib.prev: « 上一页
+lib.next: 下一页 »
 lib.offline: （离线·缓存）
 lib.no_cache: 无缓存
 lib.cache: 缓存

@@ -136,8 +136,8 @@ lib.empty_local: No templates imported yet. Click "Import" on a remote source ab
 lib.empty_remote: Manifest not loaded yet. Click "Refresh" to pull from remote sources (offline shows last refreshed list).
 lib.pull: Pulling…
 lib.checked_at: Last update
-lib.prev: ‹ Prev
-lib.next: Next ›
+lib.prev: « Prev
+lib.next: Next »
 lib.offline: (offline · cache)
 lib.no_cache: No cache
 lib.cache: Cache
