@@ -1555,11 +1555,6 @@ function renderLocalTemplates() {
     repo.textContent = p.repo || "";
     const ops = document.createElement("span");
     ops.className = "batch-ops";
-    const show = document.createElement("button");
-    show.className = "op-btn";
-    show.textContent = t("act.manage");
-    show.onclick = () => switchTo(p.id);
-    ops.append(show);
     const exp = document.createElement("button");
     exp.className = "op-btn";
     exp.textContent = t("act.export");

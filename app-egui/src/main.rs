@@ -1752,11 +1752,6 @@ impl ShellApp {
                 ui.with_layout(
                     egui::Layout::right_to_left(egui::Align::Center),
                     |ui| {
-                        if ui.button(t!("act.manage")).clicked() {
-                            self.current_id = Some(p.id.clone());
-                            self.view = View::Manage;
-                            self.show_shell_log = false;
-                        }
                         if ui.button(t!("act.export")).clicked() {
                             self.export_local_template(&p.id);
                         }
