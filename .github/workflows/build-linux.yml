@@ -1,0 +1,124 @@
+name: Build Linux (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: 0.1.0)'
+        required: false
+        default: '0.1.0'
+      arch:
+        description: '架构'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - x86_64
+          - arm64
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (linux-${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x86_64
+            os: ubuntu-latest
+          - label: arm64
+            os: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Install Tauri frontend deps
+        run: |
+          cd app-tauri
+          npm install
+        shell: bash
+
+      - name: Install Linux egui runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb x11-utils libxkbcommon0 libxcb1 libegl1 \
+            libglib2.0-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev \
+            libfontconfig-dev \
+            libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev xdg-utils
+        shell: bash
+
+      - name: Resolve version
+        id: version
+        run: |
+          V="${{ github.event.inputs.version }}"
+          V=$(echo "$V" | sed 's/^v//')
+          echo "value=$V" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Filter arch
+        run: |
+          if [ "${{ github.event.inputs.arch }}" != "all" ] \
+             && [ "${{ github.event.inputs.arch }}" != "${{ matrix.label }}" ]; then
+            echo "skip=1" >> "$GITHUB_ENV"
+          fi
+        shell: bash
+
+      - name: Build egui binary
+        if: env.skip != '1'
+        run: cargo build --release -p app-egui
+        shell: bash
+
+      - name: Package egui (Linux binary)
+        if: env.skip != '1'
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          APP="universal-shell-egui"
+          EGUI="dist/egui/linux"
+          mkdir -p "$EGUI"
+          cp "target/release/$APP" "$EGUI/$APP-$VERSION-linux-${{ matrix.label }}"
+          chmod +x "$EGUI/$APP-$VERSION-linux-${{ matrix.label }}"
+        shell: bash
+
+      - name: Build tauri bundle
+        if: env.skip != '1'
+        run: |
+          (cd app-tauri && npx tauri build) \
+            && cp -R target/release/bundle dist/bundle
+        shell: bash
+
+      - name: SHA256
+        if: env.skip != '1'
+        run: |
+          : > dist/sha256.txt
+          find dist -type f -not -name sha256.txt -print0 \
+            | while IFS= read -r -d '' f; do
+                echo "$(sha256sum "$f" | awk '{print $1}')  ${f#dist/}" >> dist/sha256.txt
+              done
+        shell: bash
+
+      - name: Inspect artifacts
+        if: env.skip != '1'
+        run: |
+          find dist -maxdepth 3 -type f
+        shell: bash
+
+      - name: Upload artifacts
+        if: env.skip != '1'
+        uses: actions/upload-artifact@v7
+        with:
+          name: universal-shell-linux-${{ matrix.label }}
+          path: dist/
+          retention-days: 7

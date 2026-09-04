@@ -11,16 +11,6 @@ on:
         description: '版本号 (例如: 0.1.0)'
         required: true
         default: '0.1.0'
-      platforms:
-        description: '构建哪些平台 (release 触发时始终全平台)'
-        required: false
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - windows
-          - macos
-          - linux
 
 permissions:
   contents: write
@@ -33,14 +23,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # release 触发跑全部；workflow_dispatch 时按 platforms 输入过滤。
-          # 用条件表达式产出整个 include 对象：条件为假时得到 {}，GitHub 忽略之。
-          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'linux') && {label: 'linux-x86_64', os: 'ubuntu-latest'} || {} }}"
-          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'linux') && {label: 'linux-arm64', os: 'ubuntu-24.04-arm'} || {} }}"
-          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'macos') && {label: 'macOS-x86_64', os: 'macos-15-intel'} || {} }}"
-          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'macos') && {label: 'macOS-arm64', os: 'macos-15'} || {} }}"
-          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'windows') && {label: 'windows-x86_64', os: 'windows-latest'} || {} }}"
-          - "${{ (github.event_name == 'release' || github.event.inputs.platforms == 'all' || github.event.inputs.platforms == 'windows') && {label: 'windows-arm64', os: 'windows-11-arm'} || {} }}"
+          - label: linux-x86_64
+            os: ubuntu-latest
+          - label: linux-arm64
+            os: ubuntu-24.04-arm
+          - label: macOS-x86_64
+            # 标准 macOS runner 默认即为 arm64（Apple Silicon）；x64 需显式 -intel
+            os: macos-15-intel
+          - label: macOS-arm64
+            os: macos-15
+          - label: windows-x86_64
+            os: windows-latest
+          - label: windows-arm64
+            # 官方原生 Windows ARM64 runner（Ampere Altra，非仿真）
+            os: windows-11-arm
     steps:
       - name: Checkout
         uses: actions/checkout@v7
