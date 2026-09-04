@@ -79,7 +79,7 @@ jobs:
         shell: bash
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: universal-shell-${{ matrix.label }}
           path: dist/
@@ -95,11 +95,22 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: universal-shell-*
           path: dist/
           merge-multiple: true
+
+      - name: Restore execute permissions
+        # upload-artifact 的 zip 会剥掉 +x（全部变 644/755）；恢复可执行产物的执行位，
+        # 保证 Release 里 Linux/macOS 二进制 / .app 内二进制可直接运行
+        run: |
+          find dist -type f \
+            \( -name 'universal-shell-egui-*' \
+               -o -path '*/Contents/MacOS/*' \
+               -o -path '*/bin/*' \) \
+            -exec chmod +x {} +
+        shell: bash
 
       - name: Upload assets to Release
         uses: softprops/action-gh-release@v3
