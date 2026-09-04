@@ -100,18 +100,19 @@ jobs:
           cp "target/$TGT/release/$APP.exe" "$EGUI/$APP-$VERSION-$TGT.exe"
           # choco 装的 WiX v3 在安装时才加 PATH，当前 bash 会话拿不到；
           # 直接定位 bin 目录(含 candle/light)并通过 --bin-path 传给 cargo-wix
-          WIXBIN_ARG=""
+          # (用数组避免路径中的空格被拆成多个参数)
+          WIX_ARGS=()
           if command -v candle >/dev/null 2>&1; then
-            WIXBIN_ARG="--bin-path $(dirname "$(command -v candle)")"
+            WIX_ARGS=(--bin-path "$(dirname "$(command -v candle)")")
           else
             WIXBIN="$(ls -d "/c/Program Files"*/WiX\ Toolset\ v*/bin 2>/dev/null | head -1)"
             if [ -n "$WIXBIN" ]; then
-              WIXBIN_ARG="--bin-path $WIXBIN"
+              WIX_ARGS=(--bin-path "$WIXBIN")
             fi
           fi
           (cd app-egui && cargo wix --nocapture --no-build -p app-egui \
             --target "$TGT" --target-bin-dir "$GITHUB_WORKSPACE/target/$TGT/release" \
-            $WIXBIN_ARG \
+            "${WIX_ARGS[@]}" \
             -o "../$EGUI/$APP-$VERSION-$TGT.msi")
         shell: bash
 
