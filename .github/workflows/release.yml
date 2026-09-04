@@ -62,7 +62,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb x11-utils libxkbcommon0 libxcb1 libegl1 \
             libglib2.0-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev \
-            libfontconfig-dev
+            libfontconfig-dev \
+            libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev
         shell: bash
 
       - name: Install WiX Toolset (Windows .msi)
@@ -113,7 +114,7 @@ jobs:
           fi
           mkdir -p "$EGUI"
           cp "target/$TGT/release/$APP.exe" "$EGUI/$APP-$VERSION-$TGT.exe"
-          (cd app-egui && cargo wix --nocapture --no-build \
+          (cd app-egui && cargo wix --nocapture --no-build -p app-egui \
             --target "$TGT" --target-bin-dir "../../../target/$TGT/release" \
             -o "../$EGUI/$APP-$VERSION-$TGT.msi")
         shell: bash

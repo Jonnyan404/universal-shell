@@ -96,7 +96,7 @@ elif [ "$OS" = "mingw" ] || [ "$OS" = "windows" ] || [ "$OSTYPE" = "msys" ] || [
   # 因此在 macOS 上交叉出 .msi 不可行，仅当 WiX 在 PATH 时才产出
   if { have candle || have wix; } && [ -f wix/main.wxs ]; then
     mkdir -p "$EGUI"
-    (cd app-egui && cargo wix --nocapture --no-build \
+    (cd app-egui && cargo wix --nocapture --no-build -p app-egui \
       --target "$TGT" --target-bin-dir "../../../target/$TGT/release" \
       -o "../$EGUI/$APP-$VERSION-$TGT.msi")
   else
