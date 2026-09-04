@@ -2808,11 +2808,24 @@ fn system_hint() -> String {
     sys_locale::get_locale().unwrap_or_else(|| "en".to_string())
 }
 
-/// 加载系统中文字体并注入 egui fallback，避免界面中文显示为「口」。
-/// 命中顺序：macOS PingFang/Hiragino，Windows 微软雅黑，Linux Noto CJK。
-/// 失败仅告警，不阻断启动。
+/// 中文字体：优先内嵌子集（assets/fonts，覆盖全部界面用字，跨平台无口口），
+/// 再回退系统中文（覆盖用户内容里的生僻字）。失败仅告警，不阻断启动。
 fn install_cjk_font(ctx: &egui::Context) {
     use std::sync::Arc;
+
+    // 内嵌子集：scripts/subset_fonts.py 按 locales/界面/内置模板扫描生成
+    const EMBEDDED: &[u8] = include_bytes!("../../assets/fonts/NotoSansSC-subset.otf");
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "cjk-embedded".to_string(),
+        Arc::new(egui::FontData::from_static(EMBEDDED)),
+    );
+    // 内嵌子集排在 fallback 链最前，界面文字先走它；拉丁字形仍走默认字体。
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        if let Some(list) = fonts.families.get_mut(&family) {
+            list.push("cjk-embedded".to_string());
+        }
+    }
 
     let candidates: &[&str] = if cfg!(target_os = "macos") {
         &[
@@ -2839,24 +2852,22 @@ fn install_cjk_font(ctx: &egui::Context) {
         let Ok(bytes) = std::fs::read(path) else {
             continue;
         };
-        let mut fonts = egui::FontDefinitions::default();
         fonts
             .font_data
             .insert("cjk".to_string(), Arc::new(egui::FontData::from_owned(bytes)));
-        // 把 CJK 字体追加到各 family 的 fallback 链末尾，
-        // 让中文字形回退到 "cjk"，拉丁字形仍走默认字体。
+        // 系统中文追加到内嵌子集之后，只兜底子集没有的生僻字（用户程序名/路径等）。
         for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
             if let Some(list) = fonts.families.get_mut(&family) {
                 list.push("cjk".to_string());
             }
         }
-        ctx.set_fonts(fonts);
-        log::info!("注入中文字体: {path}");
+        log::info!("注入系统中文兜底字体: {path}");
         installed = true;
         break;
     }
+    ctx.set_fonts(fonts);
     if !installed {
-        log::warn!("未找到系统中文字体，界面中文可能显示为「口」(仅影响显示)");
+        log::warn!("未找到系统中文字体，生僻字可能显示为「口」(界面文字走内嵌子集，不受影响)");
     }
 }
 
