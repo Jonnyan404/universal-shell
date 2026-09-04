@@ -541,16 +541,20 @@ fn stop_all(state: State<AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// 读取壳自身操作日志全文；无日志文件时返回空字符串。
+/// 读取壳自身操作日志（仅末尾 400 行；长期追加会变大，全量下发渲染会卡，
+/// 与 egui 壳日志窗口一致）。无日志文件时返回空字符串。
 #[tauri::command]
 fn get_shell_log(state: State<AppState>) -> Result<String, String> {
     let mgr = state.manager.lock().unwrap();
     let path = mgr.op_log_path();
-    if path.exists() {
-        std::fs::read_to_string(&path).map_err(|e| format!("{e:#}"))
-    } else {
-        Ok(String::new())
+    if !path.exists() {
+        return Ok(String::new());
     }
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{e:#}"))?;
+    const KEEP: usize = 400;
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(KEEP);
+    Ok(lines[start..].join("\n"))
 }
 
 /// 前端 UI 操作追加写一条壳操作日志（与后端事件统一落盘）。
