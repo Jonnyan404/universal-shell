@@ -27,10 +27,11 @@ jobs:
             os: ubuntu-latest
           - label: linux-arm64
             os: ubuntu-24.04-arm
-          - label: macos-x86_64
+          - label: macOS-x86_64
+            # 标准 macOS runner 默认即为 arm64（Apple Silicon）；x64 需显式 -intel
+            os: macos-15-intel
+          - label: macOS-arm64
             os: macos-15
-          - label: macos-arm64
-            os: macos-15-arm64
           - label: windows-x86_64
             os: windows-latest
           - label: windows-arm64
