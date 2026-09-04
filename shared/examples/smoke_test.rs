@@ -7,7 +7,7 @@ fn main() {
     assert_eq!(cc.binary, "cloud-clipboard-go");
     let (rule, candidates) = cc.candidate_names("aarch64", "5.0.1").unwrap();
     assert_eq!(candidates.len(), 1);
-    assert_eq!(candidates[0], "cloud-clipboard-go_Darwin_arm64.tar.gz");
+    assert_eq!(candidates[0], "cloud-clipboard-go_Darwin_aarch64.tar.gz");
     assert_eq!(rule.member.as_deref(), Some("cloud-clipboard-go"));
     assert_eq!(rule.mode, shared::config::ExtractMode::Single);
     let vals = cc.runtime_defaults();
