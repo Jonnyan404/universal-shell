@@ -73,15 +73,111 @@ jobs:
           echo "$HOME/.dotnet/tools" | Out-File -FilePath $env:GITHUB_PATH -Append
         shell: pwsh
 
-      - name: Build + package
+      - name: Resolve version
+        id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+            V="${{ github.event.inputs.version }}"
           else
-            VERSION="${{ github.event.release.tag_name }}"
+            V="${{ github.event.release.tag_name }}"
           fi
-          VERSION=$(echo "$VERSION" | sed 's/^v//')
-          ./scripts/build-release.sh "$VERSION"
+          V=$(echo "$V" | sed 's/^v//')
+          echo "value=$V" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      # ---- egui：各平台原生自产自的安装包（不复用本地 build-release.sh，其专为单机多目标设计）----
+      - name: Build egui binary
+        run: cargo build --release -p app-egui
+        shell: bash
+
+      - name: Package egui (Windows .exe + .msi)
+        if: runner.os == 'Windows'
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          APP="universal-shell-egui"
+          EGUI="dist/egui/windows"
+          if echo "${{ matrix.label }}" | grep -q arm64; then
+            TGT="aarch64-pc-windows-msvc"
+          else
+            TGT="x86_64-pc-windows-msvc"
+          fi
+          mkdir -p "$EGUI"
+          cp "target/$TGT/release/$APP.exe" "$EGUI/$APP-$VERSION-$TGT.exe"
+          (cd app-egui && cargo wix --nocapture --no-build \
+            --target "$TGT" --target-bin-dir "../../../target/$TGT/release" \
+            -o "../$EGUI/$APP-$VERSION-$TGT.msi")
+        shell: bash
+
+      - name: Package egui (macOS .app + .dmg)
+        if: runner.os == 'macOS'
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          cd "$GITHUB_WORKSPACE"
+          APP="universal-shell-egui"
+          EGUI="dist/egui/macos"
+          APPNAME="$EGUI/$APP.app"
+          mkdir -p "$APPNAME/Contents/MacOS" "$APPNAME/Contents/Resources"
+          cp "target/release/$APP" "$APPNAME/Contents/MacOS/$APP"
+          cp "assets/icons/egui-bundle/icon.icns" "$APPNAME/Contents/Resources/icon.icns"
+          cat > "$APPNAME/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>Universal Shell</string>
+  <key>CFBundleDisplayName</key><string>Universal Shell</string>
+  <key>CFBundleIdentifier</key><string>com.universal.shell.egui</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleExecutable</key><string>$APP</string>
+  <key>CFBundleIconFile</key><string>icon</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
+</dict>
+</plist>
+PLIST
+          chmod +x "$APPNAME/Contents/MacOS/$APP"
+          STAGE="$EGUI/.dmg-stage"
+          mkdir -p "$STAGE"
+          cp -R "$APPNAME" "$STAGE/"
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "Universal Shell $VERSION" -srcfolder "$STAGE" \
+            -ov -format UDZO "$EGUI/$APP-$VERSION.dmg" >/dev/null
+          rm -rf "$STAGE"
+        shell: bash
+
+      - name: Package egui (Linux binary)
+        if: runner.os == 'Linux'
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          APP="universal-shell-egui"
+          EGUI="dist/egui/linux"
+          mkdir -p "$EGUI"
+          cp "target/release/$APP" "$EGUI/$APP-$VERSION-${{ matrix.label }}"
+          chmod +x "$EGUI/$APP-$VERSION-${{ matrix.label }}"
+        shell: bash
+
+      # ---- tauri：仅在 Linux/macOS 由 cargo tauri build 原生产出 ----
+      - name: Build tauri bundle (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          (cd app-tauri && cargo tauri build) \
+            && cp -R target/release/bundle dist/bundle
+        shell: bash
+
+      - name: SHA256
+        run: |
+          : > dist/sha256.txt
+          if command -v sha256sum >/dev/null; then
+            HASH="sha256sum"
+          else
+            HASH="shasum -a 256"
+          fi
+          find dist -type f -not -name sha256.txt -print0 \
+            | while IFS= read -r -d '' f; do
+                $HASH "$f" | awk -v p="${f#dist/}" '{print $1"  "p}' >> dist/sha256.txt
+              done
         shell: bash
 
       - name: Inspect artifacts
