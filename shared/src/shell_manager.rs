@@ -8,7 +8,7 @@ use log::info;
 use rust_i18n::t;
 
 use crate::autostart::AutoStart;
-use crate::config::{ExtractMode, FieldKind, Program, ShellConfig};
+use crate::config::{ExtractMode, Program, ShellConfig};
 use crate::extract;
 use crate::github::{GitHub, LatestRelease};
 use crate::runner::Runner;
@@ -103,6 +103,9 @@ pub struct ShellManager {
     pub github: GitHub,
     pub runner: Runner,
     pub autostart: AutoStart,
+    /// 每台受管程序的自启状态（program id -> 是否随壳启动拉起）。独立于模板字段，
+    /// 模板可不带 autostart 参数，由壳统一管理。持久化见 [`Self::program_autostart_path`]。
+    pub program_autostart_map: BTreeMap<String, bool>,
     /// 网络代理/加速设置（增量应用到 github 与注册表请求）
     pub proxy: crate::config::ProxySettings,
     /// 界面语言：`auto`（跟随系统）/ `zh-CN` / `en`
@@ -113,6 +116,7 @@ impl ShellManager {
     pub fn new(data_dir: PathBuf) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&data_dir)
             .with_context(|| t!("err.datadir", path = data_dir.display().to_string()))?;
+        let program_autostart = Self::load_program_autostart(&data_dir);
         Ok(Self {
             data_dir,
             programs: vec![],
@@ -127,6 +131,7 @@ impl ShellManager {
             github: GitHub::default(),
             runner: Runner::new(),
             autostart: AutoStart::new(),
+            program_autostart_map: program_autostart,
             proxy: crate::config::ProxySettings::default(),
             locale: "auto".to_string(),
         })
@@ -289,6 +294,26 @@ impl ShellManager {
         }
         if let Ok(t) = serde_json::to_string_pretty(map) {
             let _ = std::fs::write(&path, t);
+        }
+    }
+
+    /// 受管程序自启状态文件路径（独立于模板字段，壳统一管理）。
+    pub fn program_autostart_path(&self) -> PathBuf {
+        self.data_dir.join("program-autostart.json")
+    }
+
+    /// 读取受管程序自启状态（program id -> 是否随壳启动拉起）。
+    pub fn load_program_autostart(data_dir: &Path) -> BTreeMap<String, bool> {
+        std::fs::read_to_string(data_dir.join("program-autostart.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    /// 持久化受管程序自启状态。
+    pub fn save_program_autostart(&self) {
+        if let Ok(t) = serde_json::to_string_pretty(&self.program_autostart_map) {
+            let _ = std::fs::write(self.program_autostart_path(), t);
         }
     }
 
@@ -601,45 +626,36 @@ impl ShellManager {
         }
     }
 
-    /// 读取程序「自启动」字段的当前值（方案 B：由壳启动时拉起，而非系统登录项）
-    pub fn program_autostart(&self, program: &Program) -> bool {
-        let key = program
-            .fields
-            .iter()
-            .find(|f| matches!(f.kind, FieldKind::AutoStart { .. }))
-            .map(|f| f.key.clone());
-        match key {
-            Some(k) => self
-                .load_field_values(program)
-                .get(&k)
-                .map(|v| v == "true")
-                .unwrap_or(false),
-            None => false,
-        }
+    /// 该程序是否开启「随壳启动自动拉起」。由壳统一管理，不依赖模板是否有 autostart 字段。
+    pub fn program_autostart(&self, id: &str) -> bool {
+        self.program_autostart_map.get(id).copied().unwrap_or(false)
     }
 
-    /// Autostart 字段:若字段值是 true 则注册登录项，否则关闭
-    /// 方案 B（壳管理）：程序的「自启动」不再注册系统登录项，而是作为
-    /// 「壳启动时自动拉起」的清单。启用状态由字段值持久化（见 set_autostart）。
-    /// 此函数保留为空操作，避免误注册被管程序到系统登录项。
+    /// 设置某程序是否随壳启动自动拉起，并持久化。
+    pub fn set_program_autostart(&mut self, id: &str, enabled: bool) {
+        if enabled {
+            self.program_autostart_map.insert(id.to_string(), true);
+        } else {
+            self.program_autostart_map.remove(id);
+        }
+        self.save_program_autostart();
+    }
+
+    /// 兼容旧接口：程序启动/停止时同步自启状态（不再注册系统登录项）。
+    /// 自启状态与运行时字段值解耦，此函数保留为空操作。
     pub fn apply_key_autostart(&mut self, _program: &Program, _values: &BTreeMap<String, String>) -> anyhow::Result<()> {
         Ok(())
     }
 
-    /// 壳启动后自动拉起所有开启「自启动」的程序（方案 B：壳管理）。    /// 逐个用保存的字段值渲染参数并启动，失败仅记日志不影响后续。
+    /// 壳启动后自动拉起所有开启「自启动」的程序（壳管理）。
+    /// 逐个用保存的字段值渲染参数并启动，失败仅记日志不影响后续。
     pub fn start_autostart_programs(&mut self) {
         let programs = self.all_programs();
         for p in &programs {
-            let values = self.load_field_values(p);
-            let enabled = p
-                .fields
-                .iter()
-                .find(|f| matches!(f.kind, FieldKind::AutoStart { .. }))
-                .map(|f| values.get(&f.key).map(|v| v == "true").unwrap_or(false))
-                .unwrap_or(false);
-            if !enabled {
+            if !self.program_autostart(&p.id) {
                 continue;
             }
+            let values = self.load_field_values(p);
             let bin = self.bin_path(p);
             let held = self.runner.is_running(&p.id);
             let orphan = !held && self.runner.is_process_alive(&bin);
@@ -1033,6 +1049,34 @@ mod tests {
         assert!(!text.is_empty());
         assert!(text.ends_with('\n'));
         assert!(text.len() as u64 <= ShellManager::OP_LOG_MAX);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// autostart 由壳统一管理：即使模板没有 autostart 字段也能开关，并能持久化。
+    #[test]
+    fn autostart_is_shell_state_not_template_field() {
+        let dir = std::env::temp_dir().join("cc-autostart-shell-state");
+        let _ = std::fs::remove_dir_all(&dir);
+        // 定义一个没有 autostart 字段的程序
+        let p: Program = serde_json::from_str(
+            r#"{"id":"dufs","name":"dufs","repo":"sigoden/dufs","binary":"dufs","fields":[],"args":[]}"#,
+        )
+        .unwrap();
+        assert!(!p.fields.iter().any(|f| matches!(f.kind, FieldKind::AutoStart { .. })));
+
+        {
+            let mut mgr = ShellManager::new(dir.clone()).unwrap();
+            assert!(!mgr.program_autostart(&p.id));
+            mgr.set_program_autostart(&p.id, true);
+            assert!(mgr.program_autostart(&p.id));
+            assert!(std::fs::read_to_string(mgr.program_autostart_path())
+                .unwrap()
+                .contains(&p.id));
+        }
+        // 重新构造 manager（模拟重启）应能读回持久化状态
+        let mgr = ShellManager::new(dir.clone()).unwrap();
+        assert!(mgr.program_autostart(&p.id));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

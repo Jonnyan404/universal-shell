@@ -237,7 +237,7 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
         p = found;
         bin = mgr.bin_path(&p);
         local = mgr.status_local(&p);
-        autostart = mgr.program_autostart(&p);
+        autostart = mgr.program_autostart(&p.id);
         let layout = mgr.proxy.clone();
         let gh = proxied_github(&layout);
         repo = p.repo.clone();
@@ -266,7 +266,7 @@ fn get_status_local(state: State<AppState>, program_id: String) -> Result<Status
     };
     let bin = mgr.bin_path(&p);
     let s = mgr.status_local(&p);
-    let auto = mgr.program_autostart(&p);
+    let auto = mgr.program_autostart(&p.id);
     let vcheck = mgr.load_version_check();
     Ok(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck))
 }
@@ -280,7 +280,7 @@ fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, 
         .map(|p| {
             let bin = mgr.bin_path(&p);
             let s = mgr.status_local(&p);
-            let auto = mgr.program_autostart(&p);
+            let auto = mgr.program_autostart(&p.id);
             ProgramStatusView {
                 id: p.id.clone(),
                 name: p.name.clone(),
@@ -305,7 +305,7 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             .map(|p| {
                 let bin = mgr.bin_path(&p);
                 let s = mgr.status_local(&p);
-                let auto = mgr.program_autostart(&p);
+                let auto = mgr.program_autostart(&p.id);
                 (p, bin, s, auto)
             })
             .collect()
@@ -493,7 +493,7 @@ fn start_program(
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
     spawn_exit_watcher(app.clone(), p.id.clone());
-    Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
+    Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p.id)))
 }
 #[tauri::command]
 fn stop_program(state: State<AppState>, program_id: String) -> Result<StatusView, String> {
@@ -506,7 +506,7 @@ fn stop_program(state: State<AppState>, program_id: String) -> Result<StatusView
     mgr.log_op(&t!("op.stop", name = &p.name));
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
-    Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
+    Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p.id)))
 }
 
 /// 重启：停止后重新加载字段值并启动
@@ -530,7 +530,7 @@ fn restart_program(
     let bin = mgr.bin_path(&p);
     let s = mgr.status(&p);
     spawn_exit_watcher(app.clone(), p.id.clone());
-    Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p)))
+    Ok(StatusView::from_status(&s, &bin, mgr.program_autostart(&p.id)))
 }
 
 #[tauri::command]
@@ -580,21 +580,12 @@ fn set_autostart(
     program_id: String,
     enabled: bool,
 ) -> Result<(), String> {
-    let mgr = state.manager.lock().unwrap();
+    let mut mgr = state.manager.lock().unwrap();
     let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
         return Err(t!("err.program_not_found", id = program_id).into());
     };
-    // 方案 B：把自启动状态写进该程序的字段值(壳启动时据此决定是否拉起)
-    let mut values = mgr.load_field_values(&p);
-    let key = p
-        .fields
-        .iter()
-        .find(|f| matches!(f.kind, shared::config::FieldKind::AutoStart { .. }))
-        .map(|f| f.key.clone());
-    if let Some(key) = key {
-        values.insert(key, if enabled { "true".into() } else { "false".into() });
-        mgr.save_field_values(&p, &values);
-    }
+    // 壳统一管理自启状态（不依赖模板是否有 autostart 字段）
+    mgr.set_program_autostart(&program_id, enabled);
     mgr.log_op(&t!(
         "op.toggle_autostart",
         onoff = t!(if enabled { "op.enable" } else { "op.disable" }),

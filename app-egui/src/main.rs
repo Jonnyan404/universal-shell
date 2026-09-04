@@ -1202,7 +1202,7 @@ impl ShellApp {
             } else {
                 ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.not_installed_bare"));
             }
-            if self.manager.program_autostart(&p) {
+            if self.manager.program_autostart(&p.id) {
                 ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.autostart"));
             }
             if status.latest_version.is_some() {
@@ -2118,7 +2118,7 @@ impl ShellApp {
                             ),
                         );
                     }
-                    let mut auto = self.manager.program_autostart(p);
+                    let mut auto = self.manager.program_autostart(&p.id);
                     if ui.checkbox(&mut auto, "").changed() {
                         self.set_autostart(p, auto);
                     }
@@ -2202,23 +2202,14 @@ impl ShellApp {
         });
     }
 
-    /// 切换程序开机自启（写入该程序 AutoStart 字段值持久化）。
+    /// 切换程序开机自启（由壳统一管理，独立于模板字段；模板可不带 autostart 参数）。
     fn set_autostart(&mut self, p: &shared::config::Program, enabled: bool) {
-        let key = p
-            .fields
-            .iter()
-            .find(|f| matches!(f.kind, FieldKind::AutoStart { .. }))
-            .map(|f| f.key.clone());
-        if let Some(key) = key {
-            let mut values = self.manager.load_field_values(p);
-            values.insert(key, if enabled { "true".into() } else { "false".into() });
-            self.manager.save_field_values(p, &values);
-            self.log_op(&t!(
-                "op.toggle_autostart",
-                onoff = t!(if enabled { "op.enable" } else { "op.disable" }),
-                name = &p.name
-            ));
-        }
+        self.manager.set_program_autostart(&p.id, enabled);
+        self.log_op(&t!(
+            "op.toggle_autostart",
+            onoff = t!(if enabled { "op.enable" } else { "op.disable" }),
+            name = &p.name
+        ));
     }
 
     /// 程序日志查看器：浮窗展示当前程序日志尾部（对齐 Tauri log-modal，含复制/刷新/打开日志目录/关闭）。
