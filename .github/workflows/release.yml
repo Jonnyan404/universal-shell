@@ -185,6 +185,9 @@ jobs:
           hdiutil create -volname "Universal Shell $VERSION" -srcfolder "$STAGE" \
             -ov -format UDZO "$EGUI/$APP-$VERSION.dmg" >/dev/null
           rm -rf "$STAGE"
+          # dist/**/* 会上传整个 dist，删掉 .app 目录避免其内部文件
+          # (Info.plist / icon.icns / 裸二进制)当独立资产混进 Release
+          rm -rf "$APPNAME"
         shell: bash
 
       - name: Package egui (Linux binary)
