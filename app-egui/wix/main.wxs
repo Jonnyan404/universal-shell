@@ -120,27 +120,35 @@
                                 DiskId='1'
                                 Source='$(var.CargoTargetBinDir)\universal-shell-egui.exe'
                                 KeyPath='yes'/>
-                            <Shortcut Id='StartMenuShortcut'
-                                Directory='ApplicationProgramsFolder'
-                                Name='Universal Shell (egui)'
-                                WorkingDirectory='Bin'
-                                Icon='ProductICO'
-                                Advertise='no'/>
                         </Component>
                     </Directory>
                 </Directory>
             </Directory>
         </Directory>
 
-        <CustomAction Id='SetCurrentDir'
-            Directory='Bin'
-            Value='[Bin]'
-            Execute='immediate'
-            Return='ignore'/>
-
+        <!-- 开始菜单快捷方式单独成组件，用 HKCU 注册表项作 KeyPath，
+             避免"per-machine 安装里混入 per-user 快捷方式"的 ICE43/ICE57；
+             同时用 RemoveFolder 保证卸载时清理(ICE64)。
+             SetCurrentDir 自定义动作与快捷方式 WorkingDirectory 重复且触 ICE68，故删除 -->
         <DirectoryRef Id='APPLICATIONFOLDER'>
             <Directory Id='ProgramMenuFolder'>
-                <Directory Id='ApplicationProgramsFolder' Name='Universal Shell'/>
+                <Directory Id='ApplicationProgramsFolder' Name='Universal Shell'>
+                    <Component Id='StartMenuShortcut' Guid='*'>
+                        <RegistryValue Root='HKCU'
+                            Key='Software\Universal Shell'
+                            Name='installed'
+                            Type='integer'
+                            Value='1'
+                            KeyPath='yes'/>
+                        <Shortcut Id='StartMenuShortcut'
+                            Directory='ApplicationProgramsFolder'
+                            Name='Universal Shell (egui)'
+                            WorkingDirectory='Bin'
+                            Icon='ProductICO'
+                            Advertise='no'/>
+                        <RemoveFolder Id='RemoveApplicationProgramsFolder' Directory='ApplicationProgramsFolder' On='uninstall'/>
+                    </Component>
+                </Directory>
             </Directory>
         </DirectoryRef>
 
@@ -160,6 +168,7 @@
             <ComponentRef Id='License'/>
             
             <ComponentRef Id='binary0'/>
+            <ComponentRef Id='StartMenuShortcut'/>
 
             <Feature
                 Id='Environment'
