@@ -167,6 +167,7 @@ act.open_log_dir: Open log directory
 act.open_log_dir_short: Logs
 act.open_app_dir: Open app directory
 act.manage: Manage
+act.export: Export
 act.delete_field: Delete field
 st.autostart: Autostart
 toast.no_addr: No web address (host/port) configured

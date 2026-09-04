@@ -167,6 +167,7 @@ act.open_log_dir: 打开日志目录
 act.open_log_dir_short: 日志目录
 act.open_app_dir: 打开应用目录
 act.manage: 管理
+act.export: 导出
 act.delete_field: 删除字段
 st.autostart: 开机启动
 toast.no_addr: 未配置 Web 地址(host/port)

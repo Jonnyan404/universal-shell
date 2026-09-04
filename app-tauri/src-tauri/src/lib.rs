@@ -1097,11 +1097,11 @@ fn export_template(
 ) -> Result<(), String> {
     let mgr = state.manager.lock().unwrap();
     let p = mgr
-        .programs
-        .iter()
+        .all_programs()
+        .into_iter()
         .find(|p| p.id == program_id)
         .ok_or_else(|| t!("err.program_not_found", id = program_id).to_string())?;
-    let json = serde_json::to_string_pretty(p).map_err(|e| format!("{e:#}"))?;
+    let json = serde_json::to_string_pretty(&p).map_err(|e| format!("{e:#}"))?;
     std::fs::write(&dest_path, json).map_err(|e| t!("err.write_file_fail", err = e).to_string())?;
     mgr.log_op(&t!("op.export", name = &p.name));
     Ok(())

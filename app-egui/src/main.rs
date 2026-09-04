@@ -1757,6 +1757,9 @@ impl ShellApp {
                             self.view = View::Manage;
                             self.show_shell_log = false;
                         }
+                        if ui.button(t!("act.export")).clicked() {
+                            self.export_local_template(&p.id);
+                        }
                     },
                 );
             });
@@ -1799,6 +1802,39 @@ impl ShellApp {
                 Ok(()) => {
                     self.show_toast(t!("lib.imported_local").to_string());
                 }
+                Err(e) => {
+                    self.show_toast(format!("{e:#}"));
+                }
+            }
+        }
+    }
+
+    /// 导出受管程序的模板定义为本地 JSON（分享给他人/备份）。
+    fn export_local_template(&mut self, id: &str) {
+        let p = match self
+            .manager
+            .all_programs()
+            .into_iter()
+            .find(|p| p.id == id)
+        {
+            Some(p) => p,
+            None => {
+                self.show_toast(t!("err.program_not_found", id = id).to_string());
+                return;
+            }
+        };
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name(format!("{id}.json"))
+            .add_filter("JSON", &["json"])
+            .save_file()
+        {
+            match serde_json::to_string_pretty(&p) {
+                Ok(json) => match std::fs::write(&path, json) {
+                    Ok(()) => self.log_op(&t!("op.export", name = &p.name)),
+                    Err(e) => {
+                        self.show_toast(t!("err.write_file_fail", err = e.to_string()).to_string());
+                    }
+                },
                 Err(e) => {
                     self.show_toast(format!("{e:#}"));
                 }

@@ -1560,6 +1560,11 @@ function renderLocalTemplates() {
     show.textContent = t("act.manage");
     show.onclick = () => switchTo(p.id);
     ops.append(show);
+    const exp = document.createElement("button");
+    exp.className = "op-btn";
+    exp.textContent = t("act.export");
+    exp.onclick = () => exportLocalTemplate(p.id, p.name || p.id);
+    ops.append(exp);
     row.append(name, repo, ops);
     el.libCacheDrawer.appendChild(row);
   }
@@ -1648,6 +1653,23 @@ async function importLocalFile() {
     showNotice(t("lib.imported_local"));
     programs = await invoke("get_programs");
     renderSidebar();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+async function exportLocalTemplate(id, name) {
+  try {
+    const dest = await save({
+      defaultPath: `${id}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+    if (!dest) return;
+    await invoke("export_template", {
+      programId: id,
+      destPath: String(dest),
+    });
+    showNotice(t("op.export", { name }));
   } catch (e) {
     showNotice(String(e), true);
   }
