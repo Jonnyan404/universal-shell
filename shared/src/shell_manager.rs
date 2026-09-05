@@ -251,13 +251,18 @@ impl ShellManager {
     /// 追加一条壳操作日志。带本地时间戳；落盘失败仅记录，不影响功能。
     /// 追加后若超过 `OP_LOG_MAX`，保留末尾一半（丢最旧会话），就地截写。
     pub fn log_op(&self, msg: &str) {
+        Self::log_op_for(&self.data_dir, msg);
+    }
+
+    /// 无需持有 manager 时的壳操作日志追加（如下载后台线程），含同样的容量截断。
+    pub fn log_op_for(data_dir: &Path, msg: &str) {
         let stamp = || {
             use time::format_description::well_known::Rfc3339;
             let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
             now.format(&Rfc3339).unwrap_or_else(|_| "?".into())
         };
         let line = format!("[{}] {}\n", stamp(), msg);
-        let path = self.op_log_path();
+        let path = data_dir.join("shell.log");
         use std::io::Write;
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
             let _ = f.write_all(line.as_bytes());
@@ -1505,6 +1510,18 @@ mod tests {
         let mut mgr2 = ShellManager::new(dir.clone()).unwrap();
         mgr2.load_config(&cfg).unwrap();
         assert!(mgr2.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap().hidden);
+    }
+
+    /// 无 manager 锁的日志追加（下载后台线程用）：落盘且带时间戳行。
+    #[test]
+    fn log_op_for_appends_without_manager() {
+        let dir = std::env::temp_dir().join("cc-log-op-for");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        ShellManager::log_op_for(&dir, "下载/更新「demo」失败: 404");
+        let text = std::fs::read_to_string(dir.join("shell.log")).unwrap();
+        assert!(text.ends_with('\n'));
+        assert!(text.contains("下载/更新「demo」失败: 404"));
     }
 
     /// 追加足够多条日志越过容量上限后，文件被截末一半，体积不再无限增长。

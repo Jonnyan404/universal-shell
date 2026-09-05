@@ -305,6 +305,7 @@ op.start: Start program "%{name}"
 op.stop: Stop program "%{name}"
 op.restart: Restart program "%{name}"
 op.stop_all: Stop all programs
+op.download_fail: 'Download/update "%{name}" failed: %{err}'
 op.toggle_autostart: '%{onoff} autostart for program "%{name}"'
 op.toggle_shell_autostart: '%{onoff} autostart for the shell'
 op.edit_template: Edit template for program "%{name}"

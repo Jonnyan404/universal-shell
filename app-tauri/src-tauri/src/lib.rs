@@ -463,6 +463,12 @@ fn install(app: AppHandle, state: State<AppState>, program_id: String) -> Result
                 );
             }
             Err(e) => {
+                // 下载失败写进壳日志（前端只 toast 易错过），后台线程无 manager 锁走 log_op_for
+                let err_text = format!("{e:#}");
+                shared::ShellManager::log_op_for(
+                    &data_dir,
+                    &t!("op.download_fail", name = &p.name, err = &err_text),
+                );
                 let _ = handle.emit(
                     "download-progress",
                     DownloadEvent {
@@ -471,7 +477,7 @@ fn install(app: AppHandle, state: State<AppState>, program_id: String) -> Result
                         received: 0,
                         total: 0,
                         done: false,
-                        error: Some(format!("{e:#}")),
+                        error: Some(err_text),
                         version: None,
                     },
                 );

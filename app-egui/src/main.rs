@@ -603,14 +603,32 @@ impl ShellApp {
                     let frac = p.fraction().unwrap_or(0.0);
                     self.progress = Some((pid, frac, label));
                 }
-                Msg::InstallDone(_pid, version, err) => {
+                Msg::InstallDone(pid, version, err) => {
                     self.busy = false;
                     self.progress = None;
-                    let text = match version {
-                        Some(v) => t!("toast.updated_short", ver = v).to_string(),
-                        None => t!("toast.download_fail", err = err.unwrap_or_default()).to_string(),
-                    };
-                    self.show_toast(text);
+                    match version {
+                        Some(v) => {
+                            self.show_toast(t!("toast.updated_short", ver = v).to_string());
+                        }
+                        None => {
+                            // 下载失败写进壳日志（带程序名），log_op 自带 toast 反馈
+                            let name = self
+                                .manager
+                                .all_programs()
+                                .into_iter()
+                                .find(|p| p.id == pid)
+                                .map(|p| p.name.clone())
+                                .unwrap_or(pid);
+                            self.log_op(
+                                &t!(
+                                    "op.download_fail",
+                                    name = name,
+                                    err = err.unwrap_or_default()
+                                )
+                                .to_string(),
+                            );
+                        }
+                    }
                 }
                 Msg::ManifestLoaded(result) => {
                     self.registry_wait = false;
