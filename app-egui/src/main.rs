@@ -230,6 +230,10 @@ struct ShellApp {
     show_settings: bool,
     /// 暗色主题
     dark_mode: bool,
+    /// prefs 中已持久化的主题值（用于检测变化再写盘）
+    prefs_saved_dark: bool,
+    /// prefs 中已持久化的选中程序 id（用于检测变化再写盘）
+    prefs_saved_current: Option<String>,
     /// 各程序的最新版本缓存（后台异步刷新，避免渲染时联网卡顿）
     /// key = 程序 id, value = (最新版本, 发布时间)
     latest_versions: BTreeMap<String, (Option<String>, String)>,
@@ -282,17 +286,36 @@ impl ShellApp {
             .first()
             .cloned()
             .unwrap_or_default();
-        let current_id = manager.all_programs().first().map(|p| p.id.clone());
+        // 深浅主题 + 上次选中的程序：从数据目录读 prefs（JSON，兼容旧裸 bool 格式）
+        // 启动恢复上次选中的程序，而不是每次都回到列表第一个
+        let raw_prefs = std::fs::read_to_string(ShellApp::prefs_path(&manager)).ok();
+        let (dark_mode, last_program) = match raw_prefs {
+            Some(s) => match serde_json::from_str::<serde_json::Value>(s.trim()) {
+                Ok(v) if v.is_object() => {
+                    let dark = v
+                        .get("dark_mode")
+                        .and_then(|x| x.as_bool())
+                        .unwrap_or(true);
+                    let last = v
+                        .get("last_program")
+                        .and_then(|x| x.as_str())
+                        .map(String::from);
+                    (dark, last)
+                }
+                _ => (s.trim().parse::<bool>().unwrap_or(true), None),
+            },
+            None => (true, None),
+        };
+        let programs = manager.all_programs();
+        let current_id = last_program
+            .as_ref()
+            .and_then(|id| programs.iter().find(|p| &p.id == id).map(|p| p.id.clone()))
+            .or_else(|| programs.first().map(|p| p.id.clone()));
         let settings_accel = manager.proxy.accelerate_prefix.clone();
         let (settings_proxy_type, settings_proxy_host, settings_proxy_user, settings_proxy_pass) =
             parse_proxy(&manager.proxy.http_proxy);
         let settings_shell_auto = manager.autostart.shell_is_enabled();
         let sources_rows = manager.template_registries.clone();
-        // 深浅主题状态持久化：从数据目录读上次选择的主题（默认暗色），切换时同步写回
-        let dark_mode = std::fs::read_to_string(ShellApp::prefs_path(&manager))
-            .ok()
-            .and_then(|s| s.trim().parse::<bool>().ok())
-            .unwrap_or(true);
         // shell.log 按会话划分：启动分隔线（重启不清档、可审计，手动点 🗑 清空）
         manager.log_op(&t!("log.shell_started"));
         // 壳启动后自动拉起所有开启了「自启动」的程序（方案 B：壳管理，对齐 Tauri）
@@ -316,7 +339,7 @@ impl ShellApp {
             rx,
             busy: false,
             config_path,
-            current_id,
+            current_id: current_id.clone(),
             view: View::Manage,
             registry_url,
             merged: None,
@@ -354,6 +377,8 @@ impl ShellApp {
             edit_fields: Vec::new(),
             show_settings: false,
             dark_mode,
+            prefs_saved_dark: dark_mode,
+            prefs_saved_current: current_id,
             latest_versions,
             confirm_delete: None,
             checking_updates: false,
@@ -1004,11 +1029,6 @@ impl ShellApp {
             let theme_hint = if self.dark_mode { t!("ui.theme.light") } else { t!("ui.theme.dark") };
             if ui.small_button(theme_label).on_hover_text(theme_hint).clicked() {
                 self.dark_mode = !self.dark_mode;
-                // 主题持久化：写回数据目录，重启后记住上次选择
-                let _ = std::fs::write(
-                    ShellApp::prefs_path(&self.manager),
-                    self.dark_mode.to_string(),
-                );
                 let visuals = if self.dark_mode {
                     egui::Visuals::dark()
                 } else {
@@ -3029,6 +3049,20 @@ impl eframe::App for ShellApp {
             let _ = ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             ctx.request_repaint();
+        }
+        // 主题或选中程序变化时持久化 prefs（JSON），重启后恢复上次主题与程序
+        let cur = self.current_id.clone();
+        if self.dark_mode != self.prefs_saved_dark || cur != self.prefs_saved_current {
+            let prefs = serde_json::json!({
+                "dark_mode": self.dark_mode,
+                "last_program": cur,
+            });
+            let _ = std::fs::write(
+                ShellApp::prefs_path(&self.manager),
+                serde_json::to_string(&prefs).unwrap_or_default(),
+            );
+            self.prefs_saved_dark = self.dark_mode;
+            self.prefs_saved_current = cur;
         }
     }
 
