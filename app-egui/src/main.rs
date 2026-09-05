@@ -1464,7 +1464,10 @@ impl ShellApp {
                 self.log_op(&t!("op.restart", name = &p.name));
             }
             ui.separator();
-            if ui.button("🗁").on_hover_text(t!("act.open_app_dir")).clicked() {
+            // 本地程序无壳内数据目录，不显示「打开程序目录」
+            if !p.repo.is_empty()
+                && ui.button("🗁").on_hover_text(t!("act.open_app_dir")).clicked()
+            {
                 let app_dir = self.manager.app_dir(&p);
                 let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
             }
@@ -2350,7 +2353,13 @@ impl ShellApp {
                         self.current_id = Some(p.id.clone());
                         self.show_log = true;
                     }
-                    if ui.small_button(t!("act.open_app_dir")).on_hover_text(t!("act.open_app_dir")).clicked() {
+                    // 本地程序无壳内数据目录，不显示「打开程序目录」
+                    if !p.repo.is_empty()
+                        && ui
+                            .small_button(t!("act.open_app_dir"))
+                            .on_hover_text(t!("act.open_app_dir"))
+                            .clicked()
+                    {
                         let d = self.manager.app_dir(p);
                         let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
                     }

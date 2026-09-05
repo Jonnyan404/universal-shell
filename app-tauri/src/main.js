@@ -463,7 +463,8 @@ async function renderForm() {
   appDir.title = t("act.open_app_dir");
   appDir.onclick = () => revealAppDir(current.id);
   appDir.style.marginLeft = "auto";
-  el.actions.appendChild(appDir);
+  // 本地程序无壳内数据目录，不显示「打开程序目录」
+  if (current.repo) el.actions.appendChild(appDir);
 
   // 有地址(/端口)字段时，提供「打开网站」「复制地址」
   if (webUrl(current.id)) {
@@ -749,36 +750,40 @@ function renderBatch() {
     const ops = document.createElement("span");
     ops.className = "batch-ops";
 
-    // 下载 / 更新（复用状态栏安装逻辑，防重复触发；已最新时置灰）
-    const isUpToDate = s.installed && s.up_to_date;
-    const dl = makeOpBtn(s.installed ? (isUpToDate ? t("st.latest") : t("dl.update")) : t("dl.download"), async () => {
-      dl.dataset.programId = item.id;
-      dl.classList.add("dl-progress-btn");
-      dl.dataset.installed = s.installed ? "1" : "0";
-      // 最新版本未知时先联网检查，避免不必要的覆盖安装
-      if (s.installed && !s.latest_version) {
-        dl.disabled = true;
-        dl.textContent = t("dl.checking_short");
-        try {
-          const full = await invoke("batch_status");
-          statuses = full;
-          const fresh = statuses.find((x) => x.id === item.id);
-          renderSidebar();
-          if (fresh?.status?.up_to_date) {
+    // 本地程序(repo 为空)：无远程源，不显示下载/更新；打开程序目录也无意义
+    const isLocal = !item.repo;
+    if (!isLocal) {
+      // 下载 / 更新（复用状态栏安装逻辑，防重复触发；已最新时置灰）
+      const isUpToDate = s.installed && s.up_to_date;
+      const dl = makeOpBtn(s.installed ? (isUpToDate ? t("st.latest") : t("dl.update")) : t("dl.download"), async () => {
+        dl.dataset.programId = item.id;
+        dl.classList.add("dl-progress-btn");
+        dl.dataset.installed = s.installed ? "1" : "0";
+        // 最新版本未知时先联网检查，避免不必要的覆盖安装
+        if (s.installed && !s.latest_version) {
+          dl.disabled = true;
+          dl.textContent = t("dl.checking_short");
+          try {
+            const full = await invoke("batch_status");
+            statuses = full;
+            const fresh = statuses.find((x) => x.id === item.id);
+            renderSidebar();
+            if (fresh?.status?.up_to_date) {
+              renderBatch();
+              showNotice(t("st.is_latest", { name: item.name }));
+              return;
+            }
+          } catch (e) {
             renderBatch();
-            showNotice(t("st.is_latest", { name: item.name }));
+            showNotice(String(e), true);
             return;
           }
-        } catch (e) {
-          renderBatch();
-          showNotice(String(e), true);
-          return;
         }
-      }
-      installProgram(item.id, dl);
-    });
-    if (isUpToDate) dl.disabled = true;
-    ops.appendChild(dl);
+        installProgram(item.id, dl);
+      });
+      if (isUpToDate) dl.disabled = true;
+      ops.appendChild(dl);
+    }
 
     const start = makeOpBtn(t("act.start"), async () => {
       try {
@@ -817,8 +822,10 @@ function renderBatch() {
     const logs = makeOpBtn(t("act.log"), () => openLogModal(item.id));
     ops.appendChild(logs);
 
-    const openDir = makeOpBtn(t("act.open_app_dir"), () => revealAppDir(item.id));
-    ops.appendChild(openDir);
+    if (!isLocal) {
+      const openDir = makeOpBtn(t("act.open_app_dir"), () => revealAppDir(item.id));
+      ops.appendChild(openDir);
+    }
 
     const edit = makeOpBtn(t("act.edit"), () => openEditModal(item.id));
     ops.appendChild(edit);
