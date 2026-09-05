@@ -242,9 +242,12 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
         let gh = proxied_github(&layout);
         repo = p.repo.clone();
         drop(mgr);
-        if let Ok(latest) = gh.latest(&p.repo) {
-            local.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
-            local.latest_published = latest.published_at.clone();
+        // 本地程序(repo 为空)无远程版本，跳过查询
+        if !repo.is_empty() {
+            if let Ok(latest) = gh.latest(&repo) {
+                local.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
+                local.latest_published = latest.published_at.clone();
+            }
         }
     }
     // 刚才联网查过最新版本 → 落盘版本检查缓存（含检查时间戳）
@@ -318,6 +321,10 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
                 let repo = p.repo.clone();
                 let layout = layout.clone();
                 s.spawn(move || {
+                    // 本地程序(repo 为空)无远程版本
+                    if repo.is_empty() {
+                        return None;
+                    }
                     let gh = proxied_github(&layout);
                     gh.latest(&repo)
                         .ok()

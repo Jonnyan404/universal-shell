@@ -213,7 +213,11 @@ impl ShellManager {
     }
 
     /// 单独可执行文件在程序目录 bin/ 子目录(与 whole 模式的解包目录 pkg/ 并存不冲突)。
+    /// `repo` 为空 = 本地程序：直接使用 `binary`（绝对/相对路径或 PATH 中的命令名）。
     pub fn bin_path(&self, p: &Program) -> PathBuf {
+        if p.repo.is_empty() {
+            return PathBuf::from(&p.binary);
+        }
         let name = if std::env::consts::OS == "windows" {
             format!("{}.exe", p.binary)
         } else {
@@ -333,6 +337,11 @@ impl ShellManager {
         program: &Program,
         on_progress: &dyn Fn(&crate::progress::DownloadProgress),
     ) -> anyhow::Result<(String, String)> {
+        // 0. 本地程序(repo 为空)：壳不下载/不更新，直接使用 binary；本地版本即"最新版本"
+        if program.repo.is_empty() {
+            let v = self.local_version(program);
+            return Ok((v.clone(), v));
+        }
         // 1. 查最新版本
         let release: LatestRelease = self.github.latest(&program.repo)?;
         let version = release.tag_name.trim_start_matches('v').to_string();
@@ -481,9 +490,13 @@ impl ShellManager {
             .unwrap_or_else(|_| "-".to_string())
     }
 
-    /// 查询某程序状态(本地是否已装、是否运行、版本对比)
+    /// 查询某程序状态(本地是否已装、是否运行、版本对比)；本地程序无远程对比。
     pub fn status(&mut self, program: &Program) -> ProgramStatus {
         let mut st = self.status_local(program);
+        if program.repo.is_empty() {
+            st.latest_version = None;
+            return st;
+        }
         if let Ok(latest) = self.github.latest(&program.repo) {
             st.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
             st.latest_published = latest.published_at.clone();
@@ -973,6 +986,21 @@ mod tests {
         let q = prog_copy(&p);
         let mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-noop")).unwrap();
         assert!(mgr.template_diff(&p, &q).is_empty());
+    }
+
+    #[test]
+    fn local_program_skips_remote_and_uses_binary_path() {
+        // repo 为空 = 本地程序：bin_path 直接指向 binary（绝对路径），不与远程比较
+        let p: Program = serde_json::from_str(r#"{"id":"ffmpeg","name":"ffmpeg","repo":"","binary":"/usr/local/bin/ffmpeg","fields":[],"args":[]}"#).unwrap();
+        let mut mgr = ShellManager::new(std::env::temp_dir().join("cc-local-prog")).unwrap();
+        assert_eq!(mgr.bin_path(&p), std::path::PathBuf::from("/usr/local/bin/ffmpeg"));
+        // install_or_update 不触网：返回本地版本（未记录过则为 "-"）
+        let (local, latest) = mgr.install_or_update(&p, &|_| {}).unwrap();
+        assert_eq!(local, "-");
+        assert_eq!(latest, "-");
+        // status 不花费网络：latest_version 为 None
+        let st = mgr.status(&p);
+        assert!(st.latest_version.is_none());
     }
 
     #[test]

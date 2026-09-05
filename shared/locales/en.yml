@@ -39,8 +39,8 @@ act.clear: Clear log
 edit.title: Edit program
 edit.name: Name
 edit.desc: Description
-edit.repo: 'GitHub repo (owner/repo)'
-edit.binary: Binary name
+edit.repo: Git repo (owner/repo) — empty = local program
+edit.binary: Binary name / path (for local)
 edit.args: 'Launch args (supports {key})'
 sett.title: Global settings
 sett.accelerate: Accelerate prefix
@@ -74,6 +74,7 @@ lib.import: Import local template
 lib.sources: Manage sources
 st.running: Running
 st.stopped: Stopped
+st.local_program: Local program
 st.not_installed: '%{repo} · not installed'
 st.running_ver: 'Running · v%{ver}'
 st.stopped_ver: 'Stopped · v%{ver}'

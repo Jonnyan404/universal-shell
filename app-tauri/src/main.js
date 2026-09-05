@@ -187,9 +187,11 @@ function renderSidebar() {
     const sub = document.createElement("div");
     sub.className = "sub";
     sub.textContent = !st
-      ? p.repo || "—"
+      ? p.repo || t("st.local_program")
       : !st.installed
-        ? t("st.not_installed", { repo: p.repo })
+        ? p.repo
+          ? t("st.not_installed", { repo: p.repo })
+          : t("st.not_installed_bare")
         : st.running
           ? t("st.running_ver", { ver: st.local_version })
           : t("st.stopped_ver", { ver: st.local_version });
@@ -197,7 +199,7 @@ function renderSidebar() {
 
     item.append(dot, ico, info);
     item.onclick = () => switchToManage(p.id);
-    item.title = `${p.name} · ${p.repo}`;
+    item.title = p.repo ? `${p.name} · ${p.repo}` : `${p.name} · ${t("st.local_program")}`;
     el.tabs.appendChild(item);
   }
 }
@@ -558,7 +560,11 @@ function renderStatus(st) {
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) {
     dlBtn.dataset.installed = st.installed ? "1" : "0";
-    if (st.installed && st.up_to_date) {
+    const isLocal = current && !current.repo;
+    if (isLocal) {
+      // 本地程序(repo 为空)：无远程源，永不显示下载/更新
+      dlBtn.hidden = true;
+    } else if (st.installed && st.up_to_date) {
       // 已是最新版本：隐藏更新按钮
       dlBtn.hidden = true;
     } else if (st.installed && !st.latest_version) {

@@ -39,8 +39,8 @@ act.clear: 清空日志
 edit.title: 编辑程序
 edit.name: 名称
 edit.desc: 描述
-edit.repo: GitHub 仓库 (owner/repo)
-edit.binary: 二进制名
+edit.repo: Git 仓库 (owner/repo)——留空为本地程序
+edit.binary: 二进制名 / 路径（本地程序填可执行文件路径）
 edit.args: 启动参数 args（支持 {key}）
 sett.title: 全局设置
 sett.accelerate: 加速地址
@@ -74,6 +74,7 @@ lib.import: 导入本地模板
 lib.sources: 管理源
 st.running: 运行中
 st.stopped: 已停止
+st.local_program: 本地程序
 st.not_installed: '%{repo} · 未安装'
 st.running_ver: '运行中 · v%{ver}'
 st.stopped_ver: '已停止 · v%{ver}'

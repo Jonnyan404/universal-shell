@@ -758,6 +758,11 @@ impl ShellApp {
             gh.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
             let mut out = Vec::with_capacity(programs.len());
             for p in &programs {
+                // 本地程序(repo 为空)无远程版本；跳过避免对空串请求 GitHub API
+                if p.repo.is_empty() {
+                    out.push((p.id.clone(), None, String::new()));
+                    continue;
+                }
                 let latest = gh
                     .latest(&p.repo)
                     .map(|l| (Some(l.tag_name.trim_start_matches('v').to_string()), l.published_at))
@@ -1044,7 +1049,11 @@ impl ShellApp {
                         .unwrap_or_else(|| "?".into());
                     // 副标题：未安装 / 运行中 / 已停止（对齐 Tauri renderSidebar）
                     let sub = if !st.installed {
-                        t!("st.not_installed", repo = p.repo).to_string()
+                        if p.repo.is_empty() {
+                            t!("st.not_installed_bare").to_string()
+                        } else {
+                            t!("st.not_installed", repo = p.repo).to_string()
+                        }
                     } else if st.running {
                         t!("st.running_ver", ver = st.local_version).to_string()
                     } else {
@@ -1313,11 +1322,17 @@ impl ShellApp {
             .as_ref()
             .map(|v| *v == status.local_version)
             .unwrap_or(false);
-        let show_dl = !(status.installed && (up_to_date || status.latest_version.is_none()));
+        // 本地程序(repo 为空)无远程源，不显示下载/更新按钮
+        let show_dl = !p.repo.is_empty()
+            && !(status.installed && (up_to_date || status.latest_version.is_none()));
         ui.horizontal(|ui| {
             ui.heading(&p.name);
             ui.add_space(8.0);
-            ui.weak(&p.repo);
+            ui.weak(if p.repo.is_empty() {
+                t!("st.local_program").to_string()
+            } else {
+                p.repo.clone()
+            });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if show_dl {
                     let dl_text = if self.busy {

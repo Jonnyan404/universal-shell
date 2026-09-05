@@ -131,7 +131,10 @@ pub struct Program {
     /// 模板分类(文件共享/代理/存储…)，仅模板使用
     #[serde(default)]
     pub category: String,
-    /// GitHub repo，如 "Jonnyan404/cloud-clipboard-go"
+    /// 远程源标识。可为 GitHub repo(如 "Jonnyan404/cloud-clipboard-go")，
+    /// 或其它 HTTP 源 provider 的标识符；空串表示「本地程序」——壳不下载/不更新，
+    /// 直接使用 `binary` 指定的可执行文件(可为其绝对路径)。
+    #[serde(default)]
     pub repo: String,
     /// 下载后落盘的可执行文件名(刻意与壳不同名，避免覆盖壳自身)
     pub binary: String,
