@@ -923,7 +923,11 @@ impl ShellApp {
         // 自启动开关走壳状态，因需 &mut self 调用 set_autostart，故先记录、循环后统一应用
         let mut pending_autostart: Option<bool> = None;
         {
-            let values = self.values.entry(pid.clone()).or_default();
+            // 缓存缺失（如复制/导入刚落地）时实时补读盘上字段值，避免显示空值
+            let values = self
+                .values
+                .entry(pid.clone())
+                .or_insert_with(|| self.manager.load_field_values(&p));
             for field in &p.fields {
                 match &field.kind {
                 FieldKind::String { label, placeholder, .. } => {
