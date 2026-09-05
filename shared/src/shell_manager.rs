@@ -846,12 +846,22 @@ impl ShellManager {
     }
 
     /// 把远端模板应用到实例：用远端定义替换当前实例的结构，但保留用户已填的字段值。
+    /// 字段值迁移规则：
+    /// - 仍在的 key 保留原值；但若原值等于「旧默认」（用户从未改过该字段），且新默认有变，
+    ///   就跟随新默认——模板默认值变更后启动界面不会继续显示旧值；
+    /// - 新增字段补其默认值；被删除的字段值一并移除。
     /// 返回合并后的字段值(含新增字段默认值)。
     pub fn apply_template_update(
         current: &mut Program,
         remote: &Program,
         current_values: &BTreeMap<String, String>,
     ) -> BTreeMap<String, String> {
+        // 旧默认值快照：结构替换会覆盖 current.fields，须提前取
+        let old_defaults: BTreeMap<String, String> = current
+            .fields
+            .iter()
+            .map(|f| (f.key.clone(), f.default_raw()))
+            .collect();
         // 结构字段整体替换
         current.repo = remote.repo.clone();
         current.source = remote.source.clone();
@@ -878,7 +888,19 @@ impl ShellManager {
             }
         }
         for f in &remote.fields {
-            merged.entry(f.key.clone()).or_insert_with(|| f.default_raw());
+            let new_def = f.default_raw();
+            match merged.get(&f.key) {
+                None => {
+                    merged.insert(f.key.clone(), new_def);
+                }
+                Some(v) => {
+                    if let Some(old_def) = old_defaults.get(&f.key) {
+                        if *v == *old_def && *v != new_def {
+                            merged.insert(f.key.clone(), new_def);
+                        }
+                    }
+                }
+            }
         }
         merged
     }
@@ -1458,6 +1480,50 @@ mod tests {
         mgr.update_program("app", &cleared, &cfg).unwrap();
         let after2 = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
         assert!(after2.source.is_none());
+    }
+
+    #[test]
+    fn template_default_change_refreshes_unmodified_values_and_keeps_custom() {
+        let dir = std::env::temp_dir().join("cc-default-migrate");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg = dir.join("cfg.json");
+        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&cfg).unwrap();
+
+        let base: Program = serde_json::from_str(
+            r#"{"id":"app","name":"App","repo":"a/b","binary":"app",
+               "fields":[
+                 {"key":"port","label":"Port","kind":"string","default":"8080"},
+                 {"key":"mode","label":"Mode","kind":"string","default":"fast"}],
+               "args":[]}"#,
+        )
+        .unwrap();
+        mgr.add_program(&base, &cfg).unwrap();
+
+        // 模拟用户启动过一次：port 未改(等于旧默认 8080)，mode 被用户自定义为 custom
+        let mut vals = std::collections::BTreeMap::new();
+        vals.insert("port".to_string(), "8080".to_string());
+        vals.insert("mode".to_string(), "custom".to_string());
+        mgr.save_field_values(&base, &vals);
+
+        // 编辑模板：port/mode 默认都改掉
+        let edited: Program = serde_json::from_str(
+            r#"{"id":"app","name":"App","repo":"a/b","binary":"app",
+               "fields":[
+                 {"key":"port","label":"Port","kind":"string","default":"9090"},
+                 {"key":"mode","label":"Mode","kind":"string","default":"slow"}],
+               "args":[]}"#,
+        )
+        .unwrap();
+        mgr.update_program("app", &edited, &cfg).unwrap();
+
+        let after = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
+        let v = mgr.load_field_values(&after);
+        // 用户未改过(值==旧默认)的字段跟随新默认
+        assert_eq!(v.get("port").map(String::as_str), Some("9090"));
+        // 用户自定义过的值原样保留
+        assert_eq!(v.get("mode").map(String::as_str), Some("custom"));
     }
 
     #[test]
