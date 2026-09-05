@@ -1299,6 +1299,46 @@ mod tests {
         assert!(all.contains(&"dufs-4".to_string()));
     }
 
+    /// 复制模板后改默认值，副本的界面值必须跟随迁移(镜像「复制→编辑默认→操作界面不同步」场景)。
+    /// 副本的 values.json 已含原默认(复制时落盘)，迁移仍应按「值==旧默认」识别并跟随新默认。
+    #[test]
+    fn duplicated_template_default_change_migrates_copy_values() {
+        let dir = std::env::temp_dir().join("cc-duplicate-migrate");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg = dir.join("cfg.json");
+        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&cfg).unwrap();
+
+        let base: Program = serde_json::from_str(
+            r#"{"id":"app","name":"App","repo":"a/b","binary":"app",
+               "fields":[{"key":"port","label":"Port","kind":"string","default":"8080"}],
+               "args":[]}"#,
+        )
+        .unwrap();
+        mgr.add_program(&base, &cfg).unwrap();
+        let copy = mgr.duplicate_program("app", &cfg).unwrap();
+        // 复制时 values.json 已写入了原默认
+        assert_eq!(mgr.load_field_values(&copy).get("port").map(String::as_str), Some("8080"));
+
+        // 用户编辑副本：默认 8080→9090
+        let edited: Program = serde_json::from_str(
+            r#"{"id":"app-2","name":"App (copy)","repo":"a/b","binary":"app",
+               "fields":[{"key":"port","label":"Port","kind":"string","default":"9090"}],
+               "args":[]}"#,
+        )
+        .unwrap();
+        mgr.update_program("app-2", &edited, &cfg).unwrap();
+        let after = mgr.all_programs().into_iter().find(|p| p.id == "app-2").unwrap();
+        // 界面值(load_field_values = 默认 + values.json)跟随新默认
+        let v = mgr.load_field_values(&after);
+        assert_eq!(v.get("port").map(String::as_str), Some("9090"));
+        // 结构默认也已更新；原程序不受影响
+        assert_eq!(after.runtime_defaults().get("port").map(String::as_str), Some("9090"));
+        let orig = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
+        assert_eq!(orig.runtime_defaults().get("port").map(String::as_str), Some("8080"));
+    }
+
     /// 追加足够多条日志越过容量上限后，文件被截末一半，体积不再无限增长。
     #[test]
     fn shell_log_is_trimmed_when_over_capacity() {
