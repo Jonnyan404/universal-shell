@@ -724,15 +724,21 @@ impl ShellManager {
 
     // ---------- 字段值持久化 ----------
 
-    /// 读取程序上次保存的字段值(合并运行时默认)
-    pub fn load_field_values(&self, program: &Program) -> BTreeMap<String, String> {
-        let mut map = program.runtime_defaults();
+    /// 读取程序真正自定义保存过的字段值(不含运行时默认)
+    fn raw_field_values(&self, program: &Program) -> BTreeMap<String, String> {
         let fv_file = self.app_dir(program).join("values.json");
         if let Ok(raw) = std::fs::read_to_string(&fv_file) {
             if let Ok(extra) = serde_json::from_str::<BTreeMap<String, String>>(&raw) {
-                map.extend(extra);
+                return extra;
             }
         }
+        BTreeMap::new()
+    }
+
+    /// 读取程序上次保存的字段值(合并运行时默认)
+    pub fn load_field_values(&self, program: &Program) -> BTreeMap<String, String> {
+        let mut map = program.runtime_defaults();
+        map.extend(self.raw_field_values(program));
         map
     }
 
@@ -1013,10 +1019,12 @@ impl ShellManager {
         copy.name = format!("{} (copy)", base.name);
         copy.template_source = None;
         copy.imported_at = None;
-        self.add_program(&copy, path)?;
-        // 复制已保存的字段值（端口/主机/路径等），让副本开箱即用，
-        // 避免空值导致端口冲突或启动参数缺项。
-        let values = self.load_field_values(&base);
+self.add_program(&copy, path)?;
+        // 复制该实例真正自定义保存过的字段值(端口/主机/路径等),让副本开箱即用。
+        // 未自定义过的 key 刻意不落盘,依赖运行时默认——若像以前那样把合并后的默认
+        // 整体写进 values.json,副本所有字段都会从"未改过"变成"已改过",
+        // 之后改模板默认值时迁移无法识别未动过的值,操作界面就会一直显示旧值。
+        let values = self.raw_field_values(&base);
         if !values.is_empty() {
             self.save_field_values(&copy, &values);
         }
@@ -1318,7 +1326,8 @@ mod tests {
         .unwrap();
         mgr.add_program(&base, &cfg).unwrap();
         let copy = mgr.duplicate_program("app", &cfg).unwrap();
-        // 复制时 values.json 已写入了原默认
+        // 复制时不钉死默认：未自定义过的 key 不写 values.json(界面值由运行时默认提供)
+        assert!(!mgr.app_dir(&copy).join("values.json").exists());
         assert_eq!(mgr.load_field_values(&copy).get("port").map(String::as_str), Some("8080"));
 
         // 用户编辑副本：默认 8080→9090
