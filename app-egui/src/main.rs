@@ -2586,7 +2586,7 @@ impl ShellApp {
             .fixed_pos(pos)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(160.0);
+                    // 不强制最小宽度：菜单贴合最宽项，去掉右侧多余空白
                     match &menu {
                         SidebarCtx::New => {
                             if ui.button(t!("menu.new")).clicked() {
