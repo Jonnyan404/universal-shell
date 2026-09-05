@@ -477,18 +477,8 @@ async function renderForm() {
   // 本地程序无壳内数据目录，不显示「打开程序目录」
   if (current.repo) el.actions.appendChild(appDir);
 
-  // 有地址(/端口)字段时，提供「打开网站」「复制地址」
+  // 有地址(/端口)字段时，提供「复制地址」「打开网站」（复制左、打开网站右）
   if (webUrl(current.id)) {
-    const open = document.createElement("button");
-    open.className = "icon-btn";
-    open.title = t("act.open_site");
-    open.textContent = "↗";
-    open.onclick = () => {
-      const u = webUrl(current.id);
-      if (u) openWeb(u);
-    };
-    el.actions.appendChild(open);
-
     const copy = document.createElement("button");
     copy.className = "icon-btn";
     copy.title = t("act.copy_addr");
@@ -498,6 +488,16 @@ async function renderForm() {
       if (u) copyLogText(u);
     };
     el.actions.appendChild(copy);
+
+    const open = document.createElement("button");
+    open.className = "icon-btn";
+    open.title = t("act.open_site");
+    open.textContent = "↗";
+    open.onclick = () => {
+      const u = webUrl(current.id);
+      if (u) openWeb(u);
+    };
+    el.actions.appendChild(open);
   }
 }
 
