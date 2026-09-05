@@ -23,7 +23,8 @@ pub use config::{AssetRule, ExtractMode, Field, FieldKind, Program, ProxySetting
 pub use github::{clear_github_cache, GitHub};
 pub use progress::{DownloadProgress, DownloadStage};
 pub use registry::{
-    load_merged_manifests, Manifest, MergedSource, RegistryClient, RegistryState, TemplateIndex,
+    load_merged_manifests, load_merged_manifests_cached, Manifest, MergedSource, RegistryClient,
+    RegistryState, TemplateIndex,
 };
 pub use shell_manager::{ProgramStatus, ShellManager, TemplateDiff};
 pub use shell_update::{check_shell_update, ShellUpdate, SHELL_REPO};

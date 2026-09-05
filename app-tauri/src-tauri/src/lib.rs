@@ -1066,6 +1066,7 @@ fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<M
         pubkeys,
         Some(&proxy.accelerate_prefix),
         Some(&proxy.http_proxy),
+        true,
     );
     Ok(MergedManifestView {
         templates: merged

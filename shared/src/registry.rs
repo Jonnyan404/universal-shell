@@ -216,6 +216,39 @@ impl RegistryClient {
 
     /// 拉取清单。若对该 base 配置了公钥，则强制校验 `<base>manifests.sig`，
     /// 校验失败直接否决该清单。返回 (离线标记, 拉取/校验时刻(缓存日期), 清单)
+    fn read_cached(&self, url: &str, sig_url: Option<&str>) -> (bool, String, u64) {
+        let key = Self::cache_key(url);
+        let cpath = self.cache_path(&key);
+        let mut offline = true;
+        let body = std::fs::read_to_string(&cpath).unwrap_or_default();
+        if let Some(su) = sig_url {
+            let sig_path = self.cache_path(&Self::cache_key(su));
+            if let Ok(sig) = std::fs::read_to_string(&sig_path) {
+                if let Some(pubkey) = self.configured_pubkey() {
+                    offline = crate::registry_sign::verify_manifest(
+                        body.as_bytes(),
+                        sig.trim(),
+                        pubkey,
+                    )
+                    .is_ok();
+                }
+            }
+        }
+        (offline, body, now_unix())
+    }
+
+    pub fn load_manifest_cached(&self) -> (bool, u64, Manifest) {
+        let url = format!("{base}manifests.json", base = self.base);
+        let sig_url = if self.configured_pubkey().is_some() {
+            Some(format!("{}manifests.sig", self.base))
+        } else {
+            None
+        };
+        let (_off, text, fetched_at) = self.read_cached(&url, sig_url.as_deref());
+        let manifest: Manifest = serde_json::from_str(&text).unwrap_or_default();
+        (manifest.templates.is_empty(), fetched_at, manifest)
+    }
+
     pub fn load_manifest(&self) -> anyhow::Result<(bool, u64, Manifest)> {
         let url = format!("{base}manifests.json", base = self.base);
         let (offline, text, fetched_at) = self.fetch_with_cache(&url);
@@ -304,12 +337,14 @@ impl MergedSource {
 /// 拉取多个清单并合并。任一源失败不阻断其它：该源标记离线(缓存优先)。
 /// `pubkeys` 为 base(或前缀) -> Ed25519 公钥 hex，命中即强制验签。
 /// `accelerate_prefix` / `http_proxy` 为可选网络设置（见 [`RegistryClient::with_network`]）。
+/// `refresh=false` 时只读本地缓存、不发网络请求。
 pub fn load_merged_manifests(
     bases: &[String],
     cache_dir: PathBuf,
     pubkeys: BTreeMap<String, String>,
     accelerate_prefix: Option<&str>,
     http_proxy: Option<&str>,
+    refresh: bool,
 ) -> MergedSource {
     let mut merged = MergedSource::default();
     for base in bases {
@@ -320,11 +355,26 @@ pub fn load_merged_manifests(
             accelerate_prefix,
             http_proxy,
         );
-        let (offline, fetched_at, manifest) = client.load_manifest().unwrap_or((true, now_unix(), Manifest::default()));
+        let (offline, fetched_at, manifest) = if refresh {
+            client
+                .load_manifest()
+                .unwrap_or((true, now_unix(), Manifest::default()))
+        } else {
+            client.load_manifest_cached()
+        };
         merged.sources.push((base.clone(), offline, fetched_at));
         merge_manifest_into(&mut merged, base, &manifest);
     }
     merged
+}
+
+/// 仅读缓存、不联网（nil proxy、refresh=false）；启动时加载避免触碰远程源列表。
+pub fn load_merged_manifests_cached(
+    bases: &[String],
+    cache_dir: PathBuf,
+    pubkeys: BTreeMap<String, String>,
+) -> MergedSource {
+    load_merged_manifests(bases, cache_dir, pubkeys, None, None, false)
 }
 
 /// 把单个清单合并进 MergedSource（追踪冲突；同 id 取先登记源）。

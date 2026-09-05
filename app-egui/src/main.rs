@@ -501,7 +501,8 @@ impl ShellApp {
     }
 
     /// 后台拉取清单(合并配置里的所有注册表；load_manifest 自带缓存/离线回退)
-    fn spawn_load_manifest(&mut self) {
+    /// refresh=true 联网更新远程源列表；false 仅读本地缓存(启动时不碰网络)
+    fn spawn_load_manifest(&mut self, refresh: bool) {
         if self.registry_wait {
             return;
         }
@@ -521,13 +522,18 @@ impl ShellApp {
         let proxy = self.manager.proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let merged = shared::load_merged_manifests(
-                &bases,
-                cache,
-                pubkeys,
-                Some(&proxy.accelerate_prefix),
-                Some(&proxy.http_proxy),
-            );
+            let merged = if refresh {
+                shared::load_merged_manifests(
+                    &bases,
+                    cache,
+                    pubkeys,
+                    Some(&proxy.accelerate_prefix),
+                    Some(&proxy.http_proxy),
+                    true,
+                )
+            } else {
+                shared::load_merged_manifests_cached(&bases, cache, pubkeys)
+            };
             tx.send(Msg::ManifestLoaded(Ok(merged))).ok();
         });
     }
@@ -1913,7 +1919,7 @@ impl ShellApp {
                 ),
             );
             if refresh.clicked() {
-                self.spawn_load_manifest();
+                self.spawn_load_manifest(true);
             }
         });
         // fetch 信息行（对齐 Tauri lib-fetch-info）
@@ -3067,10 +3073,11 @@ impl eframe::App for ShellApp {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // 启动即加载清单（读离线缓存或联网刷新），避免重启后模板库为空、需手动刷新（对齐 Tauri ensureLibraryFromCache+refresh）
+        // 启动仅读本地缓存加载清单，不再联网更新远程源列表（避免每次重启触网）；
+        // 需要最新远程源时手动点「刷新」。模板库此时可为空，刷新后回填。
         if !self.manifest_initialized {
             self.manifest_initialized = true;
-            self.spawn_load_manifest();
+            self.spawn_load_manifest(false);
         }
         egui::Panel::left("sidebar")
             .resizable(true)
