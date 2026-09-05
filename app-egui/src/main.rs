@@ -92,8 +92,6 @@ enum Msg {
     ManifestLoaded(Result<shared::MergedSource, String>),
     /// 模板拉取完成，携带解析后的 Program 与是否覆盖（供 UI 线程快照进本地配置）
     TemplateFetched(String, bool, Result<shared::config::Program, String>),
-    /// 模板更新检查完成：携带 (程序 id, 远端模板, diff 摘要)
-    TemplateUpdateChecked(String, Result<shared::config::Program, String>),
     /// 后台刷新各程序最新版本完成：携带 (id, 最新版本, 发布时间)
     StatusRefreshed(Vec<(String, Option<String>, String)>),
     /// 托盘菜单「开机自启」被点击：请求主线程切换壳自身自启
@@ -194,10 +192,6 @@ struct ShellApp {
     sources_new: String,
     /// 正在导入的模板 id -> 状态
     imports: BTreeMap<String, String>,
-    /// 正在检查模板更新的程序 id -> 状态文案
-    update_checks: BTreeMap<String, String>,
-    /// 已拉到待应用的远端模板(程序 id -> (远端模板, diff 摘要))
-    pending_updates: BTreeMap<String, (shared::config::Program, shared::TemplateDiff)>,
     /// 当前下载进度：(程序 id, 完成比例 0.0..=1.0, 阶段文案)
     progress: Option<(String, f64, String)>,
     /// 设置面板：加速前缀 / 通用代理 编辑框
@@ -363,8 +357,6 @@ impl ShellApp {
             sources_rows,
             sources_new: String::new(),
             imports: BTreeMap::new(),
-            update_checks: BTreeMap::new(),
-            pending_updates: BTreeMap::new(),
             progress: None,
             settings_accel,
             settings_proxy_type,
@@ -578,16 +570,6 @@ impl ShellApp {
         });
     }
 
-    /// 由 template_source 反解出所属注册表 base URL。
-    /// 约定来源存为 `<base><id>`（见 registry.load_template）。
-    fn registry_base_from_source(&self, program: &shared::config::Program) -> Option<String> {
-        let src = program.template_source.as_deref()?;
-        let id = &program.id;
-        src.strip_suffix(id)
-            .filter(|b| b.starts_with("http"))
-            .map(|b| b.to_string())
-    }
-
     /// 后台检查壳自身更新，结果经 Msg::ShellUpdateChecked 回 UI 线程；
     /// manual=true（设置里手动点）时无新版/失败会弹 toast，启动自动检查则静默。
     fn spawn_check_shell_update(&mut self, manual: bool) {
@@ -606,32 +588,6 @@ impl ShellApp {
                 result.map_err(|e| format!("{e:#}")),
             ))
             .ok();
-        });
-    }
-
-    /// 后台拉取该程序来源注册表里的最新模板，UI 线程据此展示 diff / 应用更新
-    fn spawn_check_template_update(&mut self, program: shared::config::Program) {
-        if self.update_checks.contains_key(&program.id) {
-            return;
-        }
-        let Some(base) = self.registry_base_from_source(&program) else {
-            self.show_toast(t!("eg.no_source_registry").to_string());
-            return;
-        };
-        self.update_checks.insert(program.id.clone(), t!("dl.checking_short").to_string());
-        let id = program.id.clone();
-        let cache = self.manager.data_dir.join("cache/registry");
-        let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            let client = RegistryClient::new(&base, cache);
-            match client.load_template(&id) {
-                Ok((_, remote)) => {
-                    tx.send(Msg::TemplateUpdateChecked(id.clone(), Ok(remote))).ok();
-                }
-                Err(e) => {
-                    tx.send(Msg::TemplateUpdateChecked(id.clone(), Err(format!("{e:#}")))).ok();
-                }
-            }
         });
     }
 
@@ -698,36 +654,6 @@ impl ShellApp {
                                 Err(e) => {
                                     self.imports.insert(id.clone(), t!("eg.import_fail", err = e).to_string());
                                 }
-                    }
-                }
-                Msg::TemplateUpdateChecked(pid, result) => {
-                    self.update_checks.remove(&pid);
-                    match result {
-                        Ok(remote) => {
-                            let cur = self.shown_program().or_else(|| {
-                                self.manager.all_programs().into_iter().find(|p| p.id == pid)
-                            });
-                            let Some(cur) = cur else {
-                                self.show_toast(t!("eg.not_found_instance").to_string());
-                                return;
-                            };
-                            let diff = self.manager.template_diff(&cur, &remote);
-                            if diff.is_empty() {
-                                self.pending_updates.remove(&pid);
-                                self.show_toast(t!("eg.no_diff").to_string());
-                            } else {
-                                self.pending_updates.insert(pid.clone(), (remote, diff));
-                                let summary = self
-                                    .pending_updates
-                                    .get(&pid)
-                                    .map(|(_, d)| d.summary())
-                                    .unwrap_or_default();
-                                self.show_toast(t!("eg.update_found", summary = summary).to_string());
-                            }
-                        }
-                        Err(e) => {
-                            self.show_toast(t!("eg.check_update_fail", err = e).to_string());
-                        }
                     }
                 }
                 Msg::StatusRefreshed(list) => {
@@ -910,37 +836,21 @@ impl ShellApp {
         st
     }
 
-    /// 应用远端模板更新到实例，保留用户已填字段值后写回配置
-    fn apply_pending_update(&mut self, cur: shared::config::Program, remote: shared::config::Program) {
-        let mut next = cur.clone();
-        let values = self.values.get(&cur.id).cloned().unwrap_or_default();
-        let merged = shared::ShellManager::apply_template_update(&mut next, &remote, &values);
-        // 用新字段值刷新表单
-        self.values.insert(cur.id.clone(), merged);
-        // 替换本地配置并写盘
-        if let Some(slot) = self.manager.programs.iter_mut().find(|p| p.id == cur.id) {
-            *slot = next;
-        }
-        match self.manager.save_config(&self.config_path) {
-            Ok(()) => {
-                self.show_toast(
-                    t!("eg.updated_written", path = self.config_path.display()).to_string(),
-                );
-            }
-            Err(e) => {
-                self.show_toast(t!("eg.write_fail", err = format!("{e:#}")).to_string());
-            }
-        }
-        self.pending_updates.remove(&cur.id);
-    }
-
-    /// 把拉取到的模板追加进本地配置并写回 disk（快照）；overwrite=true 时覆盖同名程序
+    /// 把拉取到的模板追加进本地配置并写回 disk（快照）；overwrite=true 时覆盖同名程序。
+    /// 覆盖 = 远端模板更新语义：结构替换 + 字段值合并（保留用户自定义、新增补默认），
+    /// 与「检查更新→应用更新」同一套合并逻辑，通用操作统一走这里。
     fn commit_import(&mut self, program: &shared::config::Program, overwrite: bool) -> anyhow::Result<()> {
         if let Some(idx) = self.manager.programs.iter().position(|p| p.id == program.id) {
             if !overwrite {
                 anyhow::bail!(t!("err.program_exists", id = program.id));
             }
-            self.manager.programs[idx] = program.clone();
+            let cur = self.manager.programs[idx].clone();
+            let mut next = cur.clone();
+            let values = self.manager.load_field_values(&cur);
+            let merged = shared::ShellManager::apply_template_update(&mut next, program, &values);
+            self.values.insert(next.id.clone(), merged.clone());
+            self.manager.save_field_values(&next, &merged);
+            self.manager.programs[idx] = next;
         } else {
             // 写入用户运行时值（默认值）
             let defaults = self.manager.load_field_values(program);
@@ -1457,39 +1367,6 @@ impl ShellApp {
                 ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.stopped"));
             }
         });
-
-        // 模板更新行（仅当实例带来源注册表时显示）
-        if p.template_source.is_some() {
-            ui.horizontal(|ui| {
-                let checking = self.update_checks.get(&p.id).cloned();
-                let btn = ui.add_enabled(
-                    checking.is_none(),
-                    egui::Button::new(
-                        if checking.is_some() { t!("dl.checking_short").to_string() } else { t!("eg.check_update").to_string() },
-                    ),
-                );
-                if btn.clicked() {
-                    self.spawn_check_template_update(p.clone());
-                }
-                if let Some((_, diff)) = self.pending_updates.get(&p.id).cloned() {
-                    let mut detail = diff.changed_fields_detail.clone();
-                    ui.label(diff.summary());
-                    if ui.button(t!("eg.view_changes")).clicked() {
-                        self.show_toast(if detail.is_empty() {
-                            diff.summary()
-                        } else {
-                            detail.drain(..).collect::<Vec<_>>().join("；")
-                        });
-                    }
-                    if ui.button(t!("eg.apply_update")).clicked() {
-                        if let Some((remote, _)) = self.pending_updates.get(&p.id).cloned() {
-                            self.apply_pending_update(p.clone(), remote);
-                        }
-                    }
-                }
-            });
-            ui.add_space(4.0);
-        }
 
         ui.separator();
 
