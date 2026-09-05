@@ -2312,19 +2312,21 @@ impl ShellApp {
                 // 第二行：操作按钮横向铺开
                 let up_to_date = st.installed
                     && st.latest_version.as_deref() == Some(st.local_version.as_str());
-                let dl_label = if !st.installed {
-                    t!("dl.download").to_string()
-                } else if up_to_date {
+                // 本地程序(repo 为空)无远程源，不显示下载/更新
+                let is_local = p.repo.is_empty();
+                let dl_label = if st.installed && !is_local && up_to_date {
                     t!("st.latest").to_string()
                 } else {
-                    t!("dl.update").to_string()
+                    t!("dl.download").to_string()
                 };
                 ui.horizontal(|ui| {
                     ui.label(t!("th.actions"));
                     ui.add_space(4.0);
-                    let dl_btn = ui.add_enabled(!up_to_date, egui::Button::new(dl_label));
-                    if dl_btn.clicked() {
-                        self.spawn_install(p.clone());
+                    if !is_local {
+                        let dl_btn = ui.add_enabled(!up_to_date, egui::Button::new(dl_label));
+                        if dl_btn.clicked() {
+                            self.spawn_install(p.clone());
+                        }
                     }
                     // 启动 / 重启 / 停止：三个操作始终显示（对齐 Tauri renderBatch ops）
                     if ui.small_button(t!("act.start")).clicked() {
@@ -2354,11 +2356,6 @@ impl ShellApp {
                     }
                     if ui.small_button(t!("act.edit")).clicked() {
                         self.open_edit(&p.id);
-                    }
-                    if ui.small_button(t!("act.manage")).clicked() {
-                        self.current_id = Some(p.id.clone());
-                        self.view = View::Manage;
-                        self.show_shell_log = false;
                     }
                     if ui.small_button(t!("act.delete")).clicked() {
                         self.confirm_delete = Some(p.id.clone());
