@@ -595,7 +595,7 @@ impl ShellApp {
             return;
         }
         self.shell_update_checking = true;
-        let current = env!("CARGO_PKG_VERSION").to_string();
+        let current = shared::version::build_version().to_string();
         let accel = self.manager.proxy.accelerate_prefix.clone();
         let proxy = self.manager.proxy.http_proxy.clone();
         let tx = self.tx.clone();
@@ -779,7 +779,7 @@ impl ShellApp {
                         Ok(None) => {
                             if manual {
                                 self.show_toast(
-                                    t!("upd.latest", ver = env!("CARGO_PKG_VERSION")).to_string(),
+                                    t!("upd.latest", ver = shared::version::build_version()).to_string(),
                                 );
                             }
                         }
@@ -1311,7 +1311,7 @@ impl ShellApp {
                 // 壳自身更新：当前版本 + 手动检查按钮
                 ui.horizontal(|ui| {
                     ui.add_sized([100.0, 0.0], egui::Label::new(t!("upd.check")));
-                    ui.label(t!("upd.current_version", ver = env!("CARGO_PKG_VERSION")).to_string());
+                    ui.label(t!("upd.current_version", ver = shared::version::build_version()).to_string());
                     let label = if self.shell_update_checking {
                         t!("upd.checking").to_string()
                     } else {

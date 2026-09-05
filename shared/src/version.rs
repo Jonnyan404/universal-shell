@@ -1,5 +1,12 @@
 //! 版本号比较工具（GitHub release tag 等）。
 
+/// 壳自身构建版本：优先取编译时注入的 `UNIVERSAL_SHELL_VERSION`
+/// （CI 按 release tag 注入，保证 App 内显示版本与发布一致），
+/// 否则回退 Cargo.toml 的 workspace 版本（本地开发态）。
+pub fn build_version() -> &'static str {
+    option_env!("UNIVERSAL_SHELL_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
 /// 返回版本号 `a` 是否严格新于 `b`。
 /// 兼容形如 `v1.2.3` / `1.0.0-beta1` / `2024.05` 的常见 tag。
 pub fn is_newer(a: &str, b: &str) -> bool {
@@ -42,6 +49,11 @@ fn is_stable(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_version_is_present() {
+        assert!(!super::build_version().is_empty());
+    }
 
     #[test]
     fn compare_basic() {

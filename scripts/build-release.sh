@@ -17,6 +17,8 @@ VERSION="${1:-$(grep '^version' Cargo.toml | head -1 | sed -E 's/.*= *"([^"]+)".
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 export MACOSX_DEPLOYMENT_TARGET=12.0
+# 注入构建期版本：App 内版本/自更新检查与本次打包版本一致（shared::version::build_version）
+export UNIVERSAL_SHELL_VERSION="$VERSION"
 
 APP="universal-shell-egui"
 ICONS="assets/icons/egui-bundle"
@@ -116,7 +118,8 @@ echo "==> build tauri bundle"
 case "$OS" in
   darwin|linux)
     # 优先用已装的 cargo-tauri-cli；否则回退到 app-tauri 的 node_modules 里的 @tauri-apps/cli
-    if (cd app-tauri && cargo tauri build) || (cd app-tauri && npx tauri build); then
+    # 均用 --config 覆盖 conf 里的写死版本，保证安装包版本与本次 VERSION 一致（与 CI 行为对齐）
+    if (cd app-tauri && cargo tauri build --config "{\"version\":\"$VERSION\"}") || (cd app-tauri && npx tauri build --config "{\"version\":\"$VERSION\"}") ; then
       if [ -d target/release/bundle ]; then
         cp -R target/release/bundle dist/bundle
       fi

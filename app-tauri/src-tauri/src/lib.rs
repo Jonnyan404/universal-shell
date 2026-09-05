@@ -739,10 +739,10 @@ struct LocaleView {
     available: Vec<String>,
 }
 
-/// 壳自身版本（编译时 workspace version），供设置页展示当前版本。
+/// 壳自身版本（构建期注入的 release tag，否则回退 workspace 版本），供设置页展示当前版本。
 #[tauri::command]
 fn get_shell_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
+    shared::version::build_version().to_string()
 }
 
 #[derive(serde::Serialize)]
@@ -766,7 +766,7 @@ fn check_shell_update(state: State<AppState>) -> Result<ShellUpdateView, String>
             mgr.proxy.http_proxy.clone(),
         )
     };
-    let current = env!("CARGO_PKG_VERSION").to_string();
+    let current = shared::version::build_version().to_string();
     match shared::check_shell_update(&current, &accel, &proxy).map_err(|e| format!("{e:#}"))? {
         Some(u) => Ok(ShellUpdateView {
             current: u.current,

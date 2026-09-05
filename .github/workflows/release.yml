@@ -104,6 +104,9 @@ jobs:
 
       # ---- egui：各平台原生自产自的安装包（不复用本地 build-release.sh，其专为单机多目标设计）----
       - name: Build egui binary
+        env:
+          # 注入 release tag 版本：App 内版本/自更新检查与发布一致（shared::version::build_version）
+          UNIVERSAL_SHELL_VERSION: ${{ steps.version.outputs.value }}
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
             if echo "${{ matrix.label }}" | grep -q arm64; then
@@ -214,6 +217,9 @@ jobs:
       # 避免它们混进 Release / sha256.txt。按平台限定 bundle 目标，防止 Linux 上产出 dmg 等跨平台产物。
       - name: Build tauri bundle (Linux/macOS)
         if: runner.os != 'Windows'
+        env:
+          # 同上：tauri 侧 Rust 版本与 release tag 一致
+          UNIVERSAL_SHELL_VERSION: ${{ steps.version.outputs.value }}
         run: |
           VERSION="${{ steps.version.outputs.value }}"
           if [ "$RUNNER_OS" = "macOS" ]; then
