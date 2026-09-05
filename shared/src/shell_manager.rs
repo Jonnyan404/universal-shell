@@ -983,12 +983,18 @@ impl ShellManager {
         // apply_local_edit 已按 remote.fields 迁移/补齐字段值
         self.save_field_values(&current, &merged);
 
-        let target = if is_builtin {
-            &mut self.builtin_programs
-        } else {
-            &mut self.programs
-        };
-        if let Some(slot) = target.iter_mut().find(|p| p.id == id) {
+        if is_builtin {
+            // 内置程序编译期固定、重启重建：只改内存里的 builtin 槽位会在重启后恢复出厂。
+            // 以用户修改为准——把编辑结果落成用户覆盖写进 shell.json，重启后合并时优先。
+            if let Some(slot) = self.builtin_programs.iter_mut().find(|p| p.id == id) {
+                *slot = current.clone();
+            }
+            if let Some(slot) = self.programs.iter_mut().find(|p| p.id == id) {
+                *slot = current;
+            } else {
+                self.programs.push(current);
+            }
+        } else if let Some(slot) = self.programs.iter_mut().find(|p| p.id == id) {
             *slot = current;
         }
         self.save_config(path)
@@ -1057,11 +1063,10 @@ impl ShellManager {
         copy.template_source = None;
         copy.imported_at = None;
 self.add_program(&copy, path)?;
-        // 复制该实例真正自定义保存过的字段值(端口/主机/路径等),让副本开箱即用。
-        // 未自定义过的 key 刻意不落盘,依赖运行时默认——若像以前那样把合并后的默认
-        // 整体写进 values.json,副本所有字段都会从"未改过"变成"已改过",
-        // 之后改模板默认值时迁移无法识别未动过的值,操作界面就会一直显示旧值。
-        let values = self.raw_field_values(&base);
+        // 复制当前生效的字段值(端口/主机/路径等)，让副本开箱即用。
+        // save_field_values 只落盘偏离默认的覆盖值，未自定义的 key 不会钉死，
+        // 之后改默认值时迁移仍能识别未动过的字段并跟随。
+        let values = self.load_field_values(&base);
         if !values.is_empty() {
             self.save_field_values(&copy, &values);
         }
@@ -1086,6 +1091,18 @@ self.add_program(&copy, path)?;
             };
             if let Some(p) = target.iter_mut().find(|p| p.id == id) {
                 p.hidden = hidden;
+            }
+        }
+        if is_builtin {
+            // 内置隐藏同样要落成用户覆盖，否则重启恢复可见。以用户修改为准。
+            if let Some(cur) = self.builtin_programs.iter().find(|p| p.id == id).cloned() {
+                if let Some(slot) = self.programs.iter_mut().find(|p| p.id == id) {
+                    slot.hidden = hidden;
+                } else {
+                    let mut o = cur;
+                    o.hidden = hidden;
+                    self.programs.push(o);
+                }
             }
         }
         self.save_config(path)
@@ -1344,7 +1361,8 @@ mod tests {
         assert!(all.contains(&"dufs-4".to_string()));
     }
 
-    /// 默认值变更后:值等于旧默认(用户没改过)的字段跟随新默认;自定义值原样保留。
+    /// 保存只落盘偏离默认的覆盖值：等于默认的不写 values.json；自定义保留；
+    /// 本地编辑改默认值后跟随新默认(以这次声明为准)。
     #[test]
     fn save_field_values_strips_values_equal_to_default_and_heals_on_edit() {
         let dir = std::env::temp_dir().join("cc-save-strip");
@@ -1407,8 +1425,8 @@ mod tests {
         .unwrap();
         mgr.add_program(&base, &cfg).unwrap();
         let copy = mgr.duplicate_program("app", &cfg).unwrap();
-        // 复制时不钉死默认：未自定义过的 key 不写 values.json(界面值由运行时默认提供)
-        assert!(!mgr.app_dir(&copy).join("values.json").exists());
+        // 复制不钉死默认：保存时默认相等项被剥离，values.json 无残留
+        assert!(mgr.raw_field_values(&copy).is_empty());
         assert_eq!(mgr.load_field_values(&copy).get("port").map(String::as_str), Some("8080"));
 
         // 用户编辑副本：默认 8080→9090
@@ -1427,6 +1445,66 @@ mod tests {
         assert_eq!(after.runtime_defaults().get("port").map(String::as_str), Some("9090"));
         let orig = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
         assert_eq!(orig.runtime_defaults().get("port").map(String::as_str), Some("8080"));
+    }
+
+    /// 内置模板编辑后重启不恢复：编辑结果落成用户覆盖进 shell.json，
+    /// 新 manager(模拟重启)加载后仍以用户修改为准。
+    #[test]
+    fn builtin_edit_persists_across_restart() {
+        let dir = std::env::temp_dir().join("cc-builtin-persist");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg = dir.join("cfg.json");
+        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&cfg).unwrap();
+
+        let builtin_id = crate::builtin::builtin_programs()[0].id.clone();
+
+        // 把内置 port 默认改掉(9000→19000)
+        let mut edited = mgr
+            .all_programs()
+            .into_iter()
+            .find(|p| p.id == builtin_id)
+            .unwrap();
+        for f in edited.fields.iter_mut() {
+            if f.key == "port" {
+                f.kind = crate::config::FieldKind::String {
+                    label: "Port".into(),
+                    default: "19000".into(),
+                    placeholder: String::new(),
+                };
+            }
+        }
+        mgr.update_program(&builtin_id, &edited, &cfg).unwrap();
+        let after = mgr.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap();
+        assert_eq!(after.runtime_defaults().get("port").map(String::as_str), Some("19000"));
+        assert_eq!(mgr.load_field_values(&after).get("port").map(String::as_str), Some("19000"));
+
+        // 模拟重启：全新 manager 从同一配置加载
+        let mut mgr2 = ShellManager::new(dir.clone()).unwrap();
+        mgr2.load_config(&cfg).unwrap();
+        let reloaded = mgr2.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap();
+        assert_eq!(reloaded.runtime_defaults().get("port").map(String::as_str), Some("19000"));
+        assert_eq!(mgr2.load_field_values(&reloaded).get("port").map(String::as_str), Some("19000"));
+    }
+
+    /// 内置隐藏同样持久化：重启后仍隐藏。
+    #[test]
+    fn builtin_hidden_persists_across_restart() {
+        let dir = std::env::temp_dir().join("cc-builtin-hidden");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg = dir.join("cfg.json");
+        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&cfg).unwrap();
+
+        let builtin_id = crate::builtin::builtin_programs()[0].id.clone();
+        mgr.set_hidden(&builtin_id, true, &cfg).unwrap();
+        assert!(mgr.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap().hidden);
+
+        let mut mgr2 = ShellManager::new(dir.clone()).unwrap();
+        mgr2.load_config(&cfg).unwrap();
+        assert!(mgr2.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap().hidden);
     }
 
     /// 追加足够多条日志越过容量上限后，文件被截末一半，体积不再无限增长。
