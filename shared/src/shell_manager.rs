@@ -860,15 +860,40 @@ impl ShellManager {
     }
 
     /// 把远端模板应用到实例：用远端定义替换当前实例的结构，但保留用户已填的字段值。
-    /// 字段值迁移规则：
+    /// 这是「用户没参与变更」的路径（远端模板更新）：字段值迁移规则：
     /// - 仍在的 key 保留原值；但若原值等于「旧默认」（用户从未改过该字段），且新默认有变，
     ///   就跟随新默认——模板默认值变更后启动界面不会继续显示旧值；
     /// - 新增字段补其默认值；被删除的字段值一并移除。
     /// 返回合并后的字段值(含新增字段默认值)。
+    /// 本地编辑弹窗保存请走 [`Self::apply_local_edit`]：用户当面改了默认值，必须跟随。
     pub fn apply_template_update(
         current: &mut Program,
         remote: &Program,
         current_values: &BTreeMap<String, String>,
+    ) -> BTreeMap<String, String> {
+        Self::merge_field_values(current, remote, current_values, false)
+    }
+
+    /// 本地编辑弹窗保存：用新定义替换当前实例的结构。
+    /// 与远端更新的区别：默认值被改过的字段一律跟随新默认（这是用户当面声明的值，
+    /// 哪怕之前存过自定义值也以这次声明为准）；默认值没动过的字段保留原值；
+    /// 新增字段补默认值；被删除字段的值一并移除。返回合并后的字段值。
+    pub fn apply_local_edit(
+        current: &mut Program,
+        remote: &Program,
+        current_values: &BTreeMap<String, String>,
+    ) -> BTreeMap<String, String> {
+        Self::merge_field_values(current, remote, current_values, true)
+    }
+
+    /// 结构替换 + 字段值合并的公共实现。
+    /// `follow_changed_defaults` = true 时（本地编辑）默认值变过的 key 跟随新默认；
+    /// false 时（远端更新）仅「值==旧默认」的未动字段跟随，自定义值一律保留。
+    fn merge_field_values(
+        current: &mut Program,
+        remote: &Program,
+        current_values: &BTreeMap<String, String>,
+        follow_changed_defaults: bool,
     ) -> BTreeMap<String, String> {
         // 旧默认值快照：结构替换会覆盖 current.fields，须提前取
         let old_defaults: BTreeMap<String, String> = current
@@ -908,7 +933,10 @@ impl ShellManager {
                     merged.insert(f.key.clone(), new_def);
                 }
                 Some(v) => {
-                    if let Some(old_def) = old_defaults.get(&f.key) {
+                    let changed = old_defaults.get(&f.key).map(|old| *old != new_def).unwrap_or(true);
+                    if follow_changed_defaults && changed {
+                        merged.insert(f.key.clone(), new_def);
+                    } else if let Some(old_def) = old_defaults.get(&f.key) {
                         if *v == *old_def && *v != new_def {
                             merged.insert(f.key.clone(), new_def);
                         }
@@ -922,7 +950,8 @@ impl ShellManager {
     // ---------- 本地实例管理 ----------
 
     /// 用新定义替换实例（完整编辑 name/description/repo/args/fields 等），
-    /// 保留 id 与 hidden 状态，并迁移/补齐字段值 + 写回配置。
+    /// 保留 id 与 hidden 状态。本地编辑语义：默认值被改过的字段一律跟随新默认
+    /// （用户当面声明），其余字段保留原值；新增补默认、删除清值 + 写回配置。
     pub fn update_program(
         &mut self,
         id: &str,
@@ -947,11 +976,11 @@ impl ShellManager {
 
         let old_values = self.load_field_values(&current);
         let hidden = current.hidden;
-        let merged = Self::apply_template_update(&mut current, remote, &old_values);
+        let merged = Self::apply_local_edit(&mut current, remote, &old_values);
         current.hidden = hidden;
         // id 跟随实例(用户不改 id)，避免改动脏掉关联文件
         current.id = id.to_string();
-        // apply_template_update 已按 remote.fields 迁移/补齐字段值
+        // apply_local_edit 已按 remote.fields 迁移/补齐字段值
         self.save_field_values(&current, &merged);
 
         let target = if is_builtin {
@@ -1355,8 +1384,8 @@ mod tests {
         .unwrap();
         mgr.update_program("app", &edited, &cfg).unwrap();
         let after = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
-        // 此时 port=9090 是用户自定义,改默认应保留自定义(非自愈用例)
-        assert_eq!(mgr.load_field_values(&after).get("port").map(String::as_str), Some("9090"));
+        // 本地编辑语义:默认被当面改过(8080→7070)就跟随新默认,这次声明为准
+        assert_eq!(mgr.load_field_values(&after).get("port").map(String::as_str), Some("7070"));
     }
 
     /// 复现「新加 UI 字段永远同步、模板自带字段不同步」的根治验证:
@@ -1583,8 +1612,10 @@ mod tests {
         assert!(after2.source.is_none());
     }
 
+/// 本地编辑语义：默认值被当面改过的字段一律跟随新默认(哪怕之前存过自定义值)；
+    /// 默认值没动过的字段保留原值(自定义也保留)；新增补默认。
     #[test]
-    fn template_default_change_refreshes_unmodified_values_and_keeps_custom() {
+    fn local_edit_follows_changed_defaults_and_keeps_untouched_values() {
         let dir = std::env::temp_dir().join("cc-default-migrate");
         let _ = std::fs::remove_dir_all(&dir);
         let mut mgr = ShellManager::new(dir.clone()).unwrap();
@@ -1596,24 +1627,27 @@ mod tests {
             r#"{"id":"app","name":"App","repo":"a/b","binary":"app",
                "fields":[
                  {"key":"port","label":"Port","kind":"string","default":"8080"},
-                 {"key":"mode","label":"Mode","kind":"string","default":"fast"}],
+                 {"key":"mode","label":"Mode","kind":"string","default":"fast"},
+                 {"key":"level","label":"Level","kind":"string","default":"1"}],
                "args":[]}"#,
         )
         .unwrap();
         mgr.add_program(&base, &cfg).unwrap();
 
-        // 模拟用户启动过一次：port 未改(等于旧默认 8080)，mode 被用户自定义为 custom
+        // 模拟用户启动过一次：port 未改(等于旧默认 8080)，mode/level 被用户自定义
         let mut vals = std::collections::BTreeMap::new();
         vals.insert("port".to_string(), "8080".to_string());
         vals.insert("mode".to_string(), "custom".to_string());
+        vals.insert("level".to_string(), "9".to_string());
         mgr.save_field_values(&base, &vals);
 
-        // 编辑模板：port/mode 默认都改掉
+        // 编辑模板：port/mode 默认都改掉；level 默认不动
         let edited: Program = serde_json::from_str(
             r#"{"id":"app","name":"App","repo":"a/b","binary":"app",
                "fields":[
                  {"key":"port","label":"Port","kind":"string","default":"9090"},
-                 {"key":"mode","label":"Mode","kind":"string","default":"slow"}],
+                 {"key":"mode","label":"Mode","kind":"string","default":"slow"},
+                 {"key":"level","label":"Level","kind":"string","default":"1"}],
                "args":[]}"#,
         )
         .unwrap();
@@ -1623,8 +1657,10 @@ mod tests {
         let v = mgr.load_field_values(&after);
         // 用户未改过(值==旧默认)的字段跟随新默认
         assert_eq!(v.get("port").map(String::as_str), Some("9090"));
-        // 用户自定义过的值原样保留
-        assert_eq!(v.get("mode").map(String::as_str), Some("custom"));
+        // 默认被当面改过：跟随新默认(即使之前存过自定义值,这次声明为准)
+        assert_eq!(v.get("mode").map(String::as_str), Some("slow"));
+        // 默认没动过的字段：自定义值原样保留
+        assert_eq!(v.get("level").map(String::as_str), Some("9"));
     }
 
     #[test]
