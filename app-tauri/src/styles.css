@@ -159,6 +159,9 @@ html[data-sidebar='narrow'] .program-list, html[data-sidebar='narrow'] nav#progr
 .statusbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 10px 46px 10px 18px; background: var(--panel); border-bottom: 1px solid var(--border); }
 .statusbar .room-title { font-weight: 700; font-size: 15px; color: var(--text); }
 .statusbar .room-sub { font-size: 12px; color: var(--muted); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.statusbar .room-sub .repo-link { color: var(--muted); display: inline-flex; vertical-align: middle; }
+.statusbar .room-sub .repo-link:hover { color: var(--text); }
+.statusbar .room-sub .repo-link svg { display: block; }
 .statusbar .status-desc { flex-basis: 100%; font-size: 12px; color: var(--muted); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .statusbar .spacer { flex: 1; }
 .refresh-btn { border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 8px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
