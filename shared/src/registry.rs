@@ -216,35 +216,25 @@ impl RegistryClient {
 
     /// 拉取清单。若对该 base 配置了公钥，则强制校验 `<base>manifests.sig`，
     /// 校验失败直接否决该清单。返回 (离线标记, 拉取/校验时刻(缓存日期), 清单)
-    fn read_cached(&self, url: &str, sig_url: Option<&str>) -> (bool, String, u64) {
+    fn read_cached(&self, url: &str) -> (bool, String, u64) {
         let key = Self::cache_key(url);
         let cpath = self.cache_path(&key);
-        let mut offline = true;
         let body = std::fs::read_to_string(&cpath).unwrap_or_default();
-        if let Some(su) = sig_url {
-            let sig_path = self.cache_path(&Self::cache_key(su));
-            if let Ok(sig) = std::fs::read_to_string(&sig_path) {
-                if let Some(pubkey) = self.configured_pubkey() {
-                    offline = crate::registry_sign::verify_manifest(
-                        body.as_bytes(),
-                        sig.trim(),
-                        pubkey,
-                    )
-                    .is_ok();
-                }
-            }
-        }
-        (offline, body, now_unix())
+        let mtime = std::fs::metadata(&cpath)
+            .and_then(|m| m.modified())
+            .map(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+        // 纯本地读取，一律视为离线（缓存可能陈旧）
+        (true, body, mtime)
     }
 
     pub fn load_manifest_cached(&self) -> (bool, u64, Manifest) {
         let url = format!("{base}manifests.json", base = self.base);
-        let sig_url = if self.configured_pubkey().is_some() {
-            Some(format!("{}manifests.sig", self.base))
-        } else {
-            None
-        };
-        let (_off, text, fetched_at) = self.read_cached(&url, sig_url.as_deref());
+        let (_off, text, fetched_at) = self.read_cached(&url);
         let manifest: Manifest = serde_json::from_str(&text).unwrap_or_default();
         (manifest.templates.is_empty(), fetched_at, manifest)
     }

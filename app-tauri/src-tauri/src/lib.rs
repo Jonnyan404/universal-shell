@@ -1084,37 +1084,34 @@ fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<M
 }
 
 /// 只读本地缓存的清单（不联网）：供重启进入模板库时恢复上一次刷新的远程源列表。
-/// 若本地有缓存清单则返回，source 标记为离线。无缓存则报错（前端保持空态并提示刷新）。
+/// 复用 shared 的多源缓存合并（对齐 egui），源标记为离线。
+/// 全部源都无缓存时报错（前端保持空态并提示刷新）。
 #[tauri::command]
 fn get_merged_manifest_offline(state: State<AppState>) -> Result<MergedManifestView, String> {
-    let (cache, default_base) = {
+    let (cache, bases, pubkeys) = {
         let mgr = state.manager.lock().unwrap();
         (
             mgr.data_dir.join("cache/registry"),
-            mgr.template_registries.first().cloned().unwrap_or_default(),
+            mgr.template_registries.clone(),
+            mgr.registry_pubkeys.clone(),
         )
     };
-    let path = cache.join("manifest.json");
-    let text =
-        std::fs::read_to_string(&path).map_err(|_| t!("err.no_cache_manifest").to_string())?;
-    let m: shared::Manifest =
-        serde_json::from_str(&text).map_err(|e| t!("err.parse_cache_fail", err = e).to_string())?;
-    let mtime = std::fs::metadata(&path)
-        .and_then(|m| m.modified())
-        .map(|t| {
-            t.duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0)
-        })
-        .unwrap_or(0);
+    let merged = shared::load_merged_manifests_cached(&bases, cache, pubkeys);
+    if merged.by_id.is_empty() {
+        return Err(t!("err.no_cache_manifest").to_string());
+    }
     Ok(MergedManifestView {
-        templates: m
-            .templates
+        templates: merged
+            .by_id
             .iter()
-            .map(|t| (t.id.clone(), t.clone(), default_base.clone()))
+            .map(|(id, (base, idx))| (id.clone(), idx.clone(), base.clone()))
             .collect(),
-        sources: vec![(default_base, true, mtime)],
-        conflicts: vec![],
+        sources: merged.sources.clone(),
+        conflicts: merged
+            .conflicts
+            .iter()
+            .map(|(id, bs)| (id.clone(), bs.len()))
+            .collect(),
     })
 }
 
