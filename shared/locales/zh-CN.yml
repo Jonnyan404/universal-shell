@@ -43,7 +43,7 @@ edit.id: ID
 edit.repo: Git 仓库 (owner/repo)——留空为本地程序
 edit.binary: 二进制名 / 路径（本地程序填可执行文件路径）
 edit.args: 启动参数 args（支持 {key}）
-edit.http_source: HTTP 直链源（方案 A，可留空走 GitHub）
+edit.http_source: HTTP 直链源（留空走 GitHub）
 edit.http_enable: 启用 HTTP 源（source.kind=http）
 edit.http_version_url: '版本 URL（version_url）'
 edit.http_json_path: 'JSON 路径（version_json_path，可选）'

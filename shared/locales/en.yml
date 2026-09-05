@@ -43,7 +43,7 @@ edit.id: ID
 edit.repo: Git repo (owner/repo) — empty = local program
 edit.binary: Binary name / path (for local)
 edit.args: 'Launch args (supports {key})'
-edit.http_source: 'HTTP direct-link source (Plan A; empty = GitHub)'
+edit.http_source: 'HTTP direct-link source (empty = GitHub)'
 edit.http_enable: 'Enable HTTP source (source.kind=http)'
 edit.http_version_url: 'Version URL (version_url)'
 edit.http_json_path: 'JSON path (version_json_path, optional)'
