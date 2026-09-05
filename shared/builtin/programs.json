@@ -1,7 +1,7 @@
 {
   "programs": [
     {
-      "id": "cloud-clipboard-go",
+      "id": "cloud-clipboard-go-builtin",
       "name": "cloud-clipboard-go",
       "description": "云剪贴板核心程序 (Go)。内置演示，展示字段类型（含文件/目录）；自启动由壳统一管理。",
       "repo": "Jonnyan404/cloud-clipboard-go",
@@ -31,10 +31,11 @@
       "fields": [
         { "key": "host", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
         { "key": "port", "kind": "string", "label": "端口", "default": "9501", "placeholder": "9501" },
+        { "key": "auth", "kind": "string", "label": "全局密码", "default": "" },
         { "key": "config", "kind": "file", "label": "配置文件", "default": "", "filter": "*.json,*.yaml,*.toml" },
         { "key": "data_dir", "kind": "directory", "label": "数据目录", "default": "" }
       ],
-      "args": ["-host", "{host}", "-port", "{port}", "-config", "{config}"]
+      "args": ["-host", "{host}", "-port", "{port}", "-auth", "{auth}", "-config", "{config}"]
     }
   ]
 }
