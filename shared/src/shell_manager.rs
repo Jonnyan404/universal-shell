@@ -851,6 +851,40 @@ impl ShellManager {
         self.save_config(path)
     }
 
+    /// 新增一个程序（新建模板/导入用）。id 冲突时报错，绝不覆盖。
+    pub fn add_program(&mut self, p: &Program, path: &Path) -> anyhow::Result<()> {
+        if self.all_programs().iter().any(|x| x.id == p.id) {
+            anyhow::bail!(t!("err.program_exists", id = &p.id));
+        }
+        self.programs.push(p.clone());
+        self.save_config(path)
+    }
+
+    /// 复制模板/程序为副本：自动生成不冲突的 id（原名-2、-3…）、名称加副本后缀。
+    /// 返回新程序，供 UI 立刻跳转编辑。template_source 不继承（副本是新模板而非远程导入）。
+    pub fn duplicate_program(&mut self, id: &str, path: &Path) -> anyhow::Result<Program> {
+        let base = self
+            .all_programs()
+            .into_iter()
+            .find(|p| p.id == id)
+            .ok_or_else(|| anyhow::anyhow!(t!("err.program_not_found", id = id)))?;
+        let mut n = 2;
+        let new_id = loop {
+            let candidate = format!("{id}-{n}");
+            if !self.all_programs().iter().any(|p| p.id == candidate) {
+                break candidate;
+            }
+            n += 1;
+        };
+        let mut copy = base.clone();
+        copy.id = new_id.clone();
+        copy.name = format!("{} (copy)", base.name);
+        copy.template_source = None;
+        copy.imported_at = None;
+        self.add_program(&copy, path)?;
+        Ok(copy)
+    }
+
     /// 设置实例的隐藏状态；写出配置。隐藏后侧栏/主管理不展示，
     /// 批量管理始终可见，故不会出现「全部程序失联」的情况。
     pub fn set_hidden(&mut self, id: &str, hidden: bool, path: &Path) -> anyhow::Result<()> {
@@ -1047,6 +1081,51 @@ mod tests {
         assert_eq!(by_id.get(&builtin_id).unwrap().name, "用户改名的内置");
         // 用户新增程序保留
         assert_eq!(by_id.get("dufs").unwrap().repo, "sigoden/dufs");
+    }
+
+    /// 复制模板自动生成不冲突 id；add 拒绝重复 id；template_source 不复用。
+    #[test]
+    fn duplicate_program_generates_unique_id_and_drops_source() {
+        let dir = std::env::temp_dir().join("cc-duplicate");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg = dir.join("cfg.json");
+        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&cfg).unwrap();
+
+        let src: Program = serde_json::from_str(
+            r#"{"id":"dufs","name":"dufs","repo":"sigoden/dufs","binary":"dufs",
+               "fields":[{"key":"port","label":"Port","kind":"string"}],
+               "args":["-a","{path}"],
+               "template_source":"https://example.com/templates.json","imported_at":1}
+            "#,
+        )
+        .unwrap();
+        mgr.add_program(&src, &cfg).unwrap();
+
+        // 复制一次 → dufs-2
+        let copy = mgr.duplicate_program("dufs", &cfg).unwrap();
+        assert_eq!(copy.id, "dufs-2");
+        assert_eq!(copy.name, "dufs (copy)");
+        assert_eq!(copy.template_source, None);
+        assert_eq!(copy.imported_at, None);
+        // 副本继承字段/参数/仓库，可继续安装使用
+        assert_eq!(copy.repo, "sigoden/dufs");
+        assert_eq!(copy.fields.len(), 1);
+
+        // 再复制 → dufs-3（跳过已占用的 dufs-2）
+        let copy3 = mgr.duplicate_program("dufs", &cfg).unwrap();
+        assert_eq!(copy3.id, "dufs-3");
+
+        // 同名 id 重复新增被拒绝，且不破坏已有配置
+        let dup = mgr.duplicate_program("dufs", &cfg).is_err();
+        assert!(!dup);
+        assert!(mgr.add_program(&src, &cfg).is_err());
+
+        let all: Vec<String> = mgr.all_programs().iter().map(|p| p.id.clone()).collect();
+        assert!(all.contains(&"dufs".to_string()));
+        assert!(all.contains(&"dufs-2".to_string()));
+        assert!(all.contains(&"dufs-3".to_string()));
     }
 
     /// 追加足够多条日志越过容量上限后，文件被截末一半，体积不再无限增长。

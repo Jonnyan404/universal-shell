@@ -39,6 +39,7 @@ act.clear: 清空日志
 edit.title: 编辑程序
 edit.name: 名称
 edit.desc: 描述
+edit.id: ID
 edit.repo: Git 仓库 (owner/repo)——留空为本地程序
 edit.binary: 二进制名 / 路径（本地程序填可执行文件路径）
 edit.args: 启动参数 args（支持 {key}）
@@ -94,6 +95,10 @@ act.copy_addr: 复制地址
 act.browse: 浏览…
 act.edit: 编辑
 act.delete: 删除
+act.hide: 隐藏
+act.unhide: 显示
+menu.new: 新建程序
+menu.copy: 复制
 act.import: 导入
 dl.download: 下载
 dl.update: 更新
@@ -190,6 +195,8 @@ toast.autostart_updated: '已更新「%{name}」开机启动'
 toast.hidden: '已隐藏「%{name}」'
 toast.unhidden: '已取消隐藏「%{name}」'
 toast.deleted: '已删除「%{name}」'
+toast.added: '已新增「%{name}」'
+toast.duplicated: '已复制为「%{name}」'
 toast.shell_autostart_fail: '壳开机自启设置失败: %{err}'
 toast.manifest_fail: '清单拉取失败: %{err}'
 toast.import_overwritten: '已覆盖模板「%{id}」'
@@ -261,6 +268,7 @@ err.already_running: '%{name} 已在运行'
 err.running_bg: '%{name} 正在后台运行，请先停止或在操作中点击「重启」'
 err.missing_required: '%{name} 缺少必填项：%{missing}'
 err.program_not_found: '程序不存在: %{id}'
+err.empty_id: 程序 id 不能为空
 diff.add_field: '新增字段 %{key}「%{label}」(默认: %{def})'
 diff.field_changed: '字段 %{key} 类型/默认值变化「%{label}」'
 diff.remove_field: '移除字段 %{key}「%{label}」'
@@ -293,6 +301,8 @@ op.stop_all: 批量停止所有程序
 op.toggle_autostart: '%{onoff}程序「%{name}」开机自启动'
 op.toggle_shell_autostart: '%{onoff}壳自身开机自启动'
 op.edit_template: 编辑程序「%{name}」模板
+op.add_template: 新增程序「%{name}」
+op.duplicate: 复制程序「%{name}」
 op.delete: 删除程序「%{name}」
 op.toggle_visibility: '%{showhide}程序「%{name}」'
 op.update_sources: '更新模板源列表：%{list}'

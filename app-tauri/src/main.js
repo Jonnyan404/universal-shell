@@ -200,6 +200,17 @@ function renderSidebar() {
     item.append(dot, ico, info);
     item.onclick = () => switchToManage(p.id);
     item.title = p.repo ? `${p.name} · ${p.repo}` : `${p.name} · ${t("st.local_program")}`;
+    item.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      ctxMenuAt(e.clientX, e.clientY, [
+        { label: t("menu.copy"), onClick: () => duplicateProgram(p) },
+        { label: t("act.edit"), onClick: () => openEditModal(p.id) },
+        { label: p.hidden ? t("act.unhide") : t("act.hide"), onClick: () => toggleProgramHidden(p) },
+        { sep: true },
+        { label: t("act.delete"), danger: true, onClick: () => confirmAndDelete(p.id, p.name) },
+      ]);
+    };
     el.tabs.appendChild(item);
   }
 }
@@ -1173,6 +1184,99 @@ function setupManageLogResize() {
   });
 }
 
+// ---------- 侧栏右键菜单 ----------
+
+function ctxMenuAt(x, y, items) {
+  hideCtxMenu();
+  const menu = document.querySelector("#ctx-menu");
+  for (const it of items) {
+    if (it.sep) {
+      const s = document.createElement("div");
+      s.className = "ctx-sep";
+      menu.appendChild(s);
+      continue;
+    }
+    const b = document.createElement("button");
+    b.className = "ctx-item" + (it.danger ? " danger" : "");
+    b.textContent = it.label;
+    b.onclick = () => {
+      hideCtxMenu();
+      it.onClick();
+    };
+    menu.appendChild(b);
+  }
+  menu.hidden = false;
+  const r = menu.getBoundingClientRect();
+  let px = x;
+  let py = y;
+  if (px + r.width > window.innerWidth) px = window.innerWidth - r.width - 4;
+  if (py + r.height > window.innerHeight) py = window.innerHeight - r.height - 4;
+  menu.style.left = px + "px";
+  menu.style.top = py + "px";
+  menu.style.position = "fixed";
+}
+
+function hideCtxMenu() {
+  const menu = document.querySelector("#ctx-menu");
+  menu.hidden = true;
+  menu.innerHTML = "";
+}
+
+document.addEventListener("click", hideCtxMenu);
+window.addEventListener("resize", hideCtxMenu);
+
+// 复制模板：自动生成新 id，复制后跳转编辑
+async function duplicateProgram(p) {
+  try {
+    const copy = await invoke("duplicate_program", { programId: p.id });
+    programs = await invoke("get_programs");
+    renderSidebar();
+    showNotice(t("toast.duplicated", { name: copy.name }));
+    if (view !== "manage") switchView("manage");
+    await switchTo(copy.id);
+    if (view === "batch") await refreshBatchLocal();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+async function toggleProgramHidden(p) {
+  try {
+    await invoke("set_program_hidden", {
+      programId: p.id,
+      hidden: !p.hidden,
+    });
+    showNotice(
+      p.hidden
+        ? t("toast.unhidden", { name: p.name })
+        : t("toast.hidden", { name: p.name })
+    );
+    programs = await invoke("get_programs");
+    statuses = await invoke("batch_status");
+    if (current?.id === p.id) current = null;
+    if (!current) current = programs.find((x) => !x.hidden) || null;
+    renderSidebar();
+    if (current) await switchTo(current.id);
+    if (view === "batch") await refreshBatchLocal();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+// 侧栏空白区右键 = 新建（行右键已自行 stopPropagation，不会冒泡到这里）
+document.querySelector(".sidebar").addEventListener("contextmenu", (e) => {
+  if (
+    !e.target.closest("#program-tabs") &&
+    !e.target.closest("#ctx-menu") &&
+    !e.target.closest(".modal")
+  ) {
+    e.preventDefault();
+    ctxMenuAt(e.clientX, e.clientY, [
+      { label: t("menu.new"), onClick: () => openNewTemplate() },
+    ]);
+  }
+});
+
 // ---------- 删除 ----------
 
 async function confirmAndDelete(id, name) {
@@ -1200,17 +1304,40 @@ async function confirmAndDelete(id, name) {
 // ---------- 编辑 ----------
 
 let editProgramId = null;
+// 新建模式标志（editProgramId 为 null 时区分「关闭态」与「新建态」）
+let editNewFlag = false;
 
 function openEditModal(id) {
   const p = programs.find((x) => x.id === id);
   if (!p) return;
+  editNewFlag = false;
   editProgramId = id;
+  const idBox = document.querySelector("#edit-id-input");
+  idBox.value = p.id;
+  idBox.readOnly = true;
   document.querySelector("#edit-name").value = p.name;
   document.querySelector("#edit-desc").value = p.description || "";
   document.querySelector("#edit-repo").value = p.repo;
   document.querySelector("#edit-binary").value = p.binary;
   document.querySelector("#edit-args").value = (p.args || []).join(" ");
   renderEditFields(p.fields || []);
+  document.querySelector("#edit-modal").hidden = false;
+}
+
+// 新建模板：空表单 + 可编辑 id 输入框
+function openNewTemplate() {
+  editProgramId = null;
+  editNewFlag = true;
+  const idBox = document.querySelector("#edit-id-input");
+  idBox.value = "new-app";
+  idBox.readOnly = false;
+  idBox.focus();
+  document.querySelector("#edit-name").value = "";
+  document.querySelector("#edit-desc").value = "";
+  document.querySelector("#edit-repo").value = "";
+  document.querySelector("#edit-binary").value = "";
+  document.querySelector("#edit-args").value = "";
+  renderEditFields([]);
   document.querySelector("#edit-modal").hidden = false;
 }
 
@@ -1290,7 +1417,9 @@ async function saveEdit() {
       fields.push({ key: k, kind, label: l || k, default: def, required });
     });
   const payload = {
-    id: editProgramId,
+    id: editNewFlag
+      ? document.querySelector("#edit-id-input").value.trim()
+      : editProgramId,
     name: document.querySelector("#edit-name").value.trim(),
     description: document.querySelector("#edit-desc").value.trim(),
     repo: document.querySelector("#edit-repo").value.trim(),
@@ -1303,15 +1432,22 @@ async function saveEdit() {
     fields,
   };
   try {
-    await invoke("edit_program", { payload });
-    showNotice(t("toast.saved"));
+    const editedId = payload.id;
+    await invoke(editNewFlag ? "add_program" : "edit_program", { payload });
+    showNotice(
+      editNewFlag ? t("toast.added", { name: payload.name }) : t("toast.saved")
+    );
     logOp(t("toast.settings_saved_alt"));
-    const editedId = editProgramId;
+    const isNew = editNewFlag;
+    editNewFlag = false;
     closeEditModal();
     programs = await invoke("get_programs");
     current = programs.find((p) => p.id === editedId) || current;
     if (current) {
       await switchTo(current.id);
+    } else if (isNew) {
+      // 新建时若 id 与内置冲突等极端情况未选中，至少刷新列表
+      renderSidebar();
     }
     if (view === "batch") await refreshBatchLocal();
     renderSidebar();
@@ -1323,6 +1459,7 @@ async function saveEdit() {
 function closeEditModal() {
   document.querySelector("#edit-modal").hidden = true;
   editProgramId = null;
+  editNewFlag = false;
 }
 
 // ---------- 视图切换 ----------

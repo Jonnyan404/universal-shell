@@ -500,3 +500,32 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 
 /* 程序管理：隐藏/日志入口 */
 .batch-toolbar .spacer { flex: 1; }
+/* 侧栏右键菜单（自绘浮层） */
+.ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  color: var(--text);
+}
+.ctx-menu .ctx-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 12px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.ctx-menu .ctx-item:hover { background: rgba(79, 140, 255, 0.18); }
+.ctx-menu .ctx-item.danger { color: var(--danger); }
+.ctx-menu .ctx-item.danger:hover { background: var(--danger); color: #fff; }
+.ctx-menu .ctx-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+.ctx-menu[hidden] { display: none; }

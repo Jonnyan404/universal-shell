@@ -903,6 +903,56 @@ fn edit_program(
     Ok(view)
 }
 
+/// 新建程序（空白表单提交）：以空 base 构建并 add，id 冲突报错。
+#[tauri::command]
+fn add_program(
+    state: State<AppState>,
+    payload: EditProgramPayload,
+) -> Result<ProgramView, String> {
+    if payload.id.trim().is_empty() {
+        return Err(t!("err.empty_id").into());
+    }
+    let blank = Program {
+        id: payload.id.clone(),
+        name: String::new(),
+        description: String::new(),
+        category: String::new(),
+        repo: String::new(),
+        binary: payload.id.clone(),
+        assets: std::collections::BTreeMap::new(),
+        arch_map: std::collections::BTreeMap::new(),
+        os_map: std::collections::BTreeMap::new(),
+        fields: Vec::new(),
+        args: Vec::new(),
+        working_dir: String::new(),
+        template_source: None,
+        imported_at: None,
+        check_sha256: None,
+        hidden: false,
+    };
+    let mut mgr = state.manager.lock().unwrap();
+    let created = build_program_from_edit(&payload, &blank);
+    mgr.add_program(&created, &state.config_path)
+        .map_err(|e| format!("{e:#}"))?;
+    mgr.save_field_values(&created, &std::collections::BTreeMap::new());
+    mgr.log_op(&t!("op.add_template", name = &created.name));
+    Ok(to_view(&created))
+}
+
+/// 复制模板：自动生成不冲突 id，返回新程序（前端随之跳转编辑）。
+#[tauri::command]
+fn duplicate_program(
+    state: State<AppState>,
+    program_id: String,
+) -> Result<ProgramView, String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let copy = mgr
+        .duplicate_program(&program_id, &state.config_path)
+        .map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&t!("op.duplicate", name = &copy.name));
+    Ok(to_view(&copy))
+}
+
 #[tauri::command]
 fn delete_program(state: State<AppState>, program_id: String) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
@@ -1375,6 +1425,8 @@ pub fn run() {
             reveal_app_dir,
             get_logs,
             edit_program,
+            add_program,
+            duplicate_program,
             delete_program,
             set_program_hidden,
             get_registries,

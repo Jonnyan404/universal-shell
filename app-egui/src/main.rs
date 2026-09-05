@@ -127,6 +127,22 @@ struct Toast {
     expire: f64,
 }
 
+/// 侧栏右键菜单的目标：空白区（新建）或具体程序行（复制/编辑/删除/隐藏）
+#[derive(Clone)]
+enum SidebarCtx {
+    New,
+    Row { id: String },
+}
+
+/// 侧栏右键菜单点击后的动作（在 Area 闭包外执行）
+enum SidebarCtxAction {
+    NewTemplate,
+    Duplicate(String),
+    Edit(String),
+    ToggleHide(String),
+    Delete(String),
+}
+
 const TOAST_LIFETIME: f64 = 4.0;
 
 fn now_secs() -> f64 {
@@ -200,6 +216,8 @@ struct ShellApp {
     show_edit: bool,
     /// 正在编辑的程序 id（None 时编辑弹窗不显示）
     edit_id: Option<String>,
+    /// 新建模板时待填的 id 输入缓冲（有值 = 新建模式）
+    edit_id_text: String,
     /// 编辑表单缓冲
     edit_name: String,
     edit_desc: String,
@@ -217,6 +235,8 @@ struct ShellApp {
     latest_versions: BTreeMap<String, (Option<String>, String)>,
     /// 待二次确认删除的程序 id（批量页「删除」按钮触发）
     confirm_delete: Option<String>,
+    /// 侧栏右键菜单状态：None=无；New=空白区右键（新建）；Row=某程序行右键
+    sidebar_ctx: Option<SidebarCtx>,
     /// 批量页「检查更新」是否进行中（按钮置灰 + 显示检查中）
     checking_updates: bool,
     /// 最近一次「检查更新」完成时间（unix 秒），用于「上次检查更新」提示
@@ -323,6 +343,7 @@ impl ShellApp {
             show_shell_log: false,
             show_edit: false,
             edit_id: None,
+            edit_id_text: String::new(),
             edit_name: String::new(),
             edit_desc: String::new(),
             edit_repo: String::new(),
@@ -334,6 +355,7 @@ impl ShellApp {
             latest_versions,
             confirm_delete: None,
             checking_updates: false,
+            sidebar_ctx: None,
             latest_checked_at,
             path_alive: HashMap::new(),
             running_watch_tx: None,
@@ -1118,7 +1140,12 @@ impl ShellApp {
                                 );
                                 let id =
                                     ui.make_persistent_id(("sidebar_row", p.id.as_str()));
-                                if ui.interact(click_rect, id, egui::Sense::click()).clicked() {
+                                let row_resp =
+                                    ui.interact(click_rect, id, egui::Sense::click());
+                                if row_resp.secondary_clicked() {
+                                    self.sidebar_ctx =
+                                        Some(SidebarCtx::Row { id: p.id.clone() });
+                                } else if row_resp.clicked() {
                                     nav_req = true;
                                 }
                             });
@@ -1134,6 +1161,18 @@ impl ShellApp {
                     }
                 }
             });
+
+        // 空白区右键：行右键没命中时，面板内任意右键 = 新建（菜单在 popup 中渲染）
+        if self.sidebar_ctx.is_none() {
+            let panel_rect = ui.max_rect();
+            let (secondary, pos) = ui
+                .ctx()
+                .input(|i| (i.pointer.secondary_clicked(), i.pointer.latest_pos()));
+            if secondary && pos.map_or(false, |p| panel_rect.contains(p)) {
+                self.sidebar_ctx = Some(SidebarCtx::New);
+            }
+        }
+        self.sidebar_ctx_popup(ui.ctx());
 
         // 底部链接：批量 / 模板库 / 壳日志（对齐 Tauri sidebar 底部 + foot）
         ui.separator();
@@ -2501,6 +2540,128 @@ impl ShellApp {
         }
     }
 
+    /// 打开空表单新建程序（id 输入框聚焦可填；保存走 add 而非 update）。
+    fn open_new_edit(&mut self) {
+        self.edit_id = None;
+        self.edit_id_text = "new-app".to_string();
+        self.edit_name.clear();
+        self.edit_desc.clear();
+        self.edit_repo.clear();
+        self.edit_binary.clear();
+        self.edit_args.clear();
+        self.edit_fields.clear();
+        self.show_edit = true;
+    }
+
+    /// 侧栏右键菜单浮层：渲染菜单项；点击项在外部执行（避免 Area 闭包借用 self）。
+    /// 点击菜单外任意处自动关闭。
+    fn sidebar_ctx_popup(&mut self, ctx: &egui::Context) {
+        let Some(menu) = self.sidebar_ctx.clone() else {
+            return;
+        };
+        let pos = ctx
+            .input(|i| i.pointer.latest_pos())
+            .unwrap_or_else(|| {
+                ctx.input(|i| {
+                    i.raw
+                        .screen_rect
+                        .unwrap_or(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::Vec2::new(1200.0, 800.0),
+                        ))
+                        .center()
+                })
+            });
+        let mut act: Option<SidebarCtxAction> = None;
+        let area = egui::Area::new(egui::Id::new("sidebar_ctx_area"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(pos)
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_min_width(160.0);
+                    match &menu {
+                        SidebarCtx::New => {
+                            if ui.button(t!("menu.new")).clicked() {
+                                act = Some(SidebarCtxAction::NewTemplate);
+                            }
+                        }
+                        SidebarCtx::Row { id } => {
+                            let hidden = self
+                                .manager
+                                .all_programs()
+                                .iter()
+                                .find(|p| p.id == *id)
+                                .map_or(false, |p| p.hidden);
+                            if ui.button(t!("menu.copy")).clicked() {
+                                act = Some(SidebarCtxAction::Duplicate(id.clone()));
+                            }
+                            if ui.button(t!("act.edit")).clicked() {
+                                act = Some(SidebarCtxAction::Edit(id.clone()));
+                            }
+                            let hide_label =
+                                if hidden { t!("act.unhide") } else { t!("act.hide") };
+                            if ui.button(hide_label).clicked() {
+                                act = Some(SidebarCtxAction::ToggleHide(id.clone()));
+                            }
+                            ui.separator();
+                            let del = egui::Button::new(t!("act.delete"))
+                                .fill(ui.visuals().error_fg_color);
+                            if ui.add(del).clicked() {
+                                act = Some(SidebarCtxAction::Delete(id.clone()));
+                            }
+                        }
+                    }
+                });
+            });
+        let popup_rect = area.response.rect;
+        let out_click = ctx
+            .input(|i| i.pointer.any_pressed())
+            .then(|| ctx.input(|i| i.pointer.latest_pos()))
+            .flatten()
+            .map_or(false, |p| !popup_rect.contains(p));
+        if out_click && act.is_none() {
+            self.sidebar_ctx = None;
+        }
+        if let Some(action) = act {
+            self.sidebar_ctx = None;
+            self.exec_sidebar_ctx(action);
+        }
+    }
+
+    /// 执行侧栏右键菜单动作（在 popup 之外调用，可安全 &mut self）。
+    fn exec_sidebar_ctx(&mut self, act: SidebarCtxAction) {
+        match act {
+            SidebarCtxAction::NewTemplate => self.open_new_edit(),
+            SidebarCtxAction::Duplicate(id) => {
+                match self
+                    .manager
+                    .duplicate_program(&id, &self.config_path)
+                {
+                    Ok(copy) => {
+                        self.open_edit(&copy.id);
+                        self.show_toast(t!("toast.duplicated", name = &copy.name));
+                    }
+                    Err(e) => self.show_toast(format!("{e:#}")),
+                }
+            }
+            SidebarCtxAction::Edit(id) => self.open_edit(&id),
+            SidebarCtxAction::ToggleHide(id) => {
+                let hidden = self
+                    .manager
+                    .all_programs()
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map_or(false, |p| p.hidden);
+                if let Err(e) = self.manager.set_hidden(&id, !hidden, &self.config_path) {
+                    self.show_toast(format!("{e:#}"));
+                }
+            }
+            SidebarCtxAction::Delete(id) => {
+                self.confirm_delete = Some(id);
+            }
+        }
+    }
+
     /// 打开编辑弹窗，按程序当前定义填充表单缓冲。
     fn open_edit(&mut self, id: &str) {
         let Some(base) = self.manager.all_programs().iter().find(|p| p.id == id).cloned() else {
@@ -2541,6 +2702,22 @@ impl ShellApp {
                     .num_columns(2)
                     .spacing([8.0, 6.0])
                     .show(ui, |ui| {
+                        ui.label(t!("edit.id"));
+                        match &self.edit_id {
+                            Some(id) => {
+                                ui.add(
+                                    egui::Label::new(id).sense(egui::Sense::hover()),
+                                );
+                            }
+                            None => {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.edit_id_text)
+                                        .hint_text("my-app")
+                                        .desired_width(f32::INFINITY),
+                                );
+                            }
+                        }
+                        ui.end_row();
                         ui.label(t!("edit.name"));
                         ui.add(egui::TextEdit::singleline(&mut self.edit_name).desired_width(f32::INFINITY));
                         ui.end_row();
@@ -2639,11 +2816,28 @@ impl ShellApp {
     }
 
     /// 提交编辑：用表单缓冲构建新 Program 并写入配置（对齐 Tauri build_program_from_edit + edit_program）。
+    /// 新建模式（edit_id=None）走 add_program，其余走 update_program。
     fn commit_edit(&mut self) {
-        let Some(id) = self.edit_id.clone() else { return };
-        let Some(base) = self.manager.all_programs().iter().find(|p| p.id == id).cloned() else {
-            return;
+        let is_new = self.edit_id.is_none();
+        let id = if let Some(id) = &self.edit_id {
+            id.clone()
+        } else {
+            let id = self.edit_id_text.trim().to_string();
+            if id.is_empty() {
+                self.show_toast(t!("err.empty_id"));
+                return;
+            }
+            id
         };
+        let base_owned = if is_new {
+            None
+        } else {
+            self.manager.all_programs().iter().find(|p| p.id == id).cloned()
+        };
+        if base_owned.is_none() && !is_new {
+            return;
+        }
+        let b = base_owned.as_ref();
         let fields: Vec<shared::config::Field> = self
             .edit_fields
             .iter()
@@ -2694,24 +2888,40 @@ impl ShellApp {
             id: id.clone(),
             name: self.edit_name.trim().to_string(),
             description: self.edit_desc.trim().to_string(),
-            category: base.category.clone(),
+            category: b.map(|x| x.category.clone()).unwrap_or_default(),
             repo: self.edit_repo.trim().to_string(),
             binary: if self.edit_binary.trim().is_empty() {
                 id.clone()
             } else {
                 self.edit_binary.trim().to_string()
             },
-            assets: base.assets.clone(),
-            arch_map: base.arch_map.clone(),
-            os_map: base.os_map.clone(),
+            assets: b.map(|x| x.assets.clone()).unwrap_or_default(),
+            arch_map: b.map(|x| x.arch_map.clone()).unwrap_or_default(),
+            os_map: b.map(|x| x.os_map.clone()).unwrap_or_default(),
             fields,
             args,
-            working_dir: base.working_dir.clone(),
-            template_source: base.template_source.clone(),
-            imported_at: base.imported_at,
-            check_sha256: base.check_sha256.clone(),
-            hidden: base.hidden,
+            working_dir: b.map(|x| x.working_dir.clone()).unwrap_or_default(),
+            template_source: b.and_then(|x| x.template_source.clone()),
+            imported_at: b.and_then(|x| x.imported_at),
+            check_sha256: b.and_then(|x| x.check_sha256.clone()),
+            hidden: b.map_or(false, |x| x.hidden),
         };
+        if is_new {
+            match self.manager.add_program(&updated, &self.config_path) {
+                Ok(()) => {
+                    // 新程序常见于手动新建；id 交由配置决定，预写空字段值文件
+                    self.edit_id = Some(id.clone());
+                    self.values.remove(&id);
+                    self.manager
+                        .log_op(&t!("op.add_template", name = &updated.name));
+                    self.manager
+                        .save_field_values(&updated, &std::collections::BTreeMap::new());
+                }
+                Err(e) => self.show_toast(format!("{e:#}")),
+            }
+            return;
+        }
+        let base = base_owned.unwrap();
         match self.manager.update_program(&id, &updated, &self.config_path) {
             Ok(()) => {
                 self.manager.log_op(&t!("op.edit_template", name = &base.name));

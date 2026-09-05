@@ -39,6 +39,7 @@ act.clear: Clear log
 edit.title: Edit program
 edit.name: Name
 edit.desc: Description
+edit.id: ID
 edit.repo: Git repo (owner/repo) — empty = local program
 edit.binary: Binary name / path (for local)
 edit.args: 'Launch args (supports {key})'
@@ -94,6 +95,10 @@ act.copy_addr: Copy address
 act.browse: Browse…
 act.edit: Edit
 act.delete: Delete
+act.hide: Hide
+act.unhide: Show
+menu.new: 'New program'
+menu.copy: Duplicate
 act.import: Import
 dl.download: Download
 dl.update: Update
@@ -190,6 +195,8 @@ toast.autostart_updated: 'Updated autostart for "%{name}"'
 toast.hidden: 'Hidden "%{name}"'
 toast.unhidden: 'Unhidden "%{name}"'
 toast.deleted: 'Deleted "%{name}"'
+toast.added: 'Added "%{name}"'
+toast.duplicated: 'Duplicated as "%{name}"'
 toast.shell_autostart_fail: 'Failed to set shell autostart: %{err}'
 toast.manifest_fail: 'Failed to pull manifest: %{err}'
 toast.import_overwritten: 'Overwrote template "%{id}"'
@@ -261,6 +268,7 @@ err.already_running: '%{name} is already running'
 err.running_bg: '%{name} is running in background. Stop it first or click "Restart" in the action.'
 err.missing_required: '%{name} is missing required fields: %{missing}'
 err.program_not_found: 'Program not found: %{id}'
+err.empty_id: Program id cannot be empty
 diff.add_field: 'Added field %{key} "%{label}" (default: %{def})'
 diff.field_changed: 'Field %{key} type/default changed "%{label}"'
 diff.remove_field: 'Removed field %{key} "%{label}"'
@@ -293,6 +301,8 @@ op.stop_all: Stop all programs
 op.toggle_autostart: '%{onoff} autostart for program "%{name}"'
 op.toggle_shell_autostart: '%{onoff} autostart for the shell'
 op.edit_template: Edit template for program "%{name}"
+op.add_template: Added program "%{name}"
+op.duplicate: 'Duplicated program "%{name}"'
 op.delete: Delete program "%{name}"
 op.toggle_visibility: '%{showhide} program "%{name}"'
 op.update_sources: 'Updated template sources: %{list}'
