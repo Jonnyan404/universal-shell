@@ -10,6 +10,7 @@ const el = {
   tabs: document.querySelector("#program-tabs"),
   progTitle: document.querySelector("#prog-title"),
   progSub: document.querySelector("#prog-sub"),
+  progDesc: document.querySelector("#prog-desc"),
   chips: document.querySelector("#status-chips"),
   form: document.querySelector("#field-form"),
   actions: document.querySelector("#actions"),
@@ -349,6 +350,8 @@ function syncInstallBtns(id) {
 async function renderForm() {
   el.progTitle.textContent = current.name;
   el.progSub.textContent = current.repo || "";
+  el.progDesc.textContent = current.description || "";
+  el.progDesc.hidden = !current.description;
   el.form.innerHTML = "";
   for (const f of current.fields) {
     // 开机启动统一由批量管理页管理，程序页不再显示该字段
