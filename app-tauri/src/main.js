@@ -473,32 +473,33 @@ async function renderForm() {
   appDir.textContent = "📁";
   appDir.title = t("act.open_app_dir");
   appDir.onclick = () => revealAppDir(current.id);
-  appDir.style.marginLeft = "auto";
-  // 本地程序无壳内数据目录，不显示「打开程序目录」
-  if (current.repo) el.actions.appendChild(appDir);
 
   // 有地址(/端口)字段时，提供「复制地址」「打开网站」（复制左、打开网站右）
-  if (webUrl(current.id)) {
-    const copy = document.createElement("button");
-    copy.className = "icon-btn";
-    copy.title = t("act.copy_addr");
-    copy.textContent = "⧉";
-    copy.onclick = () => {
-      const u = webUrl(current.id);
-      if (u) copyLogText(u);
-    };
-    el.actions.appendChild(copy);
+  const copy = document.createElement("button");
+  copy.className = "icon-btn";
+  copy.title = t("act.copy_addr");
+  copy.textContent = "⧉";
+  copy.onclick = () => {
+    const u = webUrl(current.id);
+    if (u) copyLogText(u);
+  };
 
-    const open = document.createElement("button");
-    open.className = "icon-btn";
-    open.title = t("act.open_site");
-    open.textContent = "↗";
-    open.onclick = () => {
-      const u = webUrl(current.id);
-      if (u) openWeb(u);
-    };
-    el.actions.appendChild(open);
-  }
+  const open = document.createElement("button");
+  open.className = "icon-btn";
+  open.title = t("act.open_site");
+  open.textContent = "↗";
+  open.onclick = () => {
+    const u = webUrl(current.id);
+    if (u) openWeb(u);
+  };
+
+  // 右侧图标组整体靠右：第一个图标吃掉左侧剩余空间。
+  // 本地程序无壳内数据目录，不显示「打开程序目录」，此时由复制按钮承担顶右。
+  const icons = [];
+  if (current.repo) icons.push(appDir);
+  if (webUrl(current.id)) icons.push(copy, open);
+  if (icons.length) icons[0].style.marginLeft = "auto";
+  for (const b of icons) el.actions.appendChild(b);
 }
 
 // 构造程序的 Web 访问地址(如有地址/端口字段)。无地址返回 null

@@ -505,7 +505,6 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   position: fixed;
   z-index: 1000;
   width: max-content;
-  min-width: 140px;
   padding: 4px;
   background: var(--bg);
   border: 1px solid var(--border);
