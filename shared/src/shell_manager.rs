@@ -1452,6 +1452,49 @@ mod tests {
         assert_eq!(orig.runtime_defaults().get("port").map(String::as_str), Some("8080"));
     }
 
+    /// {name} 渲染二进制名而非实例 id：复制模板（id 变化）后下载链接/资产名不变，
+    /// 副本仍能下载同一上游应用（多开相同应用的前提）。
+    #[test]
+    fn duplicate_keeps_asset_names_stable_for_download() {
+        use std::collections::BTreeMap;
+        let mut assets = BTreeMap::new();
+        assets.insert(
+            crate::config::os_key().to_string(),
+            crate::config::AssetRule {
+                candidates: vec!["{name}-v{version}-x86_64-apple-darwin.tar.gz".into()],
+                urls: vec![],
+                format: "tar.gz".into(),
+                mode: crate::config::ExtractMode::Single,
+                member: Some("dufs".into()),
+            },
+        );
+        let mut base = Program {
+            id: "dufs".into(),
+            name: "dufs".into(),
+            description: String::new(),
+            category: String::new(),
+            repo: "sigoden/dufs".into(),
+            source: None,
+            binary: "dufs".into(),
+            assets,
+            arch_map: BTreeMap::new(),
+            os_map: BTreeMap::new(),
+            fields: vec![],
+            args: vec![],
+            working_dir: String::new(),
+            template_source: None,
+            imported_at: None,
+            check_sha256: None,
+            hidden: false,
+        };
+        let (_, names) = base.candidate_names("x86_64", "0.1.0").unwrap();
+        assert!(names.iter().any(|n| n == "dufs-v0.1.0-x86_64-apple-darwin.tar.gz"));
+        // 复制后 id 变化，资产名必须不变
+        base.id = "dufs-2".into();
+        let (_, names2) = base.candidate_names("x86_64", "0.1.0").unwrap();
+        assert_eq!(names, names2);
+    }
+
     /// 内置模板编辑后重启不恢复：编辑结果落成用户覆盖进 shell.json，
     /// 新 manager(模拟重启)加载后仍以用户修改为准。
     #[test]

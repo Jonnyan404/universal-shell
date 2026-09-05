@@ -325,7 +325,9 @@ impl Program {
         self.assets.get(os_key())
     }
 
-    /// 渲染任意模板串，替换 {name} {version} {arch} {os} {ext}
+    /// 渲染任意模板串，替换 {name} {version} {arch} {os} {ext}。
+    /// {name} 取二进制名 binary（复制模板 id 会变、binary 不变，下载链接才不会跟 id 跑）；
+    /// binary 为空时回退 id。
     pub fn render_template(
         &self,
         template: &str,
@@ -335,7 +337,7 @@ impl Program {
     ) -> String {
         let arch = self.arch_map.get(arch_token).cloned().unwrap_or_else(|| arch_token.to_string());
         let os = self.os_map.get(os_key()).cloned().unwrap_or_else(|| os_key().to_string());
-        let nametok = self.id.clone();
+        let nametok = if self.binary.is_empty() { self.id.clone() } else { self.binary.clone() };
         let ext = if rule.format == "tar.gz" { "tar.gz" } else { rule.format.as_str() };
         template
             .replace("{name}", &nametok)
