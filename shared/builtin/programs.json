@@ -30,7 +30,7 @@
       },
       "fields": [
         { "key": "host", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
-        { "key": "port", "kind": "string", "label": "端口", "default": "9000", "placeholder": "9000" },
+        { "key": "port", "kind": "string", "label": "端口", "default": "9501", "placeholder": "9501" },
         { "key": "config", "kind": "file", "label": "配置文件", "default": "", "filter": "*.json,*.yaml,*.toml" },
         { "key": "data_dir", "kind": "directory", "label": "数据目录", "default": "" }
       ],
