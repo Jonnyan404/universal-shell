@@ -1,0 +1,34 @@
+{
+  "id": "uv",
+  "name": "uv",
+  "description": "uv — 极速 Python 包与项目管理器 (Rust 编写，单裸二进制)。HTTP 直链源示例：走 GitHub 直接下载链接(绕过 release API) + source.sha256_url 校验。",
+  "category": "utility",
+  "repo": "",
+  "source": {
+    "kind": "http",
+    "version_url": "https://raw.githubusercontent.com/astral-sh/uv/main/Cargo.toml",
+    "version_regex": "uv = \\{ version = \"([0-9.]+)\"",
+    "sha256_url": "https://github.com/astral-sh/uv/releases/latest/download/uv-{arch}-apple-darwin.tar.gz.sha256"
+  },
+  "binary": "uv",
+  "assets": {
+    "darwin": {
+      "urls": [
+        "https://github.com/astral-sh/uv/releases/latest/download/uv-{arch}-apple-darwin.tar.gz"
+      ],
+      "format": "tar.gz",
+      "mode": "whole",
+      "member": "uv-{arch}-apple-darwin/uv"
+    },
+    "linux": {
+      "urls": [
+        "https://github.com/astral-sh/uv/releases/latest/download/uv-{arch}-unknown-linux-gnu.tar.gz"
+      ],
+      "format": "tar.gz",
+      "mode": "whole",
+      "member": "uv-{arch}-unknown-linux-gnu/uv"
+    }
+  },
+  "fields": [],
+  "args": []
+}

@@ -1,5 +1,5 @@
 {
-  "revision": "rev-1",
+  "revision": "rev-2",
   "categories": [
     "search",
     "utility"
@@ -11,6 +11,13 @@
       "category": "search",
       "description": "fd — 简洁快速的 find 替代品（Rust 编写，单裸二进制）。第三方程示例模板源。",
       "repo": "sharkdp/fd"
+    },
+    {
+      "id": "uv",
+      "name": "uv",
+      "category": "utility",
+      "description": "uv — 极速 Python 包管理器（Rust，单裸二进制）。HTTP 直链源示例：GitHub 直接下载链接 + sha256 校验，绕过 release API。",
+      "repo": ""
     }
   ]
 }
