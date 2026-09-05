@@ -2697,6 +2697,10 @@ impl ShellApp {
                     .duplicate_program(&id, &self.config_path)
                 {
                     Ok(copy) => {
+                        // 复制后立即切到副本并丢弃其 values 缓存（对齐 Tauri duplicateProgram→switchTo），
+                        // 否则右侧操作面板仍停留在原程序，改副本值保存后界面看着像没同步
+                        self.current_id = Some(copy.id.clone());
+                        self.values.remove(&copy.id);
                         self.open_edit(&copy.id);
                         self.show_toast(t!("toast.duplicated", name = &copy.name));
                     }
