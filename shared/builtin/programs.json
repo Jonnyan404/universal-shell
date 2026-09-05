@@ -1,7 +1,7 @@
 {
   "programs": [
     {
-      "id": "cloud-clipboard-go",
+      "id": "cloud-clipboard-go-builtin",
       "name": "cloud-clipboard-go-builtin",
       "description": "云剪贴板核心程序 (Go)。内置演示，展示字段类型（含文件/目录）；自启动由壳统一管理。",
       "repo": "Jonnyan404/cloud-clipboard-go",
