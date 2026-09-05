@@ -882,6 +882,12 @@ impl ShellManager {
         copy.template_source = None;
         copy.imported_at = None;
         self.add_program(&copy, path)?;
+        // 复制已保存的字段值（端口/主机/路径等），让副本开箱即用，
+        // 避免空值导致端口冲突或启动参数缺项。
+        let values = self.load_field_values(&base);
+        if !values.is_empty() {
+            self.save_field_values(&copy, &values);
+        }
         Ok(copy)
     }
 
@@ -1113,9 +1119,19 @@ mod tests {
         assert_eq!(copy.repo, "sigoden/dufs");
         assert_eq!(copy.fields.len(), 1);
 
-        // 再复制 → dufs-3（跳过已占用的 dufs-2）
+        // 先保存字段值，再复制：副本应复刻原值的端口/路径等，开箱即用
+        let mut vals = std::collections::BTreeMap::new();
+        vals.insert("port".to_string(), "8080".to_string());
+        mgr.save_field_values(&src, &vals);
+        let copy2 = mgr.duplicate_program("dufs", &cfg).unwrap();
+        let vals2 = mgr.load_field_values(&copy2);
+        assert_eq!(vals2.get("port").map(String::as_str), Some("8080"));
+        let src_vals2 = mgr.load_field_values(&src);
+        assert_eq!(src_vals2.get("port").map(String::as_str), Some("8080"));
+
+        // 再复制 → dufs-4（跳过已占用的 dufs-2/dufs-3）
         let copy3 = mgr.duplicate_program("dufs", &cfg).unwrap();
-        assert_eq!(copy3.id, "dufs-3");
+        assert_eq!(copy3.id, "dufs-4");
 
         // 同名 id 重复新增被拒绝，且不破坏已有配置
         let dup = mgr.duplicate_program("dufs", &cfg).is_err();
@@ -1126,6 +1142,7 @@ mod tests {
         assert!(all.contains(&"dufs".to_string()));
         assert!(all.contains(&"dufs-2".to_string()));
         assert!(all.contains(&"dufs-3".to_string()));
+        assert!(all.contains(&"dufs-4".to_string()));
     }
 
     /// 追加足够多条日志越过容量上限后，文件被截末一半，体积不再无限增长。
