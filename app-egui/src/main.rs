@@ -237,6 +237,8 @@ struct ShellApp {
     confirm_delete: Option<String>,
     /// 侧栏右键菜单状态：None=无；New=空白区右键（新建）；Row=某程序行右键
     sidebar_ctx: Option<SidebarCtx>,
+    /// 触发出菜单时定格的光标坐标（菜单不随鼠标移动）
+    sidebar_ctx_pos: Option<egui::Pos2>,
     /// 批量页「检查更新」是否进行中（按钮置灰 + 显示检查中）
     checking_updates: bool,
     /// 最近一次「检查更新」完成时间（unix 秒），用于「上次检查更新」提示
@@ -356,6 +358,7 @@ impl ShellApp {
             confirm_delete: None,
             checking_updates: false,
             sidebar_ctx: None,
+            sidebar_ctx_pos: None,
             latest_checked_at,
             path_alive: HashMap::new(),
             running_watch_tx: None,
@@ -1145,6 +1148,8 @@ impl ShellApp {
                                 if row_resp.secondary_clicked() {
                                     self.sidebar_ctx =
                                         Some(SidebarCtx::Row { id: p.id.clone() });
+                                    self.sidebar_ctx_pos = row_resp
+                                        .interact_pointer_pos();
                                 } else if row_resp.clicked() {
                                     nav_req = true;
                                 }
@@ -1170,6 +1175,7 @@ impl ShellApp {
                 .input(|i| (i.pointer.secondary_clicked(), i.pointer.latest_pos()));
             if secondary && pos.map_or(false, |p| panel_rect.contains(p)) {
                 self.sidebar_ctx = Some(SidebarCtx::New);
+                self.sidebar_ctx_pos = pos;
             }
         }
         self.sidebar_ctx_popup(ui.ctx());
@@ -2559,17 +2565,19 @@ impl ShellApp {
         let Some(menu) = self.sidebar_ctx.clone() else {
             return;
         };
-        let pos = ctx
-            .input(|i| i.pointer.latest_pos())
+        let pos = self
+            .sidebar_ctx_pos
             .unwrap_or_else(|| {
-                ctx.input(|i| {
-                    i.raw
-                        .screen_rect
-                        .unwrap_or(egui::Rect::from_min_size(
-                            egui::Pos2::ZERO,
-                            egui::Vec2::new(1200.0, 800.0),
-                        ))
-                        .center()
+                ctx.input(|i| i.pointer.latest_pos()).unwrap_or_else(|| {
+                    ctx.input(|i| {
+                        i.raw
+                            .screen_rect
+                            .unwrap_or(egui::Rect::from_min_size(
+                                egui::Pos2::ZERO,
+                                egui::Vec2::new(1200.0, 800.0),
+                            ))
+                            .center()
+                    })
                 })
             });
         let mut act: Option<SidebarCtxAction> = None;
@@ -2621,9 +2629,11 @@ impl ShellApp {
             .map_or(false, |p| !popup_rect.contains(p));
         if out_click && act.is_none() {
             self.sidebar_ctx = None;
+            self.sidebar_ctx_pos = None;
         }
         if let Some(action) = act {
             self.sidebar_ctx = None;
+            self.sidebar_ctx_pos = None;
             self.exec_sidebar_ctx(action);
         }
     }
