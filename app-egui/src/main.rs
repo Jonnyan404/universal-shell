@@ -2652,9 +2652,6 @@ impl ShellApp {
                     .duplicate_program(&id, &self.config_path)
                 {
                     Ok(copy) => {
-                        // 字段值写盘后同步进内存缓存，否则管理页渲染时 or_default 得到空值
-                        let vals = self.manager.load_field_values(&copy);
-                        self.values.insert(copy.id.clone(), vals);
                         self.open_edit(&copy.id);
                         self.show_toast(t!("toast.duplicated", name = &copy.name));
                     }
