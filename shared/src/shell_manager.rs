@@ -854,6 +854,7 @@ impl ShellManager {
     ) -> BTreeMap<String, String> {
         // 结构字段整体替换
         current.repo = remote.repo.clone();
+        current.source = remote.source.clone();
         current.binary = remote.binary.clone();
         current.assets = remote.assets.clone();
         current.arch_map = remote.arch_map.clone();
@@ -1417,6 +1418,46 @@ mod tests {
         assert!(legacy.source.is_none());
         let s = serde_json::to_string(&legacy).unwrap();
         assert!(!s.contains("\"urls\""));
+    }
+
+    #[test]
+    fn edit_persists_http_source_changes() {
+        let dir = std::env::temp_dir().join("cc-edit-http-source");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg = dir.join("cfg.json");
+        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&cfg).unwrap();
+
+        let base: Program = serde_json::from_str(
+            r#"{"id":"app","name":"App","repo":"a/b","binary":"app","fields":[],"args":[]}"#,
+        )
+        .unwrap();
+        mgr.add_program(&base, &cfg).unwrap();
+
+        // 编辑时给实例挂上 HTTP 源(模拟编辑器里勾选并填 version_url/regex/sha256)
+        let mut edited = base.clone();
+        edited.source = Some(SourceSpec {
+            kind: "http".into(),
+            version_url: "https://x/latest.json".into(),
+            version_json_path: String::new(),
+            version_regex: "v=([0-9.]+)".into(),
+            sha256_url: "https://x/app-{version}.sha256".into(),
+        });
+        mgr.update_program("app", &edited, &cfg).unwrap();
+
+        let after = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
+        let src = after.source.as_ref().expect("编辑的 HTTP 源必须保留");
+        assert_eq!(src.version_url, "https://x/latest.json");
+        assert_eq!(src.version_regex, "v=([0-9.]+)");
+        assert_eq!(src.sha256_url, "https://x/app-{version}.sha256");
+
+        // 反向：取消勾选应清空 source
+        let mut cleared = base.clone();
+        cleared.source = None;
+        mgr.update_program("app", &cleared, &cfg).unwrap();
+        let after2 = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
+        assert!(after2.source.is_none());
     }
 
     #[test]
