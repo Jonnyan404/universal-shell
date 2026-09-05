@@ -134,6 +134,20 @@
         <div class="edit-row"><label data-i18n="edit.repo">GitHub 仓库 (owner/repo)</label><input id="edit-repo" /></div>
         <div class="edit-row"><label data-i18n="edit.binary">二进制名</label><input id="edit-binary" /></div>
         <div class="edit-row"><label data-i18n="edit.args">启动参数 args（支持 {key}）</label><input id="edit-args" /></div>
+        <details class="edit-http" id="edit-http-box">
+          <summary data-i18n="edit.http_source">HTTP 直链源（方案 A）</summary>
+          <div class="edit-row">
+            <label for="edit-http-enable" data-i18n="edit.http_enable">启用 HTTP 源（source.kind=http）</label>
+            <input type="checkbox" id="edit-http-enable" />
+          </div>
+          <fieldset id="edit-http-fields">
+            <div class="edit-row"><label data-i18n="edit.http_version_url">版本 URL（version_url）</label><input id="edit-http-version-url" placeholder="https://host/app/latest.json" /></div>
+            <div class="edit-row"><label data-i18n="edit.http_json_path">JSON 路径（可选）</label><input id="edit-http-json-path" placeholder="version" /></div>
+            <div class="edit-row"><label data-i18n="edit.http_regex">版本正则（可选）</label><input id="edit-http-regex" placeholder="tag=v([0-9.]+)" /></div>
+            <div class="edit-row"><label data-i18n="edit.http_sha256_url">sha256 URL（支持 {version}，留空=免检）</label><input id="edit-http-sha256-url" placeholder="https://host/app-{version}.sha256" /></div>
+            <div class="edit-row"><label data-i18n="edit.http_urls">直链下载 URL（每行一个）</label><textarea id="edit-http-urls" rows="3" placeholder="https://host/app-{version}-{arch}.tar.gz"></textarea></div>
+          </fieldset>
+        </details>
         <div class="edit-fields">
           <div class="edit-fields-head">
             <span data-i18n="lib.fields">UI 字段</span>

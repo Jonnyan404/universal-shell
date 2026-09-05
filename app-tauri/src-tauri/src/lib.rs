@@ -52,6 +52,13 @@ struct ProgramView {
     args: Vec<String>,
     fields: Vec<FieldView>,
     hidden: bool,
+    /// HTTP 源(方案 A)：编辑弹窗回填用
+    http_enabled: bool,
+    http_version_url: String,
+    http_version_json_path: String,
+    http_version_regex: String,
+    http_sha256_url: String,
+    http_urls: Vec<String>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -148,6 +155,25 @@ struct StartPayload {
 }
 
 fn to_view(p: &Program) -> ProgramView {
+    let (http_enabled, http_version_url, http_version_json_path, http_version_regex, http_sha256_url, http_urls) =
+        match p.source.as_ref().filter(|s| s.is_http()) {
+            Some(src) => (
+                true,
+                src.version_url.clone(),
+                src.version_json_path.clone(),
+                src.version_regex.clone(),
+                src.sha256_url.clone(),
+                p.asset_rule_for_os().map(|r| r.urls.clone()).unwrap_or_default(),
+            ),
+            None => (
+                false,
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+                Vec::new(),
+            ),
+        };
     ProgramView {
         id: p.id.clone(),
         name: p.name.clone(),
@@ -161,6 +187,12 @@ fn to_view(p: &Program) -> ProgramView {
             .map(|f| to_field_view(f))
             .collect(),
         hidden: p.hidden,
+        http_enabled,
+        http_version_url,
+        http_version_json_path,
+        http_version_regex,
+        http_sha256_url,
+        http_urls,
     }
 }
 
@@ -198,6 +230,12 @@ fn proxied_github(proxy: &shared::ProxySettings) -> shared::GitHub {
     gh
 }
 
+fn proxied_http(proxy: &shared::ProxySettings) -> shared::source_http::HttpSource {
+    let mut hs = shared::source_http::HttpSource::default();
+    hs.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+    hs
+}
+
 #[tauri::command]
 fn get_values(state: State<AppState>, program_id: String) -> BTreeMap<String, String> {
     let mgr = state.manager.lock().unwrap();
@@ -229,6 +267,7 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
     let mut local;
     let autostart;
     let repo;
+    let pid: String;
     {
         let mut mgr = state.manager.lock().unwrap();
         let Some(found) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
@@ -240,21 +279,22 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
         autostart = mgr.program_autostart(&p.id);
         let layout = mgr.proxy.clone();
         let gh = proxied_github(&layout);
+        let hs = proxied_http(&layout);
         repo = p.repo.clone();
+        pid = p.id.clone();
         drop(mgr);
-        // 本地程序(repo 为空)无远程版本，跳过查询
-        if !repo.is_empty() {
-            if let Ok(latest) = gh.latest(&repo) {
-                local.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
-                local.latest_published = latest.published_at.clone();
-            }
+        // 本地程序(空 repo 且非 http 源)无远程版本，跳过查询
+        if let Some((v, pb)) = shared::shell_manager::latest_remote(&p, &gh, &hs) {
+            local.latest_version = Some(v);
+            local.latest_published = pb;
         }
     }
     // 刚才联网查过最新版本 → 落盘版本检查缓存（含检查时间戳）
     if let Some(v) = &local.latest_version {
         let mgr = state.manager.lock().unwrap();
         let mut vc = mgr.load_version_check();
-        vc.insert(repo, (v.clone(), StatusView::now_unix()));
+        let key = if repo.is_empty() { pid.clone() } else { repo.clone() };
+        vc.insert(key, (v.clone(), StatusView::now_unix()));
         mgr.save_version_check(&vc);
     }
     Ok(StatusView::from_status(&local, &bin, autostart))
@@ -313,22 +353,17 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             })
             .collect()
     };
-    // 锁外并行：每个 repo 各起一个线程查最新版本（全局缓存避免重复网络）
+    // 锁外并行：按 source 分发，每个程序各起一个线程查最新版本（全局缓存避免重复网络）
     let latest: Vec<Option<(String, String)>> = std::thread::scope(|s| {
         let handles: Vec<_> = locals
             .iter()
             .map(|(p, _, _, _)| {
-                let repo = p.repo.clone();
+                let p = p.clone();
                 let layout = layout.clone();
                 s.spawn(move || {
-                    // 本地程序(repo 为空)无远程版本
-                    if repo.is_empty() {
-                        return None;
-                    }
                     let gh = proxied_github(&layout);
-                    gh.latest(&repo)
-                        .ok()
-                        .map(|r| (r.tag_name.trim_start_matches('v').to_string(), r.published_at.clone()))
+                    let hs = proxied_http(&layout);
+                    shared::shell_manager::latest_remote(&p, &gh, &hs)
                 })
             })
             .collect();
@@ -823,6 +858,19 @@ struct EditProgramPayload {
     binary: String,
     args: Vec<String>,
     fields: Vec<EditField>,
+    /// HTTP 源(方案 A)：source 是否启用 + 字段缓冲
+    #[serde(default)]
+    http_enabled: bool,
+    #[serde(default)]
+    http_version_url: String,
+    #[serde(default)]
+    http_version_json_path: String,
+    #[serde(default)]
+    http_version_regex: String,
+    #[serde(default)]
+    http_sha256_url: String,
+    #[serde(default)]
+    http_urls: Vec<String>,
 }
 
 fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
@@ -862,18 +910,52 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
             }
         })
         .collect();
+    let mut assets = base.assets.clone();
+    if e.http_enabled {
+        let urls: Vec<String> = e
+            .http_urls
+            .iter()
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty())
+            .collect();
+        if !urls.is_empty() {
+            let os = shared::config::os_key();
+            match assets.get_mut(os) {
+                Some(rule) => rule.urls = urls.clone(),
+                None => {
+                    let mut def = shared::config::default_os_assets();
+                    if let Some(r) = def.get_mut(os) {
+                        r.urls = urls.clone();
+                    }
+                    assets.extend(def);
+                }
+            }
+        }
+    }
+    let source = if e.http_enabled {
+        Some(shared::config::SourceSpec {
+            kind: "http".to_string(),
+            version_url: e.http_version_url.clone(),
+            version_json_path: e.http_version_json_path.clone(),
+            version_regex: e.http_version_regex.clone(),
+            sha256_url: e.http_sha256_url.clone(),
+        })
+    } else {
+        None
+    };
     Program {
         id: e.id.clone(),
         name: e.name.clone(),
         description: e.description.clone(),
         category: base.category.clone(),
         repo: e.repo.clone(),
+        source,
         binary: if e.binary.is_empty() {
             e.id.clone()
         } else {
             e.binary.clone()
         },
-        assets: base.assets.clone(),
+        assets,
         arch_map: base.arch_map.clone(),
         os_map: base.os_map.clone(),
         fields,
@@ -918,6 +1000,7 @@ fn add_program(
         description: String::new(),
         category: String::new(),
         repo: String::new(),
+        source: None,
         binary: payload.id.clone(),
         assets: std::collections::BTreeMap::new(),
         arch_map: std::collections::BTreeMap::new(),

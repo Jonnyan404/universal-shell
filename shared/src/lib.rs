@@ -15,6 +15,7 @@ pub mod registry_sign;
 pub mod runner;
 pub mod shell_manager;
 pub mod shell_update;
+pub mod source_http;
 pub mod version;
 
 rust_i18n::i18n!("locales");

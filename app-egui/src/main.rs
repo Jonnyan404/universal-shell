@@ -224,6 +224,13 @@ struct ShellApp {
     edit_repo: String,
     edit_binary: String,
     edit_args: String,
+    /// HTTP 源(方案 A)编辑缓冲
+    edit_http_enabled: bool,
+    edit_http_version_url: String,
+    edit_http_version_json_path: String,
+    edit_http_version_regex: String,
+    edit_http_sha256_url: String,
+    edit_http_urls: String,
     /// 编辑弹窗的字段行（key/label/kind/default/required）
     edit_fields: Vec<EditFieldDraft>,
     /// 全局设置弹窗是否打开
@@ -325,7 +332,8 @@ impl ShellApp {
         let mut latest_versions: BTreeMap<String, (Option<String>, String)> = BTreeMap::new();
         let mut latest_checked_at: Option<i64> = None;
         for p in &manager.all_programs() {
-            if let Some((v, t)) = vcheck.get(&p.repo) {
+            let key = if p.repo.is_empty() { &p.id } else { &p.repo };
+            if let Some((v, t)) = vcheck.get(key) {
                 latest_versions.insert(p.id.clone(), (Some(v.clone()), String::new()));
                 let t64 = *t as i64;
                 latest_checked_at = Some(latest_checked_at.map_or(t64, |m| m.max(t64)));
@@ -374,6 +382,12 @@ impl ShellApp {
             edit_repo: String::new(),
             edit_binary: String::new(),
             edit_args: String::new(),
+            edit_http_enabled: false,
+            edit_http_version_url: String::new(),
+            edit_http_version_json_path: String::new(),
+            edit_http_version_regex: String::new(),
+            edit_http_sha256_url: String::new(),
+            edit_http_urls: String::new(),
             edit_fields: Vec::new(),
             show_settings: false,
             dark_mode,
@@ -731,7 +745,8 @@ impl ShellApp {
                     let mut vc: BTreeMap<String, (String, u64)> = BTreeMap::new();
                     for p in &self.manager.all_programs() {
                         if let Some((Some(v), _)) = self.latest_versions.get(&p.id) {
-                            vc.insert(p.repo.clone(), (v.clone(), checked));
+                            let key = if p.repo.is_empty() { p.id.clone() } else { p.repo.clone() };
+                            vc.insert(key, (v.clone(), checked));
                         }
                     }
                     self.manager.save_version_check(&vc);
@@ -812,18 +827,16 @@ impl ShellApp {
         std::thread::spawn(move || {
             let mut gh = shared::GitHub::default();
             gh.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+            let mut hs = shared::source_http::HttpSource::default();
+            hs.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
             let mut out = Vec::with_capacity(programs.len());
             for p in &programs {
-                // 本地程序(repo 为空)无远程版本；跳过避免对空串请求 GitHub API
-                if p.repo.is_empty() {
-                    out.push((p.id.clone(), None, String::new()));
-                    continue;
-                }
-                let latest = gh
-                    .latest(&p.repo)
-                    .map(|l| (Some(l.tag_name.trim_start_matches('v').to_string()), l.published_at))
-                    .unwrap_or((None, String::new()));
-                out.push((p.id.clone(), latest.0, latest.1));
+                let latest = shared::shell_manager::latest_remote(p, &gh, &hs);
+                let (ver, ts) = match latest {
+                    Some((v, t)) => (Some(v), t),
+                    None => (None, String::new()),
+                };
+                out.push((p.id.clone(), ver, ts));
             }
             let _ = tx.send(Msg::StatusRefreshed(out));
         });
@@ -2585,6 +2598,12 @@ impl ShellApp {
         self.edit_repo.clear();
         self.edit_binary.clear();
         self.edit_args.clear();
+        self.edit_http_enabled = false;
+        self.edit_http_version_url.clear();
+        self.edit_http_version_json_path.clear();
+        self.edit_http_version_regex.clear();
+        self.edit_http_sha256_url.clear();
+        self.edit_http_urls.clear();
         self.edit_fields.clear();
         self.show_edit = true;
     }
@@ -2713,6 +2732,22 @@ impl ShellApp {
         self.edit_repo = base.repo.clone();
         self.edit_binary = base.binary.clone();
         self.edit_args = base.args.join(" ");
+        let (enabled, vu, vj, vr, sh, urls) = match base.source.as_ref() {
+            Some(src) if src.is_http() => {
+                let urls = base
+                    .asset_rule_for_os()
+                    .map(|r| r.urls.join("\n"))
+                    .unwrap_or_default();
+                (true, src.version_url.clone(), src.version_json_path.clone(), src.version_regex.clone(), src.sha256_url.clone(), urls)
+            }
+            _ => (false, String::new(), String::new(), String::new(), String::new(), String::new()),
+        };
+        self.edit_http_enabled = enabled;
+        self.edit_http_version_url = vu;
+        self.edit_http_version_json_path = vj;
+        self.edit_http_version_regex = vr;
+        self.edit_http_sha256_url = sh;
+        self.edit_http_urls = urls;
         self.edit_fields = base
             .fields
             .iter()
@@ -2774,7 +2809,49 @@ impl ShellApp {
                         ui.add(egui::TextEdit::singleline(&mut self.edit_args).desired_width(f32::INFINITY));
                         ui.end_row();
                     });
-                ui.add_space(6.0);
+                ui.add_space(2.0);
+                egui::CollapsingHeader::new(t!("edit.http_source"))
+                    .default_open(false)
+                    .id_salt("edit_http_source")
+                    .show(ui, |ui| {
+                        ui.checkbox(&mut self.edit_http_enabled, t!("edit.http_enable"));
+                        ui.add_enabled_ui(self.edit_http_enabled, |ui| {
+                            egui::Grid::new("edit_http_grid")
+                                .num_columns(2)
+                                .spacing([8.0, 5.0])
+                                .show(ui, |ui| {
+                                    ui.label(t!("edit.http_version_url"));
+                                    ui.add(egui::TextEdit::singleline(&mut self.edit_http_version_url)
+                                        .hint_text("https://host/app/latest.json")
+                                        .desired_width(f32::INFINITY));
+                                    ui.end_row();
+                                    ui.label(t!("edit.http_json_path"));
+                                    ui.add(egui::TextEdit::singleline(&mut self.edit_http_version_json_path)
+                                        .hint_text("version")
+                                        .desired_width(f32::INFINITY));
+                                    ui.end_row();
+                                    ui.label(t!("edit.http_regex"));
+                                    ui.add(egui::TextEdit::singleline(&mut self.edit_http_version_regex)
+                                        .hint_text("tag=v([0-9.]+)")
+                                        .desired_width(f32::INFINITY));
+                                    ui.end_row();
+                                    ui.label(t!("edit.http_sha256_url"));
+                                    ui.add(egui::TextEdit::singleline(&mut self.edit_http_sha256_url)
+                                        .hint_text("https://host/app-{version}.sha256")
+                                        .desired_width(f32::INFINITY));
+                                    ui.end_row();
+                                    ui.label(t!("edit.http_urls"));
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut self.edit_http_urls)
+                                            .hint_text("https://host/app-{version}-{arch}.tar.gz")
+                                            .desired_rows(3)
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                    ui.end_row();
+                                });
+                        });
+                    });
+                ui.add_space(2.0);
                 ui.separator();
                 ui.horizontal(|ui| {
                     ui.strong(t!("lib.fields"));
@@ -2924,18 +3001,54 @@ impl ShellApp {
             .split_whitespace()
             .map(|s| s.to_string())
             .collect();
+        // HTTP 源(方案 A)：勾选后按缓冲构建 SourceSpec + 写当前 OS 资产的直链 urls
+        let source = if self.edit_http_enabled {
+            Some(shared::config::SourceSpec {
+                kind: "http".to_string(),
+                version_url: self.edit_http_version_url.trim().to_string(),
+                version_json_path: self.edit_http_version_json_path.trim().to_string(),
+                version_regex: self.edit_http_version_regex.trim().to_string(),
+                sha256_url: self.edit_http_sha256_url.trim().to_string(),
+            })
+        } else {
+            None
+        };
+        let mut assets = b.map(|x| x.assets.clone()).unwrap_or_default();
+        if self.edit_http_enabled {
+            let http_urls: Vec<String> = self
+                .edit_http_urls
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect();
+            if !http_urls.is_empty() {
+                let os = shared::config::os_key();
+                match assets.get_mut(os) {
+                    Some(rule) => rule.urls = http_urls.clone(),
+                    None => {
+                        // 新建程序还没有资产规则：用默认规则兜底，再写入直链 urls
+                        let mut def = shared::config::default_os_assets();
+                        if let Some(r) = def.get_mut(os) {
+                            r.urls = http_urls.clone();
+                        }
+                        assets.extend(def);
+                    }
+                }
+            }
+        }
         let updated = shared::config::Program {
             id: id.clone(),
             name: self.edit_name.trim().to_string(),
             description: self.edit_desc.trim().to_string(),
             category: b.map(|x| x.category.clone()).unwrap_or_default(),
             repo: self.edit_repo.trim().to_string(),
+            source,
             binary: if self.edit_binary.trim().is_empty() {
                 id.clone()
             } else {
                 self.edit_binary.trim().to_string()
             },
-            assets: b.map(|x| x.assets.clone()).unwrap_or_default(),
+            assets,
             arch_map: b.map(|x| x.arch_map.clone()).unwrap_or_default(),
             os_map: b.map(|x| x.os_map.clone()).unwrap_or_default(),
             fields,

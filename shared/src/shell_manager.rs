@@ -3,12 +3,12 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
-use log::info;
+use anyhow::{anyhow, Context};
+use log::{info, warn};
 use rust_i18n::t;
 
 use crate::autostart::AutoStart;
-use crate::config::{ExtractMode, Program, ShellConfig};
+use crate::config::{AssetRule, ExtractMode, Program, ShellConfig};
 use crate::extract;
 use crate::github::{GitHub, LatestRelease};
 use crate::runner::Runner;
@@ -101,6 +101,8 @@ pub struct ShellManager {
     /// 各注册表 base -> Ed25519 公钥(hex)，签名校验
     pub registry_pubkeys: BTreeMap<String, String>,
     pub github: GitHub,
+    /// 通用 HTTP 直链下载源（方案 A；source.kind=http 时使用）
+    pub http: crate::source_http::HttpSource,
     pub runner: Runner,
     pub autostart: AutoStart,
     /// 每台受管程序的自启状态（program id -> 是否随壳启动拉起）。独立于模板字段，
@@ -129,6 +131,7 @@ impl ShellManager {
                 .into_iter()
                 .collect(),
             github: GitHub::default(),
+            http: crate::source_http::HttpSource::default(),
             runner: Runner::new(),
             autostart: AutoStart::new(),
             program_autostart_map: program_autostart,
@@ -176,6 +179,10 @@ impl ShellManager {
             &cfg.proxy.accelerate_prefix,
             &cfg.proxy.http_proxy,
         );
+        self.http.apply_network(
+            &cfg.proxy.accelerate_prefix,
+            &cfg.proxy.http_proxy,
+        );
         self.proxy = cfg.proxy;
         self.locale = if cfg.locale.is_empty() { "auto".to_string() } else { cfg.locale };
         info!("{}", t!("log.config.loaded", count = self.programs.len()));
@@ -213,9 +220,11 @@ impl ShellManager {
     }
 
     /// 单独可执行文件在程序目录 bin/ 子目录(与 whole 模式的解包目录 pkg/ 并存不冲突)。
-    /// `repo` 为空 = 本地程序：直接使用 `binary`（绝对/相对路径或 PATH 中的命令名）。
+    /// `repo` 为空且非 HTTP 源 = 本地程序：直接使用 `binary`（绝对/相对路径或 PATH 中的命令名）。
     pub fn bin_path(&self, p: &Program) -> PathBuf {
-        if p.repo.is_empty() {
+        let is_local = p.repo.is_empty()
+            && !p.source.as_ref().map_or(false, |s| s.is_http());
+        if is_local {
             return PathBuf::from(&p.binary);
         }
         let name = if std::env::consts::OS == "windows" {
@@ -337,12 +346,16 @@ impl ShellManager {
         program: &Program,
         on_progress: &dyn Fn(&crate::progress::DownloadProgress),
     ) -> anyhow::Result<(String, String)> {
-        // 0. 本地程序(repo 为空)：壳不下载/不更新，直接使用 binary；本地版本即"最新版本"
-        if program.repo.is_empty() {
+        let is_http = program.source.as_ref().map_or(false, |s| s.is_http());
+        // 0. 本地程序(repo 为空且非 HTTP 源)：壳不下载/不更新，直接使用 binary
+        if program.repo.is_empty() && !is_http {
             let v = self.local_version(program);
             return Ok((v.clone(), v));
         }
-        // 1. 查最新版本
+        if is_http {
+            return self.install_http(program, on_progress);
+        }
+        // 1. 查最新版本(GitHub)
         let release: LatestRelease = self.github.latest(&program.repo)?;
         let version = release.tag_name.trim_start_matches('v').to_string();
         info!("{}", t!("log.version_latest", id = &program.id, version = &version));
@@ -370,15 +383,98 @@ impl ShellManager {
         info!("{}", t!("log.download_done", bytes = std::fs::metadata(&dl_path).map(|m| m.len()).unwrap_or(0)));
 
         // 3b. sha256 校验：优先用 GitHub API 下发的 digest；模板显式 check_sha256 钉住时以它为准
-        on_progress(&DownloadProgress::stage(DownloadStage::Verifying));
         let expect = match (&program.check_sha256, &api_digest) {
             (Some(pin), _) => Some(pin.clone()),
             (None, Some(d)) => Some(d.clone()),
             (None, None) => None,
         };
+
+        self.apply_download(program, &rule, &arch, &version, &dl_path, expect, on_progress)?;
+        Ok((version.clone(), version))
+    }
+
+    /// HTTP 直链源(方案 A)安装/更新通道。多 URL 按序尝试，任一可下载即用。
+    /// sha256 来源优先级：模板钉住 check_sha256 > source.sha256_url > 免检。
+    fn install_http(
+        &self,
+        program: &Program,
+        on_progress: &dyn Fn(&crate::progress::DownloadProgress),
+    ) -> anyhow::Result<(String, String)> {
+        use crate::progress::{DownloadProgress, DownloadStage};
+        let spec = program
+            .source
+            .as_ref()
+            .ok_or_else(|| anyhow!(t!("err.http.no_source")))?
+            .clone();
+
+        let version = self.http.latest_version(&spec)?;
+        info!("{}", t!("log.version_latest", id = &program.id, version = &version));
+
+        // 1b. 已安装且本地版本不低于最新版时，跳过重复下载
+        if !crate::version::is_newer(&version, &self.local_version(program))
+            && self.bin_path(program).exists()
+        {
+            info!("{}", t!("log.version_skip", id = &program.id));
+            return Ok((version.clone(), version));
+        }
+
+        let arch = std::env::consts::ARCH.to_string();
+        let (rule, urls) = self.http.asset_urls(program, &version, &arch)?;
+
+        // 2. 按序尝试每个直链，直到某一条下载成功
+        let mut last_err: Option<anyhow::Error> = None;
+        let mut dl_path = None;
+        for url in &urls {
+            let name = crate::source_http::HttpSource::filename_from(url);
+            let p = self.data_dir.join(format!(".dl-{}-{}", program.id, name));
+            info!("{}", t!("log.downloading", url = url, path = p.display()));
+            on_progress(&DownloadProgress::stage(DownloadStage::Downloading));
+            match self.http.download_to_with_progress(url, &p, &|received, total| {
+                on_progress(&DownloadProgress::downloading(received, total));
+            }) {
+                Ok(()) => {
+                    info!("{}", t!("log.download_done", bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0)));
+                    dl_path = Some(p);
+                    break;
+                }
+                Err(e) => {
+                    let _ = std::fs::remove_file(&p);
+                    warn!("{}", t!("err.http.url_failed", url = url, err = format!("{e:#}")));
+                    last_err = Some(e);
+                }
+            }
+        }
+        let dl_path = dl_path
+            .ok_or_else(|| last_err.unwrap_or_else(|| anyhow!(t!("err.http.no_urls"))))?;
+
+        // 3. sha256：钉住 > 源声明 sha256_url > 显式免检
+        let declared = self.http.declared_sha256(program, &spec, &version, &arch, &rule)?;
+        let expect = match (&program.check_sha256, declared) {
+            (Some(pin), _) => Some(pin.clone()),
+            (None, Some(d)) => Some(d),
+            (None, None) => None,
+        };
+
+        self.apply_download(program, &rule, &arch, &version, &dl_path, expect, on_progress)?;
+        Ok((version.clone(), version))
+    }
+
+    /// 下载完成后的公共落地：校验 sha256 → 解压/落盘 → 清理临时文件 → 记录版本号
+    fn apply_download(
+        &self,
+        program: &Program,
+        rule: &AssetRule,
+        arch: &str,
+        version: &str,
+        dl_path: &PathBuf,
+        expect: Option<String>,
+        on_progress: &dyn Fn(&crate::progress::DownloadProgress),
+    ) -> anyhow::Result<()> {
+        use crate::progress::{DownloadProgress, DownloadStage};
+        on_progress(&DownloadProgress::stage(DownloadStage::Verifying));
         if let Some(expect) = expect {
-            if let Err(e) = crate::checksum::verify_download(&dl_path, &expect) {
-                let _ = std::fs::remove_file(&dl_path);
+            if let Err(e) = crate::checksum::verify_download(dl_path, &expect) {
+                let _ = std::fs::remove_file(dl_path);
                 return Err(e.context(t!(
                     "err.asset_validate",
                     path = dl_path.display().to_string()
@@ -396,26 +492,23 @@ impl ShellManager {
         }
         match rule.mode {
             ExtractMode::Single => {
-                // 直接抽单成员落盘为 run_target
                 if run_target.exists() {
                     let old = run_target.with_extension("old");
                     let _ = std::fs::remove_file(&old);
                     let _ = std::fs::rename(&run_target, &old);
                 }
                 let member = rule.member.as_deref();
-                extract::extract_file(&dl_path, &rule.format, member, &run_target)
+                extract::extract_file(dl_path, &rule.format, member, &run_target)
                     .with_context(|| t!("err.extract", path = dl_path.display().to_string()))?;
             }
             ExtractMode::Whole => {
-                // 清空旧解包目录(避免残留旧版多余文件)
                 if package_dir.exists() {
                     let _ = std::fs::remove_dir_all(&package_dir);
                 }
-                extract::extract_whole(&dl_path, &rule.format, &package_dir)
+                extract::extract_whole(dl_path, &rule.format, &package_dir)
                     .with_context(|| t!("err.extract", path = dl_path.display().to_string()))?;
-                // 在壳数据目录生成指向包内成员的可执行入口(与壳不同名，防覆盖壳自身)
                 let member_tpl = rule.member.as_deref().unwrap_or(&program.binary);
-                let inner = program.render_template(member_tpl, &version, &rule, &arch);
+                let inner = program.render_template(member_tpl, version, rule, arch);
                 let inner_real = resolve_member(&package_dir, &inner);
                 let _ = std::fs::remove_file(&run_target);
                 if let Some(parent) = run_target.parent() {
@@ -433,18 +526,18 @@ impl ShellManager {
                     let _ = std::fs::remove_file(&old);
                     let _ = std::fs::rename(&run_target, &old);
                 }
-                std::fs::copy(&dl_path, &run_target)
+                std::fs::copy(dl_path, &run_target)
                     .with_context(|| t!("err.copy_bin", path = dl_path.display().to_string()))?;
                 set_exec(run_target.as_path());
             }
         }
 
         // 5. 清理临时文件
-        let _ = std::fs::remove_file(&dl_path);
+        let _ = std::fs::remove_file(dl_path);
 
         // 6. 记录本地版本
-        self.save_local_version(program, &version);
-        Ok((version.clone(), version))
+        self.save_local_version(program, version);
+        Ok(())
     }
 
     /// 独立(data_dir + Program)的安装入口，供线程/CLI 使用。返回最新版本号。
@@ -464,6 +557,8 @@ impl ShellManager {
         if cfg_path.exists() {
             if let Ok(cfg) = crate::config::ShellConfig::load(&cfg_path) {
                 mgr.github
+                    .apply_network(&cfg.proxy.accelerate_prefix, &cfg.proxy.http_proxy);
+                mgr.http
                     .apply_network(&cfg.proxy.accelerate_prefix, &cfg.proxy.http_proxy);
             }
         }
@@ -493,8 +588,17 @@ impl ShellManager {
     /// 查询某程序状态(本地是否已装、是否运行、版本对比)；本地程序无远程对比。
     pub fn status(&mut self, program: &Program) -> ProgramStatus {
         let mut st = self.status_local(program);
-        if program.repo.is_empty() {
+        let is_http = program.source.as_ref().map_or(false, |s| s.is_http());
+        if program.repo.is_empty() && !is_http {
             st.latest_version = None;
+            return st;
+        }
+        if is_http {
+            if let Some(src) = program.source.as_ref() {
+                if let Ok(v) = self.http.latest_version(src) {
+                    st.latest_version = Some(v);
+                }
+            }
             return st;
         }
         if let Ok(latest) = self.github.latest(&program.repo) {
@@ -502,6 +606,11 @@ impl ShellManager {
             st.latest_published = latest.published_at.clone();
         }
         st
+    }
+
+    /// 远程最新版本（按 source 分发 GitHub / HTTP 源）。本地程序(空 repo 且非 http)返回 None。
+    pub fn latest_remote(&self, program: &Program) -> Option<(String, String)> {
+        latest_remote(program, &self.github, &self.http)
     }
 
     /// 壳是否仍持有该程序的子进程句柄（try_wait 轮询回收，无进程派生，
@@ -947,6 +1056,27 @@ impl Default for ProgramStatus {
     }
 }
 
+/// 按 source 分发远程最新版本(GitHub / HTTP 源)。返回 (version, published_at)。
+/// 本地程序(空 repo 且非 http)无远程版本，返回 None。供 UI 批量状态刷新/版本检查复用。
+pub fn latest_remote(
+    program: &Program,
+    gh: &GitHub,
+    hs: &crate::source_http::HttpSource,
+) -> Option<(String, String)> {
+    if let Some(src) = program.source.as_ref().filter(|s| s.is_http()) {
+        return hs.latest_version(src).ok().map(|v| (v, String::new()));
+    }
+    if program.repo.is_empty() {
+        return None;
+    }
+    gh.latest(&program.repo).ok().map(|l| {
+        (
+            l.tag_name.trim_start_matches('v').to_string(),
+            l.published_at.clone(),
+        )
+    })
+}
+
 /// 在解包目录内以 member(可能含前缀) 匹配真实文件路径；找不到回退直接拼接
 fn resolve_member(package_dir: &Path, member: &str) -> PathBuf {
     let joined = package_dir.join(strip_leading(member));
@@ -982,7 +1112,8 @@ fn set_exec(p: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Field, FieldKind, Program};
+    use crate::config::{Field, FieldKind, Program, SourceSpec};
+    use std::io::{Read, Write};
 
     fn prog_copy(p: &Program) -> Program {
         serde_json::from_str(&serde_json::to_string(p).unwrap()).unwrap()
@@ -1218,6 +1349,200 @@ mod tests {
         mgr.delete_program(&builtin_id, &cfg).unwrap();
         assert!(!mgr.all_programs().iter().any(|p| p.id == builtin_id));
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 极小 mock HTTP 服务器：按序服务若干 {path -> body} 路由，全部服务完即退出。
+    /// 供 HTTP 源(方案 A)测试，避免真实网络。
+    fn mock_server(routes: Vec<(String, Vec<u8>)>) -> (u16, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            for (path, body) in routes {
+                let (mut sock, _) = listener.accept().unwrap();
+                let mut buf = vec![0u8; 4096];
+                let mut read: Vec<u8> = Vec::new();
+                loop {
+                    let n = sock.read(&mut buf).unwrap();
+                    if n == 0 {
+                        break;
+                    }
+                    read.extend_from_slice(&buf[..n]);
+                    if read.windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let head = String::from_utf8_lossy(&read);
+                if head.starts_with(&format!("GET {}", path)) {
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes());
+                    let _ = sock.write_all(&body);
+                } else {
+                    let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+                    let _ = sock.write_all(resp.as_bytes());
+                }
+                drop(sock);
+            }
+        });
+        (port, handle)
+    }
+
+    #[test]
+    fn http_source_config_roundtrips_and_drops_empty_urls() {
+        let p: Program = serde_json::from_str(r#"{
+            "id":"app","name":"App","repo":"","binary":"app",
+            "source":{"kind":"http","version_url":"https://x/latest.json","version_json_path":"version","sha256_url":"https://x/app-{version}.sha256"},
+            "assets":{"darwin":{"urls":["https://x/app-{version}-{arch}.bin"],"format":"raw","mode":"raw"}},
+            "fields":[],"args":[]
+        }"#)
+        .unwrap();
+        let src = p.source.as_ref().unwrap();
+        assert!(src.is_http());
+        assert_eq!(src.version_json_path, "version");
+        assert_eq!(src.sha256_url, "https://x/app-{version}.sha256");
+        assert_eq!(p.asset_rule_for_os().unwrap().urls.len(), 1);
+
+        // 序列化往返保持 source 与 urls
+        let q: Program = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert_eq!(q.source.as_ref().unwrap().kind, "http");
+        assert_eq!(q.asset_rule_for_os().unwrap().urls.len(), 1);
+
+        // 无 source / 无 urls 的旧模板：source=None，序列化不输出空的 urls 字段
+        let legacy: Program =
+            serde_json::from_str(r#"{"id":"x","name":"X","repo":"a/b","binary":"x","fields":[],"args":[]}"#)
+                .unwrap();
+        assert!(legacy.source.is_none());
+        let s = serde_json::to_string(&legacy).unwrap();
+        assert!(!s.contains("\"urls\""));
+    }
+
+    #[test]
+    fn http_source_latest_version_json_path_regex_plain() {
+        let (port, h) = mock_server(vec![
+            ("/latest.json".to_string(), br#"{ "version":"9.9.9","extra":1 }"#.into()),
+        ]);
+        let spec: SourceSpec = serde_json::from_str(&format!(
+            r#"{{"kind":"http","version_url":"http://127.0.0.1:{port}/latest.json","version_json_path":"version"}}"#
+        ))
+        .unwrap();
+        let hs = crate::source_http::HttpSource::default();
+        assert_eq!(hs.latest_version(&spec).unwrap(), "9.9.9");
+        h.join().unwrap();
+
+        let (port2, h2) = mock_server(vec![(
+            "/ver.txt".to_string(),
+            b"[/release] tag=v1.2.3\n".to_vec(),
+        )]);
+        let spec: SourceSpec = serde_json::from_str(&format!(
+            r#"{{"kind":"http","version_url":"http://127.0.0.1:{port2}/ver.txt","version_regex":"tag=v([0-9.]+)"}}"#
+        ))
+        .unwrap();
+        let hs = crate::source_http::HttpSource::default();
+        assert_eq!(hs.latest_version(&spec).unwrap(), "1.2.3");
+        h2.join().unwrap();
+
+        let (port3, h3) = mock_server(vec![("/plain.txt".to_string(), b"9.9.9\n".into())]);
+        let spec: SourceSpec = serde_json::from_str(&format!(
+            r#"{{"kind":"http","version_url":"http://127.0.0.1:{port3}/plain.txt"}}"#
+        ))
+        .unwrap();
+        let hs = crate::source_http::HttpSource::default();
+        assert_eq!(hs.latest_version(&spec).unwrap(), "9.9.9");
+        h3.join().unwrap();
+    }
+
+    /// 端到端：version_url 探版本 → urls 直链下载(按序尝试) → sha256_url 校验 → 落盘版本。
+    #[test]
+    fn http_source_install_downloads_verifies_and_records_version() {
+        let dir = std::env::temp_dir().join("cc-http-e2e");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let asset_body: &[u8] = b"#!/bin/sh\necho http-installed\n";
+        let digest = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(asset_body);
+            h.finalize().to_vec()
+        };
+        let digest_hex: String =
+            digest.iter().map(|b| format!("{b:02x}")).collect();
+        let arch = std::env::consts::ARCH;
+        let (port, h) = mock_server(vec![
+            ("/v.json".to_string(), br#"{"version":"9.9.9"}"#.to_vec()),
+            (
+                format!("/app-9.9.9-{arch}.bin"),
+                asset_body.to_vec(),
+            ),
+            (
+                format!("/app-9.9.9-{arch}.bin.sha256"),
+                format!("{digest_hex}  app-9.9.9-{arch}.bin\n").into_bytes(),
+            ),
+        ]);
+
+        let p: Program = serde_json::from_str(&format!(
+            r#"{{
+                "id":"httptest","name":"httptest","repo":"","binary":"httptest",
+                "source":{{"kind":"http","version_url":"http://127.0.0.1:{port}/v.json","version_json_path":"version","sha256_url":"http://127.0.0.1:{port}/app-{{version}}-{{arch}}.bin.sha256"}},
+                "assets":{{"darwin":{{"urls":["http://127.0.0.1:{port}/app-{{version}}-{{arch}}.bin"],"format":"raw","mode":"raw"}}}},
+                "fields":[],"args":[]
+            }}"#
+        ))
+        .unwrap();
+
+        let mgr = ShellManager::new(dir.clone()).unwrap();
+        let (local, latest) = mgr.install_or_update(&p, &|_| {}).unwrap();
+        assert_eq!(local, "9.9.9");
+        assert_eq!(latest, "9.9.9");
+        assert_eq!(mgr.local_version(&p), "9.9.9");
+        assert!(mgr.bin_path(&p).exists(), "bin 应落盘");
+        let content = std::fs::read_to_string(mgr.bin_path(&p)).unwrap();
+        assert!(content.contains("http-installed"));
+
+        // 已是最新 → 再次 install_or_update 应跳过下载（不发送任何网络请求）
+        let (port2, h2) = mock_server(vec![("/v.json".to_string(), br#"{"version":"9.9.9"}"#.to_vec())]);
+        let p2: Program = serde_json::from_str(&format!(
+            r#"{{
+                "id":"httptest","name":"httptest","repo":"","binary":"httptest",
+                "source":{{"kind":"http","version_url":"http://127.0.0.1:{port2}/v.json","version_json_path":"version","sha256_url":"http://127.0.0.1:{port2}/app-{{version}}-{{arch}}.bin.sha256"}},
+                "assets":{{"darwin":{{"urls":["http://127.0.0.1:{port2}/app-{{version}}-{{arch}}.bin"],"format":"raw","mode":"raw"}}}},
+                "fields":[],"args":[]
+            }}"#
+        ))
+        .unwrap();
+        let (l2, v2) = mgr.install_or_update(&p2, &|_| {}).unwrap();
+        assert_eq!(l2, "9.9.9");
+        assert_eq!(v2, "9.9.9");
+        h2.join().unwrap();
+        h.join().unwrap();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 直链全部失败时报错；sha256 与模板钉住不一致时拒绝安装。
+    #[test]
+    fn http_source_all_urls_fail_without_secretly_degrading() {
+        let dir = std::env::temp_dir().join("cc-http-fail");
+        let _ = std::fs::remove_dir_all(&dir);
+        let (port, h) = mock_server(vec![("/v.json".to_string(), br#"{"version":"9.9.9"}"#.to_vec())]);
+
+        let p: Program = serde_json::from_str(&format!(
+            r#"{{
+                "id":"httptest","name":"httptest","repo":"","binary":"httptest",
+                "source":{{"kind":"http","version_url":"http://127.0.0.1:{port}/v.json","version_json_path":"version"}},
+                "assets":{{"darwin":{{"urls":["http://127.0.0.1:{port}/missing-{{version}}.bin"],"format":"raw","mode":"raw"}}}},
+                "fields":[],"args":[]
+            }}"#
+        ))
+        .unwrap();
+        let mgr = ShellManager::new(dir.clone()).unwrap();
+        let r = mgr.install_or_update(&p, &|_| {});
+        assert!(r.is_err(), "直链 404 应报错而非静默降级");
+        // 免检(无 sha256_url)：模拟服务器只服务了版本请求，未触发下载，bin 不存在
+        assert!(!mgr.bin_path(&p).exists());
+        h.join().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -14,6 +14,10 @@ pub struct AssetRule {
     /// 候选文件名模板（按序尝试，第一个真实存在者胜出）。
     /// 支持占位符：{name} {version} {arch} {os} {ext}
     pub candidates: Vec<String>,
+    /// HTTP 直链源(方案 A)的可选下载 URL 模板列表。按序尝试，第一个能下载者胜出。
+    /// 支持占位符：{name} {version} {arch} {os} {ext}
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub urls: Vec<String>,
     /// 压缩包封装：tar.gz / zip / raw(裸二进制)
     pub format: String,
     /// 解压模式：single(抽单成员) / whole(整包解到 id 目录) / raw
@@ -34,6 +38,8 @@ impl<'de> Deserialize<'de> for AssetRule {
             #[serde(default)]
             candidates: Vec<String>,
             #[serde(default)]
+            urls: Vec<String>,
+            #[serde(default)]
             filename: Option<String>,
             #[serde(default = "default_format")]
             format: String,
@@ -52,6 +58,7 @@ impl<'de> Deserialize<'de> for AssetRule {
         };
         Ok(AssetRule {
             candidates,
+            urls: r.urls,
             format: r.format,
             mode: r.mode,
             member: r.member,
@@ -138,6 +145,9 @@ pub struct Program {
     pub repo: String,
     /// 下载后落盘的可执行文件名(刻意与壳不同名，避免覆盖壳自身)
     pub binary: String,
+    /// 下载源。缺省(无 source / 非 http)走现有 GitHub release 逻辑。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<SourceSpec>,
     #[serde(default = "default_os_assets")]
     pub assets: BTreeMap<String, AssetRule>,
     /// 架构名映射：本机 arch -> 上游资产里的 arch token
@@ -169,6 +179,35 @@ pub struct Program {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+/// HTTP 直链下载源（方案 A：通用 HTTP 源）。
+/// 模板配置 `source.kind = "http"` 时，下载/更新/版本检查走直链：
+/// - 版本：`version_url`(纯文本 / JSON 点路径 / 正则)
+/// - 下载：`assets.<os>.urls` 直链模板列表(按序尝试)
+/// - 校验：`sha256_url`(渲染 {version} 等占位符)；留空即"显式免检"。
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SourceSpec {
+    /// 源类型标识，当前仅 "http"
+    pub kind: String,
+    /// 版本探测 URL：GET 后按 version_json_path / version_regex / 纯文本 提取版本
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version_url: String,
+    /// 从 version_url 响应 JSON 里按点路径取值，如 "version" / "app.version"
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version_json_path: String,
+    /// 或：正则提取(如 `v([\d.]+)`)，命中即取第一组/整体
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub version_regex: String,
+    /// 可选 sha256 校验 URL(支持 {version} 等占位符)。留空 = 显式免校验
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sha256_url: String,
+}
+
+impl SourceSpec {
+    pub fn is_http(&self) -> bool {
+        self.kind == "http"
+    }
 }
 
 /// 从模板导入到 ShellConfig 时打上的来源戳
@@ -218,13 +257,14 @@ impl Field {
     }
 }
 
-fn default_os_assets() -> BTreeMap<String, AssetRule> {
+pub fn default_os_assets() -> BTreeMap<String, AssetRule> {
     use ExtractMode::Single;
     let mut m = BTreeMap::new();
     m.insert(
         "darwin".into(),
         AssetRule {
             candidates: vec!["{name}_Darwin_{arch}.{ext}".into()],
+            urls: vec![],
             format: "tar.gz".into(),
             mode: Single,
             member: None,
@@ -234,6 +274,7 @@ fn default_os_assets() -> BTreeMap<String, AssetRule> {
         "linux".into(),
         AssetRule {
             candidates: vec!["{name}_Linux_{arch}.{ext}".into()],
+            urls: vec![],
             format: "tar.gz".into(),
             mode: Single,
             member: None,
@@ -243,6 +284,7 @@ fn default_os_assets() -> BTreeMap<String, AssetRule> {
         "windows".into(),
         AssetRule {
             candidates: vec!["{name}_Windows_{arch}.zip".into()],
+            urls: vec![],
             format: "zip".into(),
             mode: Single,
             member: None,

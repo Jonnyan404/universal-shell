@@ -5416,6 +5416,7 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "log",
+ "regex",
  "reqwest",
  "rust-i18n",
  "serde",

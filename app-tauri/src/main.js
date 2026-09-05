@@ -1320,6 +1320,14 @@ function openEditModal(id) {
   document.querySelector("#edit-repo").value = p.repo;
   document.querySelector("#edit-binary").value = p.binary;
   document.querySelector("#edit-args").value = (p.args || []).join(" ");
+  /* HTTP 源(方案 A)回填 */
+  document.querySelector("#edit-http-enable").checked = !!p.http_enabled;
+  document.querySelector("#edit-http-version-url").value = p.http_version_url || "";
+  document.querySelector("#edit-http-json-path").value = p.http_version_json_path || "";
+  document.querySelector("#edit-http-regex").value = p.http_version_regex || "";
+  document.querySelector("#edit-http-sha256-url").value = p.http_sha256_url || "";
+  document.querySelector("#edit-http-urls").value = (p.http_urls || []).join("\n");
+  document.querySelector("#edit-http-fields").disabled = !p.http_enabled;
   renderEditFields(p.fields || []);
   document.querySelector("#edit-modal").hidden = false;
 }
@@ -1337,6 +1345,13 @@ function openNewTemplate() {
   document.querySelector("#edit-repo").value = "";
   document.querySelector("#edit-binary").value = "";
   document.querySelector("#edit-args").value = "";
+  document.querySelector("#edit-http-enable").checked = false;
+  document.querySelector("#edit-http-version-url").value = "";
+  document.querySelector("#edit-http-json-path").value = "";
+  document.querySelector("#edit-http-regex").value = "";
+  document.querySelector("#edit-http-sha256-url").value = "";
+  document.querySelector("#edit-http-urls").value = "";
+  document.querySelector("#edit-http-fields").disabled = true;
   renderEditFields([]);
   document.querySelector("#edit-modal").hidden = false;
 }
@@ -1430,6 +1445,16 @@ async function saveEdit() {
       .split(/\s+/)
       .filter(Boolean),
     fields,
+    http_enabled: document.querySelector("#edit-http-enable").checked,
+    http_version_url: document.querySelector("#edit-http-version-url").value.trim(),
+    http_version_json_path: document.querySelector("#edit-http-json-path").value.trim(),
+    http_version_regex: document.querySelector("#edit-http-regex").value.trim(),
+    http_sha256_url: document.querySelector("#edit-http-sha256-url").value.trim(),
+    http_urls: document
+      .querySelector("#edit-http-urls")
+      .value.split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean),
   };
   try {
     const editedId = payload.id;
@@ -2121,6 +2146,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   const editModal = document.querySelector("#edit-modal");
   document.querySelector("#edit-modal-close").onclick = closeEditModal;
   document.querySelector("#edit-cancel").onclick = closeEditModal;
+  document.querySelector("#edit-http-enable").onchange = (e) => {
+    document.querySelector("#edit-http-fields").disabled = !e.target.checked;
+  };
   document.querySelector("#edit-save").onclick = (e) => {
     e.preventDefault();
     saveEdit();
