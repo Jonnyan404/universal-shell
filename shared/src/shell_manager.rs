@@ -742,14 +742,22 @@ impl ShellManager {
         map
     }
 
-    /// 保存字段值
+    /// 保存字段值。只落盘偏离运行时默认的覆盖值:等于默认的 key 由默认提供,不写盘。
+    /// 否则"恰好等于默认"的历史值(整包复制/整表保存遗留)会伪装成用户自定义,
+    /// 之后改字段默认值时迁移无法识别这些未动过的字段,界面就始终显示旧值。
     pub fn save_field_values(&self, program: &Program, values: &BTreeMap<String, String>) {
         let dir = self.app_dir(program);
         if std::fs::create_dir_all(&dir).is_err() {
             return;
         }
+        let defaults = program.runtime_defaults();
+        let overrides: BTreeMap<String, String> = values
+            .iter()
+            .filter(|(k, v)| defaults.get(k.as_str()).map(String::as_str) != Some(v.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         let fv_file = dir.join("values.json");
-        if let Ok(raw) = serde_json::to_string_pretty(values) {
+        if let Ok(raw) = serde_json::to_string_pretty(&overrides) {
             let _ = std::fs::write(&fv_file, raw);
         }
     }
@@ -1307,8 +1315,52 @@ mod tests {
         assert!(all.contains(&"dufs-4".to_string()));
     }
 
-    /// 复制模板后改默认值，副本的界面值必须跟随迁移(镜像「复制→编辑默认→操作界面不同步」场景)。
-    /// 副本的 values.json 已含原默认(复制时落盘)，迁移仍应按「值==旧默认」识别并跟随新默认。
+    /// 默认值变更后:值等于旧默认(用户没改过)的字段跟随新默认;自定义值原样保留。
+    #[test]
+    fn save_field_values_strips_values_equal_to_default_and_heals_on_edit() {
+        let dir = std::env::temp_dir().join("cc-save-strip");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg = dir.join("cfg.json");
+        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&cfg).unwrap();
+
+        let base: Program = serde_json::from_str(
+            r#"{"id":"app","name":"App","repo":"a/b","binary":"app",
+               "fields":[{"key":"port","label":"Port","kind":"string","default":"8080"}],
+               "args":[]}"#,
+        )
+        .unwrap();
+        mgr.add_program(&base, &cfg).unwrap();
+
+        // 保存"恰好等于默认"的值 → 不落盘(默认由运行时提供),不伪装成自定义
+        let mut vals = std::collections::BTreeMap::new();
+        vals.insert("port".to_string(), "8080".to_string());
+        mgr.save_field_values(&base, &vals);
+        assert_eq!(mgr.load_field_values(&base).get("port").map(String::as_str), Some("8080"));
+        let raw = mgr.raw_field_values(&base);
+        assert!(raw.is_empty(), "默认相等值不应出现在 values.json");
+
+        // 自定义值仍落盘保留
+        vals.insert("port".to_string(), "9090".to_string());
+        mgr.save_field_values(&base, &vals);
+        assert_eq!(mgr.load_field_values(&base).get("port").map(String::as_str), Some("9090"));
+
+        // 历史遗留的全量 values.json(复制/旧版保存)在编辑默认值时自愈跟随
+        let edited: Program = serde_json::from_str(
+            r#"{"id":"app","name":"App","repo":"a/b","binary":"app",
+               "fields":[{"key":"port","label":"Port","kind":"string","default":"7070"}],
+               "args":[]}"#,
+        )
+        .unwrap();
+        mgr.update_program("app", &edited, &cfg).unwrap();
+        let after = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
+        // 此时 port=9090 是用户自定义,改默认应保留自定义(非自愈用例)
+        assert_eq!(mgr.load_field_values(&after).get("port").map(String::as_str), Some("9090"));
+    }
+
+    /// 复现「新加 UI 字段永远同步、模板自带字段不同步」的根治验证:
+    /// 复制模板后,未自定义的模板字段(值==旧默认)改默认值必须跟随,与新增字段一致。
     #[test]
     fn duplicated_template_default_change_migrates_copy_values() {
         let dir = std::env::temp_dir().join("cc-duplicate-migrate");
