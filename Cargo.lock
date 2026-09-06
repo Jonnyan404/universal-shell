@@ -5415,6 +5415,7 @@ dependencies = [
  "dirs",
  "ed25519-dalek",
  "flate2",
+ "libc",
  "log",
  "regex",
  "reqwest",
