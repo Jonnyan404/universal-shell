@@ -1509,7 +1509,9 @@ impl ShellApp {
             .max_height(ui.available_height().max(60.0))
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for line in log.split('\n') {
+                // 64KB tail 逐行拆 widget 每帧全量布局会上千个，切到运行中程序时卡顿数秒；
+                // 只渲染末尾 N 行（复制按钮仍给全量文本）
+                for line in tail_view_lines(&log) {
                     if let Some(rest) = line.strip_prefix('\u{1f}') {
                         ui.colored_label(egui::Color32::from_rgb(220, 90, 90), rest);
                     } else {
@@ -2418,12 +2420,12 @@ impl ShellApp {
                     });
                 });
                 ui.separator();
-                // 日志内容（stderr 行以 \x1F 开头标红）
+                // 日志内容（stderr 行以 \x1F 开头标红，只渲染末尾 N 行防卡顿）
                 let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        for line in log.split('\n') {
+                        for line in tail_view_lines(&log) {
                             if let Some(rest) = line.strip_prefix('\u{1f}') {
                                 ui.colored_label(egui::Color32::from_rgb(220, 90, 90), rest);
                             } else {
@@ -3304,6 +3306,16 @@ fn fmt_datetime(secs: i64) -> String {
         secs_of_day % 3600 / 60,
         secs_of_day % 60
     )
+}
+
+/// 日志视图渲染行数上限：tail 逐行拆 widget 时只取末尾 N 行，避免上千 widget 卡顿。
+const LOG_VIEW_LINES: usize = 300;
+
+/// 取文本末尾至多 N 行（不拷贝行内容；调用方保留 \x1F 标记自行着色）。
+fn tail_view_lines(log: &str) -> impl Iterator<Item = &str> {
+    let lines: Vec<&str> = log.split('\n').collect();
+    let start = lines.len().saturating_sub(LOG_VIEW_LINES);
+    lines.into_iter().skip(start)
 }
 
 /// 字段标签；必填且当前为空时标红并加红色 `*`。

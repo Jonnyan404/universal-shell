@@ -1041,6 +1041,8 @@ async function checkShellUpdate(manual) {
 let logProgramId = null;
 
 // 把合并日志文本渲染进容器：\x1F 开头的行视为 stderr，着红色
+// 日志视图只渲染末尾 N 行（对齐 egui）：节点过多时切换/刷新卡顿，复制仍给全量文本
+const LOG_VIEW_LINES = 300;
 function renderLogBody(container, text) {
   container.innerHTML = "";
   if (!text) {
@@ -1049,7 +1051,8 @@ function renderLogBody(container, text) {
   }
   const lines = text.split("\n");
   const frag = document.createDocumentFragment();
-  for (const line of lines) {
+  for (let i = Math.max(0, lines.length - LOG_VIEW_LINES); i < lines.length; i++) {
+    const line = lines[i];
     const isErr = line.charCodeAt(0) === 0x1f;
     const content = isErr ? line.slice(1) : line;
     const span = document.createElement("span");
