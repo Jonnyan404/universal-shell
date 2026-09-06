@@ -156,7 +156,6 @@ lib.search_ph: Search templates (name / category / description)…
 lib.empty_local: No templates imported yet. Click "Import" on a remote source above to add one.
 lib.empty_remote: Manifest not loaded yet. Click "Refresh" to pull from remote sources (offline shows last refreshed list).
 lib.pull: Pulling…
-lib.checked_at: Last update
 lib.prev: « Prev
 lib.next: Next »
 lib.offline: (offline · cache)
@@ -166,8 +165,6 @@ lib.offline_status: 'Offline·%{suffix}'
 lib.online_status: 'Online·%{suffix}'
 lib.remote_sources: 'Remote source update: not pulled yet (click "Refresh")'
 lib.remote_none: 'Remote source update: no remote source configured'
-lib.remote_dirty: 'Remote source update: not pulled yet'
-lib.browse: Browse…
 lib.select_local: Import a program template from remote source
 lib.local_last: Local
 lib.all_sources: All sources (merged)
@@ -178,20 +175,16 @@ lib.required: Required
 lib.precheck: Required before launch
 lib.field_key: Field key
 lib.def_val: Default value
-lib.add_source: Add
 lib.delete_source: Delete this source
 lib.fields: UI fields
-runner.x: All sources (merged)
 check.title: Operate all programs together
 act.log: Log
 act.open_log_dir: Open log directory
 act.open_log_dir_short: Logs
 act.open_app_dir: Open app directory
-act.manage: Manage
 act.export: Export
 act.delete_field: Delete field
 st.autostart: Autostart
-toast.no_addr: No web address (host/port) configured
 toast.addr_copied: Address copied
 st.hidden: Hidden
 st.empty: (empty)
@@ -227,36 +220,13 @@ lib.multi_source: '⚠ multi-source×%{n}'
 lib.last_pull: 'Last pulled %{date}'
 lib.not_pulled: not pulled yet
 shell_log.empty: (No shell operation logs yet)
-ui.manage: Programs
-eg.data_dir: 'Data dir: %{path}'
 eg.no_program: 'No managed programs configured. Start with `universal-shell-egui <shell.json>` or import from the template library.'
-eg.check_update: Check template update
-eg.view_changes: View changes
-eg.apply_update: Apply template update
-eg.download_or_update: Download / Update
-eg.latest_ver_fmt: 'Latest version: %{ver}'
-eg.registry_url: 'Registry URL:'
-eg.configured_registries: 'Configured registries: %{list}'
-eg.offline_status: Currently in offline (cache) state, showing the last successfully pulled manifest
-eg.source_offline: 'Offline (cache): %{base}'
-eg.source_online: 'Source: %{base}'
-eg.template_count: '%{n} templates (%{s} sources, %{c} conflicts)'
 eg.search: 'Search:'
-eg.multi_source: ⚠ multi-source
-eg.who_sources: ?sources
-eg.exists_in: '"%{id}" exists in: %{list}'
 eg.loaded_offline: 'Loaded (%{n} sources, with offline fallback)'
 eg.loaded: 'Loaded (%{n} sources)'
 eg.import_fail: 'Import failed: %{err}'
 eg.imported_snap: 'Imported template "%{id}", snapshot written to %{path}'
-eg.not_found_instance: Program instance not found
-eg.no_diff: Template is up to date, no changes
-eg.update_found: 'Template update found: %{summary}'
-eg.check_update_fail: 'Failed to check template update: %{err}'
-eg.updated_written: 'Template updated and written back to %{path}'
-eg.write_fail: 'Failed to write config: %{err}'
 eg.autostart_fail: 'Failed to set autostart: %{err}'
-eg.no_source_registry: This program has no source registry; cannot check for updates
 log.autostart.launch: 'Autostart: launching "%{name}"'
 log.autostart.fail: 'Autostart: launching "%{name}" failed - %{err}'
 log.autostart.skip: 'Autostart: skipping "%{name}" (already running)'
@@ -291,7 +261,6 @@ log.runner.started: 'Started %{id} (pid=%{pid})'
 log.runner.nonzero: '%{id} nonzero exit code: %{code}'
 err.registry_not_configured: Registry not configured
 err.no_cache_manifest: No cached manifest locally. Please refresh online first.
-err.parse_cache_fail: 'Failed to parse local cache manifest: %{err}'
 err.read_template_fail: 'Failed to read template: %{err}'
 err.parse_template_fail: 'Failed to parse template: %{err}'
 err.program_exists: 'Program "%{id}" already exists'

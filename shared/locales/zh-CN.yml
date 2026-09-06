@@ -156,7 +156,6 @@ lib.search_ph: 搜索模板（名称 / 分类 / 描述）…
 lib.empty_local: 尚未导入任何模板。从上方远程源点击「导入」即可加入本地程序库。
 lib.empty_remote: 尚未加载清单。点击「刷新」从远程源拉取(离线时可查看上次刷新的列表)。
 lib.pull: 拉取中…
-lib.checked_at: 上次更新
 lib.prev: « 上一页
 lib.next: 下一页 »
 lib.offline: （离线·缓存）
@@ -166,8 +165,6 @@ lib.offline_status: '离线·%{suffix}'
 lib.online_status: '在线·%{suffix}'
 lib.remote_sources: 远程源更新：尚未拉取（点击「刷新」）
 lib.remote_none: 远程源更新：未配置远程源
-lib.remote_dirty: 远程源更新：尚未拉取
-lib.browse: 浏览…
 lib.select_local: 从远程源导入程序模板
 lib.local_last: 本地
 lib.all_sources: 全部源（合并）
@@ -178,20 +175,16 @@ lib.required: 必填
 lib.precheck: 启动前必填
 lib.field_key: 字段 key
 lib.def_val: 默认值
-lib.add_source: 添加
 lib.delete_source: 删除该源
 lib.fields: UI 字段
-runner.x: 全部源（合并）
 check.title: 所有程序统一操作
 act.log: 日志
 act.open_log_dir: 打开日志目录
 act.open_log_dir_short: 日志目录
 act.open_app_dir: 打开应用目录
-act.manage: 管理
 act.export: 导出
 act.delete_field: 删除字段
 st.autostart: 开机启动
-toast.no_addr: 未配置 Web 地址(host/port)
 toast.addr_copied: 地址已复制
 st.hidden: 已隐藏
 st.empty: '(空)'
@@ -227,36 +220,13 @@ lib.multi_source: '⚠ 多源×%{n}'
 lib.last_pull: '上次拉取 %{date}'
 lib.not_pulled: 尚未拉取
 shell_log.empty: (暂无壳操作日志)
-ui.manage: 程序管理
-eg.data_dir: '数据目录: %{path}'
 eg.no_program: '未配置任何受管程序。请以 `universal-shell-egui <shell.json>` 启动，或在「模板库」导入。'
-eg.check_update: 检查模板更新
-eg.view_changes: 查看变化
-eg.apply_update: 应用模板更新
-eg.download_or_update: 下载 / 更新
-eg.latest_ver_fmt: '最新版本: %{ver}'
-eg.registry_url: '注册表 URL:'
-eg.configured_registries: '配置的注册表: %{list}'
-eg.offline_status: 当前为离线(缓存)状态，显示的是上次成功拉取的清单
-eg.source_offline: '离线(缓存): %{base}'
-eg.source_online: '源: %{base}'
-eg.template_count: '共 %{n} 个模板（%{s} 个源，冲突 %{c}）'
 eg.search: '搜索:'
-eg.multi_source: ⚠ 多源
-eg.who_sources: ?来源
-eg.exists_in: '「%{id}」存在于: %{list}'
 eg.loaded_offline: '加载完成（%{n} 个源，含离线回退）'
 eg.loaded: '加载完成（%{n} 个源）'
 eg.import_fail: '导入失败: %{err}'
 eg.imported_snap: '已导入模板「%{id}」，快照已写入 %{path}'
-eg.not_found_instance: 找不到该程序实例
-eg.no_diff: 模板已是最新，无差异
-eg.update_found: '发现模板更新: %{summary}'
-eg.check_update_fail: '检查模板更新失败: %{err}'
-eg.updated_written: '模板已更新并写回 %{path}'
-eg.write_fail: '写回配置失败: %{err}'
 eg.autostart_fail: '设置开机启动失败: %{err}'
-eg.no_source_registry: 该程序无来源注册表，无法检查更新
 log.autostart.launch: '应用自启动：拉起「%{name}」'
 log.autostart.fail: '应用自启动：拉起「%{name}」失败 - %{err}'
 log.autostart.skip: '应用自启动：跳过「%{name}」(已在运行)'
@@ -291,7 +261,6 @@ log.runner.started: '已启动 %{id} (pid=%{pid})'
 log.runner.nonzero: '%{id} 非零退出码: %{code}'
 err.registry_not_configured: 未配置注册表
 err.no_cache_manifest: 本地无缓存清单，请先联网刷新
-err.parse_cache_fail: '解析本地缓存清单失败: %{err}'
 err.read_template_fail: '读取模板失败: %{err}'
 err.parse_template_fail: '解析模板失败: %{err}'
 err.program_exists: '程序「%{id}」已存在'
