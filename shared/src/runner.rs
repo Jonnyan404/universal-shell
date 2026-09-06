@@ -349,7 +349,6 @@ mod tests {
     /// 未超限时不碰文件。
     #[test]
     fn trim_program_log_keeps_small_file() {
-        use std::io::Write as _;
         let dir = std::env::temp_dir().join("cc-trim-proglog-small");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();

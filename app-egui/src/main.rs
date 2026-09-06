@@ -1349,12 +1349,10 @@ impl ShellApp {
             && !(status.installed && (up_to_date || status.latest_version.is_none()));
         ui.horizontal(|ui| {
             ui.heading(&p.name);
-            ui.add_space(8.0);
-            ui.weak(if p.repo.is_empty() {
-                t!("st.local_program").to_string()
-            } else {
-                p.repo.clone()
-            });
+            // 对齐 Tauri 状态栏：GitHub 项目(owner/repo)显示为链接，非 GitHub 留空
+            if let Some(url) = github_repo_url(&p.repo) {
+                ui.hyperlink_to("GitHub", url);
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if show_dl {
                     let dl_text = if self.busy {
@@ -1371,24 +1369,34 @@ impl ShellApp {
                 }
             });
         });
-        // 状态标签（对齐 Tauri renderStatus chips）
+        // 描述独占第二行（无描述时不占位，对齐 Tauri #prog-desc）
+        if !p.description.is_empty() {
+            ui.add(
+                egui::Label::new(egui::RichText::new(&p.description).small().weak()).truncate(),
+            );
+        }
+        // 状态 chips（对齐 Tauri renderStatus：本地版本 / 已安装 / 开机启动；运行态看按钮）
         ui.horizontal_wrapped(|ui| {
-            ui.label(t!("st.local_ver", ver = status.local_version));
-            if status.installed {
-                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.installed"));
-            } else {
-                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.not_installed_bare"));
-            }
+            ui.label(
+                egui::RichText::new(t!("st.local_ver", ver = status.local_version))
+                    .small()
+                    .weak(),
+            );
+            ui.label(
+                egui::RichText::new(if status.installed {
+                    t!("st.installed")
+                } else {
+                    t!("st.not_installed_bare")
+                })
+                .small()
+                .weak(),
+            );
             if self.manager.program_autostart(&p.id) {
-                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.autostart"));
-            }
-            if status.latest_version.is_some() {
-                ui.label(t!("eg.latest_ver_fmt", ver = status.latest_version.as_deref().unwrap_or("")));
-            }
-            if status.running {
-                ui.colored_label(egui::Color32::from_rgb(90, 180, 90), t!("st.running"));
-            } else {
-                ui.colored_label(egui::Color32::from_rgb(150, 150, 150), t!("st.stopped"));
+                ui.label(
+                    egui::RichText::new(t!("st.autostart"))
+                        .small()
+                        .color(egui::Color32::from_rgb(90, 180, 90)),
+                );
             }
         });
 
@@ -3306,6 +3314,22 @@ fn fmt_datetime(secs: i64) -> String {
         secs_of_day % 3600 / 60,
         secs_of_day % 60
     )
+}
+
+/// GitHub 仓库(owner/repo)转项目地址；非 GitHub（本地/HTTP 源等）返回 None。
+/// 规则与 Tauri 状态栏一致：形如 owner/repo、无 scheme、无空白。
+fn github_repo_url(repo: &str) -> Option<String> {
+    let repo = repo.trim();
+    if repo.is_empty() || repo.contains("://") || repo.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let mut parts = repo.split('/');
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(a), Some(b), None) if !a.is_empty() && !b.is_empty() => {
+            Some(format!("https://github.com/{a}/{b}"))
+        }
+        _ => None,
+    }
 }
 
 /// 日志视图渲染行数上限：tail 逐行拆 widget 时只取末尾 N 行，避免上千 widget 卡顿。
