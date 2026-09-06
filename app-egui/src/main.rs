@@ -425,6 +425,7 @@ impl ShellApp {
                 match event.id().as_ref() {
                     "tray_show" => {
                         let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                         let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     }
                     "tray_quit" => {
@@ -447,6 +448,7 @@ impl ShellApp {
                 } = event
                 {
                     let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
             }
@@ -3061,13 +3063,15 @@ impl eframe::App for ShellApp {
         } else {
             Duration::from_secs(3)
         });
-        // 关闭窗口 → 隐藏到托盘（托盘「退出」才真正退出）
+        // 关闭窗口 → 最小化到 Dock（托盘「退出」才真正退出）。
+        // 不用 Visible(false) 彻底隐藏：winit 未实现 reopen，彻底隐藏后点 Dock
+        // 系统只激活应用不恢复窗口；最小化则由系统直接恢复，点 Dock 必定有效。
         if ctx.input(|i| i.viewport().close_requested()) {
             if self.quit.load(Ordering::SeqCst) {
                 return;
             }
             let _ = ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             ctx.request_repaint();
         }
         // 主题或选中程序变化时持久化 prefs（JSON），重启后恢复上次主题与程序
