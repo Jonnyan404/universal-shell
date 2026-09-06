@@ -20,3 +20,5 @@ ed25519-dalek = { workspace = true }
 regex = "1"
 time = { workspace = true }
 rust-i18n = "4"
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.189"

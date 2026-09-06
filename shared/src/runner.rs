@@ -188,6 +188,18 @@ impl Runner {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::null());
+        #[cfg(unix)]
+        {
+            // 子进程忽略 SIGPIPE：壳退出后管道读端关闭，残留孤儿再写日志只会 EPIPE，
+            // 不会被信号杀死，重启后 pgrep 才能认出它（Go 等程序默认会被 SIGPIPE 杀死）。
+            use std::os::unix::process::CommandExt;
+            unsafe {
+                cmd.pre_exec(|| {
+                    libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+                    Ok(())
+                });
+            }
+        }
 
         let mut child = cmd
             .spawn()

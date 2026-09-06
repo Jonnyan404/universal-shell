@@ -797,9 +797,11 @@ impl ShellApp {
     }
 
     /// 存活轮询的监听列表：(程序 id, 可执行文件路径)
+    /// 必须覆盖全部实例（含内置）：只看 self.manager.programs 会漏掉内置程序，
+    /// 重启后内置的孤儿进程永远认不出，一直显示已停止。
     fn running_watch_list(&self) -> Vec<(String, PathBuf)> {
         self.manager
-            .programs
+            .all_programs()
             .iter()
             .map(|p| (p.id.clone(), self.manager.bin_path(p)))
             .collect()
