@@ -1440,6 +1440,8 @@ impl ShellApp {
             if stop_btn.clicked() {
                 match self.manager.stop(&p.id) {
                     Ok(()) => {
+                        // 立刻失效存活缓存，否则 ui_running 会沿用上次轮询的 true 到下个 3s 周期
+                        self.path_alive.insert(p.id.clone(), false);
                         self.log_op(&t!("op.stop", name = &p.name));
                     }
                     Err(e) => {
@@ -1564,6 +1566,7 @@ impl ShellApp {
             self.show_toast(t!("toast.restart_fail", err = format!("{e:#}")).to_string());
             return;
         }
+        self.path_alive.insert(p.id.clone(), false);
         self.manager.save_field_values(p, values);
         if let Err(e) = self.manager.start(p, values) {
             self.show_toast(t!("toast.restart_fail", err = format!("{e:#}")).to_string());
@@ -2187,6 +2190,8 @@ impl ShellApp {
                 }
                 if ui.button(t!("batch.stop_all")).clicked() {
                     self.manager.stop_all();
+                    // 存活缓存清零即时生效，3s 轮询会重新填充
+                    self.path_alive.clear();
                     self.log_op(&t!("op.stop_all"));
                 }
             });
@@ -2335,6 +2340,7 @@ impl ShellApp {
                     }
                     if ui.small_button(t!("act.stop")).clicked() {
                         if let Ok(()) = self.manager.stop(&p.id) {
+                            self.path_alive.insert(p.id.clone(), false);
                             self.log_op(&t!("op.stop", name = &p.name));
                         }
                     }
