@@ -1485,9 +1485,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            // 关闭窗口 → 隐藏到托盘（托盘菜单“退出”才真正结束进程）
+            // 关闭窗口 → 最小化到 Dock（托盘菜单“退出”才真正结束进程）。
+            // 不用 hide() 彻底隐藏：底层未实现 reopen，彻底隐藏后点 Dock 图标
+            // 系统只激活应用不恢复窗口；最小化则由系统直接恢复，点 Dock 必定有效。
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window.hide();
+                let _ = window.minimize();
                 api.prevent_close();
             }
         })
