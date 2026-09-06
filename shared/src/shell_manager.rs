@@ -1116,18 +1116,31 @@ self.add_program(&copy, path)?;
     /// 读取某程序合并日志（stdout/stderr 同文件；stderr 行以 \x1F 开头）。返回 (merged, 空)。
     pub fn read_logs(&self, id: &str, tail_bytes: usize) -> (String, String) {
         fn read_tail(p: &Path, n: usize) -> String {
-            let Ok(data) = std::fs::read(p) else {
+            use std::io::{Read, Seek, SeekFrom};
+            let Ok(mut f) = std::fs::File::open(p) else {
                 return String::new();
             };
+            let Ok(len) = f.metadata().map(|m| m.len()) else {
+                return String::new();
+            };
+            // 直接 seek 到尾部再读：与“读全文件再截尾”逐字节等价，
+            // 但耗时只和 n 有关。日志文件运行几小时无上限增长时，全量读会卡 UI 数秒。
+            let start = len.saturating_sub(n as u64);
+            if f.seek(SeekFrom::Start(start)).is_err() {
+                return String::new();
+            }
+            let mut buf = Vec::new();
+            if f.read_to_end(&mut buf).is_err() {
+                return String::new();
+            }
             // 从尾部截取最近 n 字节，尽量从换行处开始
-            let start = data.len().saturating_sub(n);
-            let mut s = data[start..].to_vec();
+            let mut s = &buf[..];
             if start > 0 {
                 if let Some(pos) = s.iter().position(|&b| b == b'\n') {
-                    s.drain(..=pos);
+                    s = &s[pos + 1..];
                 }
             }
-            String::from_utf8_lossy(&s).to_string()
+            String::from_utf8_lossy(s).to_string()
         }
         let out = read_tail(&self.log_dir().join(format!("{id}.log")), tail_bytes);
         (out, String::new())
@@ -1565,6 +1578,28 @@ mod tests {
         let text = std::fs::read_to_string(dir.join("shell.log")).unwrap();
         assert!(text.ends_with('\n'));
         assert!(text.contains("下载/更新「demo」失败: 404"));
+    }
+
+    /// 日志只读尾部：行对齐、不含头部旧行（seek 实现，与全量读等价但不随文件变大变慢）。
+    #[test]
+    fn read_logs_returns_aligned_tail() {
+        let dir = std::env::temp_dir().join("cc-log-tail");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mgr = ShellManager::new(dir.clone()).unwrap();
+        let logdir = mgr.log_dir();
+        std::fs::create_dir_all(&logdir).unwrap();
+        let mut content = String::new();
+        for i in 0..3000 {
+            content.push_str(&format!("line-{i:04}\n"));
+        }
+        std::fs::write(logdir.join("app.log"), &content).unwrap();
+        let (out, _) = mgr.read_logs("app", 64);
+        assert!(out.ends_with("line-2999\n"));
+        assert!(!out.contains("line-0000\n"));
+        // 行首对齐：第一行是完整行
+        let first = out.lines().next().unwrap();
+        assert!(first.starts_with("line-"), "首行应对齐换行：{first}");
+        assert!(out.len() <= 64);
     }
 
     /// 追加足够多条日志越过容量上限后，文件被截末一半，体积不再无限增长。
