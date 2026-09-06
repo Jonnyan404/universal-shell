@@ -1602,6 +1602,69 @@ mod tests {
         assert!(out.len() <= 64);
     }
 
+    /// 外部杀掉已启动程序后，壳必须立刻认出已停止（句柄回收 + 路径探测一致），
+    /// 不能卡住也不能长期显示运行中。镜像“最小化期间外部杀掉程序再打开界面”场景。
+    #[test]
+    #[cfg(unix)]
+    fn externally_killed_child_is_promptly_recognized_stopped() {
+        use std::collections::BTreeMap;
+        let dir = std::env::temp_dir().join("cc-external-kill");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+
+        // 本地程序直接用系统 sleep，无需安装；用特征参数避免误匹配其它 sleep 进程
+        let prog = Program {
+            id: "sleeper".into(),
+            name: "sleeper".into(),
+            description: String::new(),
+            category: String::new(),
+            repo: String::new(),
+            source: None,
+            binary: "/bin/sleep".into(),
+            assets: BTreeMap::new(),
+            arch_map: BTreeMap::new(),
+            os_map: BTreeMap::new(),
+            fields: vec![],
+            args: vec!["31771".into()],
+            working_dir: ".".into(),
+            template_source: None,
+            imported_at: None,
+            check_sha256: None,
+            hidden: false,
+        };
+        mgr.start(&prog, &BTreeMap::new()).unwrap();
+        assert!(mgr.is_program_running(&prog));
+
+        // 外部 kill -9（不经过壳的 stop）
+        let out = std::process::Command::new("pgrep")
+            .args(["-f", "31771"])
+            .output()
+            .unwrap();
+        let pid: u32 = String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let st = std::process::Command::new("kill")
+            .args(["-9", &pid.to_string()])
+            .status()
+            .unwrap();
+        assert!(st.success());
+
+        // 必须 promptly 翻转为停止：最多轮询 2s（正常应一次调用即回收僵尸并确认）
+        let mut ok = false;
+        for _ in 0..20 {
+            if !mgr.is_program_running(&prog) {
+                ok = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(ok, "外部杀掉后应迅速识别为已停止");
+        assert!(!mgr.status_local(&prog).running);
+    }
+
     /// 追加足够多条日志越过容量上限后，文件被截末一半，体积不再无限增长。
     #[test]
     fn shell_log_is_trimmed_when_over_capacity() {
