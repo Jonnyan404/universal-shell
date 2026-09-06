@@ -1252,6 +1252,8 @@ async function duplicateProgram(p) {
     showNotice(t("toast.duplicated", { name: copy.name }));
     if (view !== "manage") switchView("manage");
     await switchTo(copy.id);
+    // 复制后直接弹出编辑窗口（对齐 egui 复制行为），方便改名/调端口
+    openEditModal(copy.id);
     if (view === "batch") await refreshBatchLocal();
   } catch (e) {
     showNotice(String(e), true);

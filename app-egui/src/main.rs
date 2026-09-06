@@ -472,6 +472,8 @@ impl ShellApp {
         TrayIconBuilder::new()
             .with_tooltip("Universal Shell (egui)")
             .with_menu(Box::new(menu))
+            // 左键只唤出窗口（Click 事件里处理），不弹菜单；右键出菜单
+            .with_menu_on_left_click(false)
             .with_icon(icon)
             // macOS 菜单栏以 template 加载，深浅模式自适应
             .with_icon_as_template(true)
