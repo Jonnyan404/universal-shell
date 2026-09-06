@@ -1175,10 +1175,10 @@ impl ShellApp {
 
     /// 主内容区：标题栏 + 视图分派
     fn show_main(&mut self, ui: &mut egui::Ui) {
-        // 标题栏
+        // 标题栏：数据目录平时不常驻显示（长路径占地方），悬停应用名可见
         ui.horizontal(|ui| {
-            ui.heading(t!("app.name"));
-            ui.weak(t!("eg.data_dir", path = self.manager.data_dir.display()));
+            ui.heading(t!("app.name"))
+                .on_hover_text(t!("eg.data_dir", path = self.manager.data_dir.display()));
         });
         ui.separator();
 
