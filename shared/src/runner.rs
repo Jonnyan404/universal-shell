@@ -10,6 +10,7 @@ use log::info;
 use rust_i18n::t;
 
 /// 把一路字节流逐行写入共享日志。`is_stderr` 时行首加 \x1F 标记(供前端着色)。
+/// 写满一定行数后检查体积，超限就地截末一半：程序跑几小时日志不再无限增长。
 fn copy_stream_lines<R: std::io::BufRead>(
     r: &mut R,
     writer: &Arc<Mutex<std::io::BufWriter<std::fs::File>>>,
@@ -17,6 +18,7 @@ fn copy_stream_lines<R: std::io::BufRead>(
 ) {
     use std::io::Write as _;
     let mut buf = String::new();
+    let mut since_check = 0usize;
     loop {
         buf.clear();
         match r.read_line(&mut buf) {
@@ -30,10 +32,57 @@ fn copy_stream_lines<R: std::io::BufRead>(
                 if let Ok(mut w) = writer.lock() {
                     let _ = w.write_all(line.as_bytes());
                     let _ = w.flush();
+                    since_check += 1;
+                    // 两路写线程各自计数检查，近似即可；修整全程持锁，另一路短暂等待
+                    if since_check >= PROGRAM_LOG_CHECK_LINES {
+                        since_check = 0;
+                        trim_program_log(&mut w);
+                    }
                 }
             }
         }
     }
+}
+
+/// 程序运行日志单文件上限（字节）。超过后在写线程内截末一半（和 shell.log 同策略），
+/// 长时间运行不再无限增长，恢复界面时的尾部读取也保持轻量。
+const PROGRAM_LOG_MAX: u64 = 512 * 1024;
+/// 写满多少行检查一次体积
+const PROGRAM_LOG_CHECK_LINES: usize = 64;
+
+/// 体积超限时保留末尾一半的完整行。调用方须已持有写锁、缓冲区已刷盘；
+/// 全程经同一句柄操作，写偏移始终有效。
+fn trim_program_log(w: &mut std::io::BufWriter<std::fs::File>) {
+    use std::io::{Read, Seek, SeekFrom, Write as _};
+    let Ok(len) = w.get_ref().metadata().map(|m| m.len()) else {
+        return;
+    };
+    if len <= PROGRAM_LOG_MAX {
+        return;
+    }
+    if w.seek(SeekFrom::Start(0)).is_err() {
+        return;
+    }
+    // 经底层 File 直读（BufWriter 本身无 Read 实现）；此前已刷盘，偏移有效
+    let mut data = Vec::new();
+    if w.get_mut().read_to_end(&mut data).is_err() {
+        return;
+    }
+    let half = data.len().saturating_sub((PROGRAM_LOG_MAX / 2) as usize);
+    let start = data[half..]
+        .iter()
+        .position(|&b| b == b'\n')
+        .map(|i| half + i + 1)
+        .unwrap_or(0);
+    let keep = if start == 0 { data } else { data[start..].to_vec() };
+    if w.get_mut().set_len(0).is_err() {
+        return;
+    }
+    if w.seek(SeekFrom::Start(0)).is_err() {
+        return;
+    }
+    let _ = w.write_all(&keep);
+    let _ = w.flush();
 }
 
 /// 正在运行且被壳持有的子进程
@@ -180,7 +229,13 @@ impl Runner {
 
         std::fs::create_dir_all(log_dir)?;
         let log_path = log_dir.join(format!("{id}.log"));
-        let log_file = std::fs::File::create(&log_path)?;
+        // 读写打开：写线程超限截断时需经同一句柄回读（只写句柄 read 会 EBADF 导致截断静默失效）
+        let log_file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&log_path)?;
 
         let mut cmd = std::process::Command::new(bin_path);
         cmd.args(args)
@@ -250,5 +305,64 @@ impl Runner {
         for id in ids {
             let _ = self.stop(&id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 超 512KB 后截末一半：体积回落、尾部保留、头部丢掉、行对齐。
+    #[test]
+    fn trim_program_log_keeps_tail_half() {
+        use std::io::Write as _;
+        let dir = std::env::temp_dir().join("cc-trim-proglog");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("app.log");
+        let f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        let mut w = std::io::BufWriter::new(f);
+        // 写 ~600KB 行日志
+        for i in 0..20000 {
+            use std::io::Write as _;
+            writeln!(w, "line-{i:05}-0123456789abcdef").unwrap();
+        }
+        w.flush().unwrap();
+        assert!(std::fs::metadata(&path).unwrap().len() > PROGRAM_LOG_MAX);
+
+        trim_program_log(&mut w);
+        drop(w);
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!((text.len() as u64) < PROGRAM_LOG_MAX);
+        assert!(text.ends_with("line-19999-0123456789abcdef\n"));
+        assert!(!text.contains("line-00000-"));
+        let first = text.lines().next().unwrap();
+        assert!(first.starts_with("line-"), "首行应对齐换行：{first}");
+    }
+
+    /// 未超限时不碰文件。
+    #[test]
+    fn trim_program_log_keeps_small_file() {
+        use std::io::Write as _;
+        let dir = std::env::temp_dir().join("cc-trim-proglog-small");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("app.log");
+        let f = std::fs::File::create(&path).unwrap();
+        let mut w = std::io::BufWriter::new(f);
+        {
+            use std::io::Write as _;
+            writeln!(w, "hello").unwrap();
+            w.flush().unwrap();
+        }
+        trim_program_log(&mut w);
+        drop(w);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello\n");
     }
 }
