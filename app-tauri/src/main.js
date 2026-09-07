@@ -1003,6 +1003,10 @@ function renderShellUpdate() {
     if (has) {
       linkText.textContent = t("upd.goto_download") + " " + shellUpdate.latest_tag;
       link.href = shellUpdate.release_url;
+      link.onclick = (e) => {
+        e.preventDefault();
+        openWeb(shellUpdate.release_url);
+      };
     }
   }
   const btn = document.querySelector("#sett-check-update");
