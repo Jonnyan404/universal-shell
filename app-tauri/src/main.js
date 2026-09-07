@@ -402,6 +402,11 @@ async function renderForm() {
     } else {
       const input = document.createElement("input");
       input.type = "text";
+      // macOS WKWebView 默认开智能文本替换，会把 "--" 折叠成单一破折号（--code 变 -code）。
+      // 关闭 autocorrect/spellcheck/autocapitalize，程序参数是精确文本，不做任何纠正。
+      input.setAttribute("autocorrect", "off");
+      input.setAttribute("spellcheck", "false");
+      input.setAttribute("autocapitalize", "off");
       input.value = values[f.key] ?? f.default;
       input.addEventListener("input", () => {
         values[f.key] = input.value;
@@ -1418,10 +1423,14 @@ function editFieldRow(f) {
   row.className = "edit-field-row";
   const k = document.createElement("input");
   k.className = "k";
+  k.setAttribute("autocorrect", "off");
+  k.setAttribute("spellcheck", "false");
   k.placeholder = t("lib.field_key");
   k.value = f.key;
   const l = document.createElement("input");
   l.className = "l";
+  l.setAttribute("autocorrect", "off");
+  l.setAttribute("spellcheck", "false");
   l.placeholder = t("lib.labels");
   l.value = f.label || f.key;
   const sel = document.createElement("select");
@@ -1436,6 +1445,8 @@ function editFieldRow(f) {
   }
   const d = document.createElement("input");
   d.className = "d";
+  d.setAttribute("autocorrect", "off");
+  d.setAttribute("spellcheck", "false");
   d.placeholder = t("lib.def_val");
   d.value = f.default ?? "";
   const reqWrap = document.createElement("label");
