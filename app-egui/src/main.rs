@@ -1764,7 +1764,13 @@ impl ShellApp {
                             let import_state = self.imports.get(&id).cloned();
                             match import_state {
                                 None => {
-                                    if ui.button(t!("act.import")).clicked() {
+                                    // 本地已有同名程序 => 主按钮即「更新」（覆盖导入合并语义）
+                                    let label = if imported {
+                                        t!("act.update")
+                                    } else {
+                                        t!("act.import")
+                                    };
+                                    if ui.button(label).clicked() {
                                         if imported {
                                             self.pending_import = Some((id.clone(), base.clone()));
                                         } else {
@@ -2024,7 +2030,7 @@ impl ShellApp {
                         if ui.button(t!("act.cancel")).clicked() {
                             cancelled = true;
                         }
-                        if ui.button(t!("act.import")).clicked() {
+                        if ui.button(t!("act.update")).clicked() {
                             confirmed = true;
                         }
                     });

@@ -1792,10 +1792,15 @@ function renderLibrary() {
     }
 
     const btn = document.createElement("button");
-    // 已导入也可再次导入（doImport 内对已存在程序二次确认覆盖）
-    btn.textContent = importing.has(id) ? t("lib.importing") : t("act.import");
+    // 本地已存在同名程序 => 主按钮即「更新」（覆盖导入合并语义）；否则「导入」
+    btn.textContent = importing.has(id)
+      ? t("lib.importing")
+      : imported
+        ? t("act.update")
+        : t("act.import");
     btn.disabled = importing.has(id);
     btn.onclick = () => doImport(id, base, btn);
+    if (imported) btn.title = t("act.update_hint");
     top.append(h, cat, repo, btn);
 
     const desc = document.createElement("div");
@@ -1996,7 +2001,10 @@ async function doImport(id, base, btn) {
     importing.delete(id);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = t("act.import");
+      btn.textContent = programs.some((p) => p.id === id)
+        ? t("act.update")
+        : t("act.import");
+      btn.title = programs.some((p) => p.id === id) ? t("act.update_hint") : "";
     }
   }
 }

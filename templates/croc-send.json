@@ -30,7 +30,11 @@
     "aarch64": "ARM64"
   },
   "fields": [
-    { "key": "args_extra", "kind": "string", "label": "发送参数", "default": "", "placeholder": "--code 12位码 接文件路径，如 --code 12345678 ./photo.jpg" }
+    { "key": "code", "kind": "string", "label": "发送码", "default": "", "placeholder": "至少 6 位，接收方输入同一串码，如 12345678" },
+    { "key": "args_extra", "kind": "string", "label": "发送文件/参数", "default": "", "placeholder": "文件/目录路径，或 --zip 目录，如 ./photo.jpg" }
   ],
-  "args": ["send", "{args_extra}"]
+  "env": [
+    { "key": "CROC_SECRET", "value": "croc-{code}", "label": "共享密钥（两端一致，缺省为 croc- 加发送码）" }
+  ],
+  "args": ["send", "--code", "{code}", "{args_extra}"]
 }

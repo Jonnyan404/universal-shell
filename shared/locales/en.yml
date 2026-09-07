@@ -114,6 +114,8 @@ act.unhide: Show
 menu.new: 'New program'
 menu.copy: Duplicate
 act.import: Import
+act.update: Update
+act.update_hint: A program with this id exists; click to sync template params (keeps custom field values)
 dl.download: Download
 dl.update: Update
 dl.downloading: Downloading…
@@ -154,7 +156,7 @@ toast.op_log_cleared: Shell operation log cleared
 lib.imported_local: Imported template from local file
 lib.imported: Imported into local program library (with template config)
 lib.already_exists: A program with the same name already exists locally. Overwrite?
-lib.overwrite: Overwrite template
+lib.overwrite: Update template
 lib.local_has: Local template already exists
 lib.no_sources: No template sources configured
 lib.no_sources_hint: Click "Refresh" to pull from remote sources
@@ -206,7 +208,7 @@ toast.added: 'Added "%{name}"'
 toast.duplicated: 'Duplicated as "%{name}"'
 toast.shell_autostart_fail: 'Failed to set shell autostart: %{err}'
 toast.manifest_fail: 'Failed to pull manifest: %{err}'
-toast.import_overwritten: 'Overwrote template "%{id}"'
+toast.import_overwritten: 'Updated template "%{id}"'
 toast.import_done: 'Imported template "%{id}" and snapshotted to local config'
 toast.sources_saved: Template sources saved
 toast.stop_all: Stopped all programs
@@ -215,7 +217,7 @@ check.not_checked: Not checked yet
 check.last_online: 'Last online check: %{date}'
 log.title_fmt: 'Log · %{name}'
 confirm.delete: 'Delete program "%{name}"?\nThis removes its config, downloaded binaries and logs. This cannot be undone.'
-confirm.overwrite_import: 'Program "%{id}" already exists locally. Overwrite with remote template?\nThis replaces its template config. Stop it first if it is running.'
+confirm.overwrite_import: 'Program "%{id}" already exists locally. Update from remote template?\nThis syncs its template config (structure only; keeps your custom field values). Stop it first if it is running.'
 time.min_ago: '%{n} min ago'
 time.hour_ago: '%{n} hr ago'
 time.day_ago: '%{n} days ago'

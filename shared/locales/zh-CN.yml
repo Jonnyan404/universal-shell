@@ -114,6 +114,8 @@ act.unhide: 显示
 menu.new: 新建程序
 menu.copy: 复制
 act.import: 导入
+act.update: 更新
+act.update_hint: 本地已存在同名程序，点击同步模板参数（保留自定义字段值）
 dl.download: 下载
 dl.update: 更新
 dl.downloading: 下载中…
@@ -154,7 +156,7 @@ toast.op_log_cleared: 已清空壳操作日志
 lib.imported_local: 已从本地文件导入模板
 lib.imported: 已导入到本地程序库（含模板配置）
 lib.already_exists: 本地已存在同名程序，是否覆盖？
-lib.overwrite: 覆盖模板
+lib.overwrite: 更新模板
 lib.local_has: 本地已有模板
 lib.no_sources: 未配置模板源
 lib.no_sources_hint: 点击「刷新」拉取远程源
@@ -206,7 +208,7 @@ toast.added: '已新增「%{name}」'
 toast.duplicated: '已复制为「%{name}」'
 toast.shell_autostart_fail: '壳开机自启设置失败: %{err}'
 toast.manifest_fail: '清单拉取失败: %{err}'
-toast.import_overwritten: '已覆盖模板「%{id}」'
+toast.import_overwritten: '已更新模板「%{id}」'
 toast.import_done: '已导入模板「%{id}」并快照到本地配置'
 toast.sources_saved: 模板源已保存
 toast.stop_all: 已停止所有程序
@@ -215,7 +217,7 @@ check.not_checked: 尚未检查更新
 check.last_online: '最近一次联网检查：%{date}'
 log.title_fmt: '日志 · %{name}'
 confirm.delete: '确定删除程序「%{name}」？\n将移除其配置、已下载二进制与日志，且不可恢复。'
-confirm.overwrite_import: '本地已存在程序「%{id}」，是否用远程模板覆盖？\n覆盖会替换其模板配置，若已在运行请先停止。'
+confirm.overwrite_import: '本地已存在程序「%{id}」，是否用远程模板更新？\n更新会同步其模板配置（仅覆盖结构，保留你自定义的字段值），若已在运行请先停止。'
 time.min_ago: '%{n} 分钟前'
 time.hour_ago: '%{n} 小时前'
 time.day_ago: '%{n} 天前'
