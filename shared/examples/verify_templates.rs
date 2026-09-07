@@ -60,6 +60,33 @@ fn main() {
         println!("!! 未设置 GITHUB_TOKEN，GitHub 模板使用匿名请求（60 次/小时限额）。建议：export GITHUB_TOKEN=ghp_xxx");
     }
     for p in &programs {
+        // env 结构校验：key 非空、value 模板含可展开占位符（{field} 由字段提供）
+        for e in &p.env {
+            if e.key.trim().is_empty() {
+                println!("[FAIL] {:<12} env 条目 key 为空", p.id);
+                failed += 1;
+                continue;
+            }
+            let mut refs = vec![];
+            let mut rest = e.value.as_str();
+            while let Some(start) = rest.find('{') {
+                if let Some(end) = rest[start..].find('}') {
+                    refs.push(&rest[start + 1..start + end]);
+                    rest = &rest[start + end + 1..];
+                } else {
+                    break;
+                }
+            }
+            for r in refs {
+                if !p.fields.iter().any(|f| f.key == r) {
+                    println!(
+                        "[FAIL] {:<12} env {}=… 引用未定义字段 {{{}}}",
+                        p.id, e.key, r
+                    );
+                    failed += 1;
+                }
+            }
+        }
         let result = if p.source.as_ref().map_or(false, |s| s.is_http()) {
             verify_http_template(p, &arch)
         } else {

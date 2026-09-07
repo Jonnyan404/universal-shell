@@ -690,6 +690,8 @@ impl ShellManager {
             )));
         }
         let args = program.render_args(field_values);
+        // 环境变量同样做 {field} 展开再注入；值只进子进程环境，不落任何日志/配置
+        let env = program.render_env(field_values);
         let wd: PathBuf = if program.working_dir == "." {
             let dir = self.app_dir(program);
             let _ = std::fs::create_dir_all(&dir);
@@ -698,7 +700,7 @@ impl ShellManager {
             PathBuf::from(&program.working_dir)
         };
         self.runner
-            .start_async(&program.id, &bin, &args, &wd, &self.log_dir())
+            .start_async(&program.id, &bin, &args, &env, &wd, &self.log_dir())
     }
 
     pub fn stop(&mut self, id: &str) -> anyhow::Result<()> {
@@ -1494,6 +1496,7 @@ mod tests {
             os_map: BTreeMap::new(),
             fields: vec![],
             args: vec![],
+            env: vec![],
             working_dir: String::new(),
             template_source: None,
             imported_at: None,
@@ -1626,6 +1629,7 @@ mod tests {
             os_map: BTreeMap::new(),
             fields: vec![],
             args: vec!["31771".into()],
+            env: vec![],
             working_dir: ".".into(),
             template_source: None,
             imported_at: None,

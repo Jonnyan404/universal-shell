@@ -52,6 +52,8 @@ struct ProgramView {
     binary: String,
     args: Vec<String>,
     fields: Vec<FieldView>,
+    /// 环境变量定义（管理页派生只读展示，编辑弹窗可改）
+    env: Vec<EnvView>,
     hidden: bool,
     /// HTTP 源(方案 A)：编辑弹窗回填用
     http_enabled: bool,
@@ -60,6 +62,14 @@ struct ProgramView {
     http_version_regex: String,
     http_sha256_url: String,
     http_urls: Vec<String>,
+}
+
+/// 给前端的环境变量定义（值模板 value 支持 {field_key}）
+#[derive(serde::Serialize)]
+struct EnvView {
+    key: String,
+    value: String,
+    label: String,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -186,6 +196,15 @@ fn to_view(p: &Program) -> ProgramView {
             .fields
             .iter()
             .map(|f| to_field_view(f))
+            .collect(),
+        env: p
+            .env
+            .iter()
+            .map(|e| EnvView {
+                key: e.key.clone(),
+                value: e.value.clone(),
+                label: e.label.clone(),
+            })
             .collect(),
         hidden: p.hidden,
         http_enabled,
@@ -854,6 +873,14 @@ struct EditField {
     required: bool,
 }
 
+#[derive(serde::Deserialize)]
+struct EditEnv {
+    key: String,
+    value: String,
+    #[serde(default)]
+    label: String,
+}
+
 /// 编辑程序的完整定义（name/description/repo/binary/args/fields）。
 /// 资产规则与架构映射沿用原实例（当前简单 UI 不编辑这两项）。
 #[derive(serde::Deserialize)]
@@ -865,6 +892,9 @@ struct EditProgramPayload {
     binary: String,
     args: Vec<String>,
     fields: Vec<EditField>,
+    /// 环境变量（{field_key} 展开；空 key 忽略）
+    #[serde(default)]
+    env: Vec<EditEnv>,
     /// HTTP 源(方案 A)：source 是否启用 + 字段缓冲
     #[serde(default)]
     http_enabled: bool,
@@ -967,6 +997,16 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
         os_map: base.os_map.clone(),
         fields,
         args: e.args.clone(),
+        env: e
+            .env
+            .iter()
+            .filter(|ev| !ev.key.trim().is_empty())
+            .map(|ev| shared::config::EnvVar {
+                key: ev.key.trim().to_string(),
+                value: ev.value.clone(),
+                label: ev.label.trim().to_string(),
+            })
+            .collect(),
         working_dir: base.working_dir.clone(),
         template_source: base.template_source.clone(),
         imported_at: base.imported_at,
@@ -1014,6 +1054,7 @@ fn add_program(
         os_map: std::collections::BTreeMap::new(),
         fields: Vec::new(),
         args: Vec::new(),
+        env: Vec::new(),
         working_dir: String::new(),
         template_source: None,
         imported_at: None,

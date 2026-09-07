@@ -160,6 +160,10 @@ pub struct Program {
     pub fields: Vec<Field>,
     /// 启动参数模板，如 ["-port", "{port}", "-config", "{config}"]
     pub args: Vec<String>,
+    /// 启动时注入的环境变量。`value` 支持 {field_key} 展开（与 args 同一套替换），
+    /// 无占位符即为常量。env 值全程不进日志、不写 shell 配置，只在进程启动时注入。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env: Vec<EnvVar>,
     #[serde(default = "default_working_dir")]
     pub working_dir: String,
     /// 来源模板 id(导入时记录，表示「此程序由模板 <default?> 产生」)
@@ -232,8 +236,22 @@ pub struct Field {
     pub required: bool,
 }
 
+/// 字段的运行时值（含默认）。
 fn is_falsef(b: &bool) -> bool {
     !*b
+}
+
+/// 环境变量定义。`value` 为模板串：`{field_key}` 由字段运行时值展开，
+/// 不含占位符即为常量（如 `RUST_LOG=info`）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvVar {
+    /// 环境变量名（如 CROC_SECRET / HTTP_PROXY）
+    pub key: String,
+    /// 值模板，支持 {field_key} 展开
+    pub value: String,
+    /// UI 展示标签（可选，空时前端用 key 作标签）
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub label: String,
 }
 
 impl Field {
@@ -330,6 +348,22 @@ impl Program {
         out
     }
 
+    /// 渲染环境变量：`{field_key}` 展开为字段运行时值。
+    /// 空 key / 展开后为空串的条目不产出（避免误设空环境变量）。
+    pub fn render_env(&self, field_values: &BTreeMap<String, String>) -> Vec<(String, String)> {
+        self.env
+            .iter()
+            .map(|e| {
+                let mut v = e.value.clone();
+                for (k, fv) in field_values {
+                    v = v.replace(&format!("{{{k}}}"), fv);
+                }
+                (e.key.clone(), v)
+            })
+            .filter(|(k, v)| !k.is_empty() && !v.is_empty())
+            .collect()
+    }
+
     /// 当前 OS 对应的资产规则(仅取规则，不做网络匹配)
     pub fn asset_rule_for_os(&self) -> Option<&AssetRule> {
         self.assets.get(os_key())
@@ -404,6 +438,7 @@ mod tests {
             os_map: BTreeMap::new(),
             fields: vec![],
             args,
+            env: vec![],
             working_dir: ".".into(),
             template_source: None,
             imported_at: None,
@@ -432,6 +467,45 @@ mod tests {
         let mut fv = BTreeMap::new();
         fv.insert("args_extra".into(), "".into());
         assert_eq!(p.render_args(&fv), vec!["send"]);
+    }
+
+    /// env：{field} 展开，常量原样，空 key/空值剔除。
+    #[test]
+    fn render_env_substitutes_fields_and_drops_empties() {
+        let p = Program {
+            id: "x".into(),
+            name: "x".into(),
+            description: String::new(),
+            category: String::new(),
+            repo: String::new(),
+            source: None,
+            binary: "x".into(),
+            assets: default_os_assets(),
+            arch_map: BTreeMap::new(),
+            os_map: BTreeMap::new(),
+            fields: vec![],
+            args: vec![],
+            env: vec![
+                EnvVar { key: "CROC_SECRET".into(), value: "croc-{code}".into(), label: String::new() },
+                EnvVar { key: "RUST_LOG".into(), value: "info".into(), label: String::new() },
+                EnvVar { key: "BLANK".into(), value: String::new(), label: String::new() },
+                EnvVar { key: String::new(), value: "x".into(), label: String::new() },
+            ],
+            working_dir: ".".into(),
+            template_source: None,
+            imported_at: None,
+            check_sha256: None,
+            hidden: false,
+        };
+        let mut fv = BTreeMap::new();
+        fv.insert("code".into(), "12345678".into());
+        assert_eq!(
+            p.render_env(&fv),
+            vec![
+                ("CROC_SECRET".to_string(), "croc-12345678".to_string()),
+                ("RUST_LOG".to_string(), "info".to_string()),
+            ]
+        );
     }
 
     /// 内容特征 + stderr 标记都可判为错误行。

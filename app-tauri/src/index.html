@@ -38,6 +38,10 @@
       <section id="manage-view" class="view manage-view">
         <div class="manage-body">
           <form id="field-form"></form>
+          <div id="env-section" class="env-section" hidden>
+            <div class="env-title"><span data-i18n="edit.env">环境变量（派生只读）</span></div>
+            <div id="env-body"></div>
+          </div>
           <div id="actions"></div>
         </div>
         <div id="op-log" class="op-log" hidden></div>
@@ -156,6 +160,14 @@
           </div>
           <div id="edit-fields-body"></div>
         </div>
+        <details class="edit-env-box" open>
+          <summary data-i18n="edit.env">环境变量</summary>
+          <div class="edit-fields-head">
+            <span data-i18n="edit.env_hint">值模板支持 {字段key}，如 CROC_SECRET={code}</span>
+            <button type="button" id="edit-add-env" data-i18n="act.add_env">+ 添加环境变量</button>
+          </div>
+          <div id="edit-env-body"></div>
+        </details>
         <div class="edit-actions">
           <button type="submit" id="edit-save" data-i18n="act.save">保存</button>
           <button type="button" id="edit-cancel" data-i18n="act.cancel">取消</button>

@@ -346,6 +346,34 @@ function syncInstallBtns(id) {
   }
 }
 
+// 环境变量（派生只读展示）：把 value 模板里的 {字段key} 用当前字段值展开。
+// 真正的注入在 shared 后端（render_env → cmd.env），这里只做同规则预览。
+function renderEnvDisplay() {
+  const section = document.querySelector("#env-section");
+  const body = document.querySelector("#env-body");
+  if (!section || !body) return;
+  const envList = current?.env || [];
+  section.hidden = envList.length === 0;
+  body.innerHTML = "";
+  const sub = (tpl) => {
+    let s = tpl;
+    for (const k of Object.keys(values)) s = s.split("{" + k + "}").join(values[k] ?? "");
+    return s;
+  };
+  for (const e of envList) {
+    const row = document.createElement("div");
+    row.className = "env-row";
+    const name = document.createElement("span");
+    name.className = "env-key";
+    name.textContent = e.key;
+    const val = document.createElement("code");
+    val.className = "env-val";
+    val.textContent = sub(e.value);
+    row.append(name, document.createTextNode(" = "), val);
+    body.appendChild(row);
+  }
+}
+
 async function renderForm() {
   el.progTitle.textContent = current.name;
   // 状态栏不再显示 owner/repo 文本：GitHub 项目(owner/repo)显示为图标链接，非 GitHub 留空
@@ -384,6 +412,7 @@ async function renderForm() {
       check.checked = (values[f.key] ?? f.default) === "true";
       check.addEventListener("change", async () => {
         values[f.key] = check.checked ? "true" : "false";
+        renderEnvDisplay();
         if (f.kind === "autostart") {
           try {
             await invoke("set_autostart", {
@@ -411,6 +440,7 @@ async function renderForm() {
       input.value = values[f.key] ?? f.default;
       input.addEventListener("input", () => {
         values[f.key] = input.value;
+        renderEnvDisplay();
       });
       row.appendChild(input);
       if (f.kind === "file" || f.kind === "directory") {
@@ -425,6 +455,7 @@ async function renderForm() {
             const path = Array.isArray(picked) ? picked[0] : picked;
             input.value = path;
             values[f.key] = path;
+            renderEnvDisplay();
           }
         };
         row.appendChild(btn);
@@ -432,6 +463,8 @@ async function renderForm() {
     }
     el.form.appendChild(row);
   }
+
+  renderEnvDisplay();
 
   el.actions.innerHTML = "";
   const start = document.createElement("button");
@@ -1385,6 +1418,7 @@ function openEditModal(id) {
   document.querySelector("#edit-http-urls").value = (p.http_urls || []).join("\n");
   document.querySelector("#edit-http-fields").disabled = !p.http_enabled;
   renderEditFields(p.fields || []);
+  renderEditEnv(p.env || []);
   document.querySelector("#edit-modal").hidden = false;
 }
 
@@ -1409,7 +1443,45 @@ function openNewTemplate() {
   document.querySelector("#edit-http-urls").value = "";
   document.querySelector("#edit-http-fields").disabled = true;
   renderEditFields([]);
+  renderEditEnv([]);
   document.querySelector("#edit-modal").hidden = false;
+}
+
+function renderEditEnv(envs) {
+  const body = document.querySelector("#edit-env-body");
+  body.innerHTML = "";
+  for (const e of envs) body.appendChild(editEnvRow(e));
+}
+
+function editEnvRow(e) {
+  const row = document.createElement("div");
+  row.className = "edit-field-row edit-env-row";
+  const k = document.createElement("input");
+  k.className = "k";
+  k.setAttribute("autocorrect", "off");
+  k.setAttribute("spellcheck", "false");
+  k.placeholder = "CROC_SECRET";
+  k.value = e.key || "";
+  const v = document.createElement("input");
+  v.className = "v";
+  v.placeholder = t("edit.env_value_ph");
+  v.setAttribute("autocorrect", "off");
+  v.setAttribute("spellcheck", "false");
+  v.value = e.value || "";
+  const l = document.createElement("input");
+  l.className = "l";
+  l.placeholder = t("edit.env_label_ph");
+  l.setAttribute("autocorrect", "off");
+  l.setAttribute("spellcheck", "false");
+  l.value = e.label || "";
+  const del = document.createElement("button");
+  del.className = "edit-field-del";
+  del.type = "button";
+  del.textContent = "✕";
+  del.title = t("act.delete_field");
+  del.onclick = () => row.remove();
+  row.append(k, v, l, del);
+  return row;
 }
 
 function renderEditFields(fields) {
@@ -1493,6 +1565,16 @@ async function saveEdit() {
       if (!k) return;
       fields.push({ key: k, kind, label: l || k, default: def, required });
     });
+  const env = [];
+  document
+    .querySelectorAll("#edit-env-body .edit-env-row")
+    .forEach((row) => {
+      const k = row.querySelector(".k").value.trim();
+      const v = row.querySelector(".v").value;
+      const l = row.querySelector(".l").value.trim();
+      if (!k) return;
+      env.push({ key: k, value: v, label: l });
+    });
   const payload = {
     id: editNewFlag
       ? document.querySelector("#edit-id-input").value.trim()
@@ -1507,6 +1589,7 @@ async function saveEdit() {
       .split(/\s+/)
       .filter(Boolean),
     fields,
+    env,
     http_enabled: document.querySelector("#edit-http-enable").checked,
     http_version_url: document.querySelector("#edit-http-version-url").value.trim(),
     http_version_json_path: document.querySelector("#edit-http-json-path").value.trim(),
@@ -2238,6 +2321,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     document
       .querySelector("#edit-fields-body")
       .appendChild(editFieldRow({ key: "", label: "", kind: "string", default: "" }));
+  };
+  document.querySelector("#edit-add-env").onclick = () => {
+    document
+      .querySelector("#edit-env-body")
+      .appendChild(editEnvRow({ key: "", value: "", label: "" }));
   };
   editModal.addEventListener("click", (e) => {
     if (e.target === editModal) closeEditModal();

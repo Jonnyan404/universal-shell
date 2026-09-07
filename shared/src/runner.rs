@@ -220,6 +220,7 @@ impl Runner {
         id: &str,
         bin_path: &PathBuf,
         args: &[String],
+        env: &[(String, String)],
         working_dir: &PathBuf,
         log_dir: &PathBuf,
     ) -> anyhow::Result<()> {
@@ -239,6 +240,7 @@ impl Runner {
 
         let mut cmd = std::process::Command::new(bin_path);
         cmd.args(args)
+            .envs(env.iter().cloned())
             .current_dir(working_dir)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())

@@ -464,6 +464,17 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 .edit-fields { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }
 .edit-fields-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
+.edit-env-box { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; color: var(--muted); font-size: 13px; }
+.edit-env-box summary { cursor: pointer; padding-bottom: 8px; }
+.edit-env-row .k { flex: 1 1 150px; }
+.edit-env-row .v { flex: 2 1 220px; }
+.edit-env-row .l { flex: 1 1 180px; }
+/* 管理页环境变量派生只读展示 */
+.env-section { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; }
+.env-title { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+.env-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
+.env-key { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-weight: 600; color: var(--text); }
+.env-val { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); color: var(--accent); word-break: break-all; }
 .edit-field-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .edit-field-row input {
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text);

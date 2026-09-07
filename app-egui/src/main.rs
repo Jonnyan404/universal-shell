@@ -118,6 +118,13 @@ struct EditFieldDraft {
     required: bool,
 }
 
+/// 编辑弹窗的环境变量行草稿
+struct EditEnvDraft {
+    key: String,
+    value: String,
+    label: String,
+}
+
 /// 右上角悬浮提示（toast）：操作日志的可见反馈。
 #[derive(Clone)]
 struct Toast {
@@ -227,6 +234,7 @@ struct ShellApp {
     edit_http_urls: String,
     /// 编辑弹窗的字段行（key/label/kind/default/required）
     edit_fields: Vec<EditFieldDraft>,
+    edit_env: Vec<EditEnvDraft>,
     /// 全局设置弹窗是否打开
     show_settings: bool,
     /// 暗色主题
@@ -381,6 +389,7 @@ impl ShellApp {
             edit_http_sha256_url: String::new(),
             edit_http_urls: String::new(),
             edit_fields: Vec::new(),
+            edit_env: Vec::new(),
             show_settings: false,
             dark_mode,
             prefs_saved_dark: dark_mode,
@@ -967,6 +976,17 @@ impl ShellApp {
                     }
                 }
             }
+        }
+        if !p.env.is_empty() {
+            let derived = p.render_env(values);
+            ui.add_space(6.0);
+            egui::CollapsingHeader::new(t!("edit.env"))
+                .default_open(true)
+                .show(ui, |ui| {
+                    for (k, v) in derived {
+                        ui.monospace(format!("{k} = {v}"));
+                    }
+                });
         }
         }
         if let Some(b) = pending_autostart {
@@ -2515,6 +2535,7 @@ impl ShellApp {
         self.edit_http_sha256_url.clear();
         self.edit_http_urls.clear();
         self.edit_fields.clear();
+        self.edit_env.clear();
         self.show_edit = true;
     }
 
@@ -2673,6 +2694,15 @@ impl ShellApp {
                 required: f.required,
             })
             .collect();
+        self.edit_env = base
+            .env
+            .iter()
+            .map(|e| EditEnvDraft {
+                key: e.key.clone(),
+                value: e.value.clone(),
+                label: e.label.clone(),
+            })
+            .collect();
         self.show_edit = true;
     }
 
@@ -2824,6 +2854,52 @@ impl ShellApp {
                     self.edit_fields.remove(i);
                 }
                 ui.add_space(8.0);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.strong(t!("edit.env"));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(t!("act.add_env")).clicked() {
+                            self.edit_env.push(EditEnvDraft {
+                                key: String::new(),
+                                value: String::new(),
+                                label: String::new(),
+                            });
+                        }
+                    });
+                });
+                let mut remove_env: Option<usize> = None;
+                egui::ScrollArea::vertical()
+                    .id_salt("edit_env_scroll")
+                    .max_height(160.0)
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for (i, e) in self.edit_env.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut e.key)
+                                        .hint_text("CROC_SECRET")
+                                        .desired_width(140.0),
+                                );
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut e.value)
+                                        .hint_text(t!("edit.env_value_ph"))
+                                        .desired_width(170.0),
+                                );
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut e.label)
+                                        .hint_text(t!("edit.env_label_ph"))
+                                        .desired_width(130.0),
+                                );
+                                if ui.small_button("×").on_hover_text(t!("edit.env")).clicked() {
+                                    remove_env = Some(i);
+                                }
+                            });
+                        }
+                    });
+                if let Some(i) = remove_env {
+                    self.edit_env.remove(i);
+                }
+                ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button(t!("act.cancel")).clicked() {
@@ -2967,6 +3043,16 @@ impl ShellApp {
             os_map: b.map(|x| x.os_map.clone()).unwrap_or_default(),
             fields,
             args,
+            env: self
+                .edit_env
+                .iter()
+                .filter(|e| !e.key.trim().is_empty())
+                .map(|e| shared::config::EnvVar {
+                    key: e.key.trim().to_string(),
+                    value: e.value.clone(),
+                    label: e.label.trim().to_string(),
+                })
+                .collect(),
             working_dir: b.map(|x| x.working_dir.clone()).unwrap_or_default(),
             template_source: b.and_then(|x| x.template_source.clone()),
             imported_at: b.and_then(|x| x.imported_at),

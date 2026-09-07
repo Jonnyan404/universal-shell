@@ -35,6 +35,7 @@ act.save: Save
 act.cancel: Cancel
 act.add: Add
 act.add_field: '+ Add field'
+act.add_env: '+ Add env var'
 act.clear: Clear log
 edit.title: Edit program
 edit.name: Name
@@ -43,6 +44,11 @@ edit.id: ID
 edit.repo: Git repo (owner/repo) — empty = local program
 edit.binary: Binary name / path (for local)
 edit.args: 'Launch args (supports {key})'
+edit.env: Environment variables
+edit.env_hint: 'Value template supports {field_key}, e.g. CROC_SECRET={code}'
+edit.env_value_ph: Value (e.g. croc-{code})
+edit.env_label_ph: Label (optional)
+edit.env_ro_title: Environment variables (derived, read-only)
 edit.http_source: 'HTTP direct-link source (empty = GitHub)'
 edit.http_enable: 'Enable HTTP source (source.kind=http)'
 edit.http_version_url: 'Version URL (version_url)'
