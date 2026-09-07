@@ -2169,7 +2169,35 @@ impl ShellApp {
                                         .max_height(260.0)
                                         .auto_shrink([false, false])
                                         .show(ui, |ui| {
+                                            let mut ctx: Vec<String> = Vec::new();
                                             for l in &view.lines {
+                                                if l.kind == ' ' {
+                                                    ctx.push(l.text.clone());
+                                                    continue;
+                                                }
+                                                if !ctx.is_empty() {
+                                                    let n = ctx.len();
+                                                    ui.collapsing(
+                                                        egui::RichText::new(t!(
+                                                            "tmpl_diff.expand_context",
+                                                            n = n
+                                                        ))
+                                                        .monospace()
+                                                        .size(11.0),
+                                                        |ui| {
+                                                            for c in ctx.drain(..) {
+                                                                ui.label(
+                                                                    egui::RichText::new(
+                                                                        format!("  {c}")
+                                                                    )
+                                                                    .monospace()
+                                                                    .size(12.0)
+                                                                    .color(ui.visuals().text_color()),
+                                                                );
+                                                            }
+                                                        },
+                                                    );
+                                                }
                                                 let color = if l.kind == '+' {
                                                     egui::Color32::from_rgb(110, 190, 130)
                                                 } else if l.kind == '-' {
@@ -2185,6 +2213,29 @@ impl ShellApp {
                                                     .monospace()
                                                     .size(12.0)
                                                     .color(color),
+                                                );
+                                            }
+                                            if !ctx.is_empty() {
+                                                let n = ctx.len();
+                                                ui.collapsing(
+                                                    egui::RichText::new(t!(
+                                                        "tmpl_diff.expand_context",
+                                                        n = n
+                                                    ))
+                                                    .monospace()
+                                                    .size(11.0),
+                                                    |ui| {
+                                                        for c in ctx.drain(..) {
+                                                            ui.label(
+                                                                egui::RichText::new(
+                                                                    format!("  {c}")
+                                                                )
+                                                                .monospace()
+                                                                .size(12.0)
+                                                                .color(ui.visuals().text_color()),
+                                                            );
+                                                        }
+                                                    },
                                                 );
                                             }
                                         });
