@@ -2146,6 +2146,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   const settModal = document.querySelector("#settings-modal");
   document.querySelector("#settings-modal-close").onclick = closeSettings;
   document.querySelector("#sett-cancel").onclick = closeSettings;
+  // 管理页字段区是 <form>：在文本框回车会触发隐式提交 → 无 action 重载页面，
+  // current 被重置成侧栏第一个程序。拦截掉，回车只留在本页。
+  const fieldForm = document.querySelector("#field-form");
+  if (fieldForm) fieldForm.onsubmit = (e) => e.preventDefault();
+  const editForm = document.querySelector("#edit-form");
+  if (editForm) editForm.onsubmit = (e) => e.preventDefault();
   document.querySelector("#settings-form").onsubmit = (e) => {
     e.preventDefault();
     saveSettings();
