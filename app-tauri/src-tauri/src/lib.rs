@@ -38,6 +38,7 @@ struct FieldView {
     label: String,
     kind: String,
     default: String,
+    placeholder: String,
     required: bool,
 }
 
@@ -197,24 +198,24 @@ fn to_view(p: &Program) -> ProgramView {
 }
 
 fn to_field_view(f: &Field) -> FieldView {
-    let (kind, label, default) = match &f.kind {
-        shared::config::FieldKind::String { label, default, .. } => {
-            ("string", label.clone(), default.clone())
+    let (kind, label, default, placeholder) = match &f.kind {
+        shared::config::FieldKind::String { label, default, placeholder } => {
+            ("string", label.clone(), default.clone(), placeholder.clone())
         }
         shared::config::FieldKind::File { label, default, .. } => {
-            ("file", label.clone(), default.clone())
+            ("file", label.clone(), default.clone(), String::new())
         }
         shared::config::FieldKind::Directory { label, default, .. } => {
-            ("directory", label.clone(), default.clone())
+            ("directory", label.clone(), default.clone(), String::new())
         }
         shared::config::FieldKind::Boolean { label, default } => {
-            ("boolean", label.clone(), default.to_string())
+            ("boolean", label.clone(), default.to_string(), String::new())
         }
         shared::config::FieldKind::AutoStart { label, default } => {
-            ("autostart", label.clone(), default.to_string())
+            ("autostart", label.clone(), default.to_string(), String::new())
         }
     };
-    FieldView { key: f.key.clone(), kind: kind.to_string(), label, default, required: f.required }
+    FieldView { key: f.key.clone(), kind: kind.to_string(), label, default, placeholder, required: f.required }
 }
 
 #[tauri::command]

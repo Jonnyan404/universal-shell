@@ -407,6 +407,7 @@ async function renderForm() {
       input.setAttribute("autocorrect", "off");
       input.setAttribute("spellcheck", "false");
       input.setAttribute("autocapitalize", "off");
+      if (f.placeholder) input.placeholder = f.placeholder;
       input.value = values[f.key] ?? f.default;
       input.addEventListener("input", () => {
         values[f.key] = input.value;
