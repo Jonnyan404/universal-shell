@@ -1743,7 +1743,7 @@ async function refreshLibrary() {
     }
     libPage = 0;
     // 刷新来源后上次的状态作废：清空后 renderLibrary 会对已导入程序重新检测
-    templateStatusCache.clear();
+    clearTemplateStatusCache();
     renderLibrary();
   } catch (e) {
     const msg = t("toast.manifest_fail", { err: e });
@@ -2038,7 +2038,7 @@ async function doImport(id, base, btn) {
     showNotice(t("toast.import_done", { id }));
     await afterImport(id);
     // 本次导入后的状态作废：finally 里重渲染前清掉，等状态重新检测
-    templateStatusCache.clear();
+    clearTemplateStatusCache();
   } catch (e) {
     logOp(t("toast.import_fail", { id, err: e }));
     showNotice(String(e), true);
@@ -2121,7 +2121,7 @@ async function applyTemplateUpdate() {
     });
     showNotice(t("toast.import_overwritten", { id }));
     await afterImport(id);
-    templateStatusCache.clear();
+    clearTemplateStatusCache();
   } catch (e) {
     // 更新失败同时写入壳日志（只 toast 在日志窗口里查不到）
     logOp(t("toast.update_fail", { id, err: e }));
@@ -2275,6 +2275,10 @@ async function saveSources() {
 const importing = new Set();
 // 模板与本地实例一致性缓存：key=`${registryBase}\u0000${templateId}` -> "new"|"update"|"current"
 const templateStatusCache = {};
+// 清除一致性缓存（普通对象没有 Map 的 clear()，逐键删除以免调用处报 TypeError）
+function clearTemplateStatusCache() {
+  for (const k of Object.keys(templateStatusCache)) delete templateStatusCache[k];
+}
 
 // ---------- 侧栏收窄 / 主题 ----------
 
