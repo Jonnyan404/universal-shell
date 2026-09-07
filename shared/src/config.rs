@@ -308,19 +308,29 @@ pub fn os_key() -> &'static str {
 impl Program {
     /// 渲染 args 模板，field_values 提供 {key} 的展开
     pub fn render_args(&self, field_values: &BTreeMap<String, String>) -> Vec<String> {
-        self.args
-            .iter()
-            .map(|t| {
-                let mut s = t.clone();
-                for (k, v) in field_values {
-                    s = s.replace(&format!("{{{k}}}"), v);
+        let mut out = Vec::new();
+        for t in &self.args {
+            let mut s = t.clone();
+            for (k, v) in field_values {
+                s = s.replace(&format!("{{{k}}}"), v);
+            }
+            // `args_extra` 是自由命令尾：按 shell 规则分词（支持引号/转义），
+            // 否则 "--code 123" 会作为一个 argv 参数传给程序，Go flag 等解析必炸。
+            // 其它字段（如路径）保持单 token，含空格也不拆。空串/未闭合引号不产出参数。
+            if t.contains("{args_extra}") {
+                match shlex::split(&s) {
+                    Some(toks) => out.extend(toks),
+                    None if s.trim().is_empty() => {}
+                    None => out.push(s),
                 }
-                s
-            })
-            .collect()
+            } else {
+                out.push(s);
+            }
+        }
+        out
     }
 
-    /// 当前 OS/arch 对应的资产规则(仅取规则，不做网络匹配)
+    /// 当前 OS 对应的资产规则(仅取规则，不做网络匹配)
     pub fn asset_rule_for_os(&self) -> Option<&AssetRule> {
         self.assets.get(os_key())
     }
@@ -373,6 +383,91 @@ impl Program {
             .map(|f| (f.key.clone(), f.default_raw()))
             .collect()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn prog(args: Vec<String>) -> Program {
+        Program {
+            id: "x".into(),
+            name: "x".into(),
+            description: String::new(),
+            category: String::new(),
+            repo: String::new(),
+            source: None,
+            binary: "x".into(),
+            assets: default_os_assets(),
+            arch_map: BTreeMap::new(),
+            os_map: BTreeMap::new(),
+            fields: vec![],
+            args,
+            working_dir: ".".into(),
+            template_source: None,
+            imported_at: None,
+            check_sha256: None,
+            hidden: false,
+        }
+    }
+
+    /// args_extra 按 shell 分词；其它字段值(含空格)保持单参数。
+    #[test]
+    fn render_args_splits_args_extra_but_keeps_other_fields_whole() {
+        let p = prog(vec!["--flag".into(), "{path}".into(), "{args_extra}".into()]);
+        let mut fv = BTreeMap::new();
+        fv.insert("path".into(), "/my dir/a".into());
+        fv.insert("args_extra".into(), "--code abc \"/quoted dir/x\"".into());
+        assert_eq!(
+            p.render_args(&fv),
+            vec!["--flag", "/my dir/a", "--code", "abc", "/quoted dir/x"]
+        );
+    }
+
+    /// 空 args_extra 不产出空参数。
+    #[test]
+    fn render_args_drops_empty_args_extra() {
+        let p = prog(vec!["send".into(), "{args_extra}".into()]);
+        let mut fv = BTreeMap::new();
+        fv.insert("args_extra".into(), "".into());
+        assert_eq!(p.render_args(&fv), vec!["send"]);
+    }
+
+    /// 内容特征 + stderr 标记都可判为错误行。
+    #[test]
+    fn is_err_line_detects_content_and_marker() {
+        assert!(is_err_line("Incorrect Usage: flag provided but not defined: -code 123"));
+        assert!(is_err_line("Error: boom"));
+        assert!(is_err_line("USAGE:\n  croc send ..."));
+        assert!(is_err_line(&('\u{1f}'.to_string() + "fatal: x")));
+        assert!(!is_err_line("usage 200 rows"));
+        assert!(!is_err_line("all good"));
+    }
+}
+
+/// 判断日志行是否该按错误标红：带 stderr 标记(\x1F)的，或内容以常见错误词(忽略大小写/行首空格)开头。
+/// 部分 CLI（如 Go/urfave-cli 的 croc）把 usage 报错打到 stdout，流标记覆盖不到，需按内容兜底。
+pub fn is_err_line(line: &str) -> bool {
+    let l = line.strip_prefix('\u{1f}').unwrap_or(line).trim_start();
+    if l.is_empty() {
+        return false;
+    }
+    let lower = l.to_ascii_lowercase();
+    const PREFIXES: &[&str] = &[
+        "error",
+        "fatal",
+        "panic",
+        "incorrect usage",
+        "flag provided but not defined",
+        "usage:",
+        "failed",
+        "failure",
+        "cannot",
+        "unable",
+        "refused",
+    ];
+    PREFIXES.iter().any(|p| lower.starts_with(p))
 }
 
 /// 壳的全局配置：受管程序列表 + 数据目录

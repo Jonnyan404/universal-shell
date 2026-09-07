@@ -1511,8 +1511,9 @@ impl ShellApp {
                 // 64KB tail 逐行拆 widget 每帧全量布局会上千个，切到运行中程序时卡顿数秒；
                 // 只渲染末尾 N 行（复制按钮仍给全量文本）
                 for line in tail_view_lines(&log) {
-                    if let Some(rest) = line.strip_prefix('\u{1f}') {
-                        ui.colored_label(egui::Color32::from_rgb(220, 90, 90), rest);
+                    if shared::config::is_err_line(&line) {
+                        let content = line.strip_prefix('\u{1f}').unwrap_or(&line);
+                        ui.colored_label(egui::Color32::from_rgb(220, 90, 90), content);
                     } else {
                         ui.monospace(line);
                     }
@@ -2425,8 +2426,9 @@ impl ShellApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for line in tail_view_lines(&log) {
-                            if let Some(rest) = line.strip_prefix('\u{1f}') {
-                                ui.colored_label(egui::Color32::from_rgb(220, 90, 90), rest);
+                            if shared::config::is_err_line(&line) {
+                                let content = line.strip_prefix('\u{1f}').unwrap_or(&line);
+                                ui.colored_label(egui::Color32::from_rgb(220, 90, 90), content);
                             } else {
                                 ui.monospace(line);
                             }

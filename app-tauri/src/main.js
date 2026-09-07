@@ -1047,6 +1047,28 @@ let logProgramId = null;
 // 把合并日志文本渲染进容器：\x1F 开头的行视为 stderr，着红色
 // 日志视图只渲染末尾 N 行（对齐 egui）：节点过多时切换/刷新卡顿，复制仍给全量文本
 const LOG_VIEW_LINES = 300;
+const LOG_ERR_PREFIXES = [
+  "error",
+  "fatal",
+  "panic",
+  "incorrect usage",
+  "flag provided but not defined",
+  "usage:",
+  "failed",
+  "failure",
+  "cannot",
+  "unable",
+  "refused",
+];
+
+// 日志行是否判为错误：stderr 标记(\x1F)或内容以常见错误词开头。
+// 部分 CLI(如 Go/urfave-cli 的 croc)把 usage 报错打到 stdout，流标记覆盖不到，按内容兜底。
+function isErrLine(line) {
+  if (line.charCodeAt(0) === 0x1f) return true;
+  const lower = line.trimStart().toLowerCase();
+  return LOG_ERR_PREFIXES.some((p) => lower.startsWith(p));
+}
+
 function renderLogBody(container, text) {
   container.innerHTML = "";
   if (!text) {
@@ -1057,8 +1079,8 @@ function renderLogBody(container, text) {
   const frag = document.createDocumentFragment();
   for (let i = Math.max(0, lines.length - LOG_VIEW_LINES); i < lines.length; i++) {
     const line = lines[i];
-    const isErr = line.charCodeAt(0) === 0x1f;
-    const content = isErr ? line.slice(1) : line;
+    const isErr = isErrLine(line);
+    const content = line.charCodeAt(0) === 0x1f ? line.slice(1) : line;
     const span = document.createElement("span");
     span.textContent = content;
     if (isErr) span.classList.add("log-err");
