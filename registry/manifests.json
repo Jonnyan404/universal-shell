@@ -1,21 +1,14 @@
 {
-  "revision": "rev-1788765629",
+  "revision": "rev-1788787853",
   "categories": [
     "file-sharing",
     "sync",
     "proxy",
-    "utility",
     "clipboard",
-    "vcs"
+    "vcs",
+    "utility"
   ],
   "templates": [
-    {
-      "id": "age",
-      "name": "age",
-      "category": "utility",
-      "description": "age — 简单、现代的加密工具，用于文件加密与密钥管理。单次运行即退出。",
-      "repo": "FiloSottile/age"
-    },
     {
       "id": "brook",
       "name": "brook",
@@ -78,6 +71,13 @@
       "category": "vcs",
       "description": "lazygit — 终端里的 Git 客户端，简单直接。单次运行的 TUI 程序。",
       "repo": "jesseduffield/lazygit"
+    },
+    {
+      "id": "local-bin",
+      "name": "本地程序",
+      "category": "utility",
+      "description": "本地已安装的二进制程序（如 /opt/homebrew/bin/ffmpeg）。导入后请在编辑器中把 binary 改成你机器上可执行文件的绝对路径（壳不下载、不更新）。",
+      "repo": ""
     },
     {
       "id": "mihomo",

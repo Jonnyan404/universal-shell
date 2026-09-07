@@ -1825,7 +1825,7 @@ function renderLibrary() {
     cat.textContent = `[${tpl.category}]`;
     const repo = document.createElement("span");
     repo.className = "lib-repo";
-    repo.textContent = tpl.repo;
+    repo.textContent = tpl.repo || t("lib.local_program");
 
     const imported = programs.some((p) => p.id === id);
     const conflict = (manifest.conflicts || []).find(([cid]) => cid === id);

@@ -245,6 +245,7 @@ lib.no_match: 没有匹配的模板。
 lib.summary: '%{n} 个源%{offline} · 共 %{m} 个模板'
 lib.summary_offline: ' · %{n} 个离线(用缓存)'
 lib.multi_source: '⚠ 多源×%{n}'
+lib.local_program: '本地程序'
 lib.last_pull: '上次拉取 %{date}'
 lib.not_pulled: 尚未拉取
 shell_log.empty: (暂无壳操作日志)

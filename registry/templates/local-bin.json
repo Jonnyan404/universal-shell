@@ -1,0 +1,12 @@
+{
+  "id": "local-bin",
+  "name": "本地程序",
+  "description": "本地已安装的二进制程序（如 /opt/homebrew/bin/ffmpeg）。导入后请在编辑器中把 binary 改成你机器上可执行文件的绝对路径（壳不下载、不更新）。",
+  "repo": "",
+  "binary": "local-bin",
+  "category": "utility",
+  "fields": [
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "传给程序的参数，如 --help 或输入文件路径" }
+  ],
+  "args": ["{args_extra}"]
+}

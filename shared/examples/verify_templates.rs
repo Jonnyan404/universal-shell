@@ -87,7 +87,16 @@ fn main() {
                 }
             }
         }
-        let result = if p.source.as_ref().map_or(false, |s| s.is_http()) {
+        let is_local = p.repo.is_empty()
+            && !p.source.as_ref().map_or(false, |s| s.is_http());
+        let result = if is_local {
+            // 本地程序模板：无远程下载，仅需 binary 非空（路径可用户在编辑器填绝对路径）
+            if p.binary.trim().is_empty() {
+                Err(anyhow::anyhow!("本地程序 binary 为空"))
+            } else {
+                Ok(("local".to_string(), p.binary.clone(), Some("local".to_string())))
+            }
+        } else if p.source.as_ref().map_or(false, |s| s.is_http()) {
             verify_http_template(p, &arch)
         } else {
             verify_github_template(p, &arch)
