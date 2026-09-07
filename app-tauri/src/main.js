@@ -422,6 +422,7 @@ async function renderForm() {
             showNotice(t("toast.autostart_set"));
             logOp(check.checked ? t("toast.autostart_enabled") : t("toast.autostart_disabled"));
           } catch (e) {
+            logOp(t("log.autostart.set_fail", { err: e }));
             showNotice(String(e), true);
           }
         }
@@ -696,6 +697,7 @@ async function checkUpdates() {
     renderBatch();
     showNotice(t("dl.done"));
   } catch (e) {
+    logOp(t("toast.check_updates_fail", { err: e }));
     showNotice(String(e), true);
   } finally {
     if (btn) {
@@ -775,6 +777,7 @@ function renderBatch() {
         showNotice(t("toast.autostart_updated", { name: item.name }));
       } catch (e) {
         auto.checked = !auto.checked;
+        logOp(t("log.autostart.set_fail", { err: e }));
         showNotice(String(e), true);
       } finally {
         auto.disabled = false;
@@ -807,6 +810,7 @@ function renderBatch() {
         else await refresh();
       } catch (e) {
         hide.checked = !hide.checked;
+        logOp(t("toast.visibility_fail", { err: e }));
         showNotice(String(e), true);
       } finally {
         hide.disabled = false;
@@ -843,6 +847,7 @@ function renderBatch() {
             }
           } catch (e) {
             renderBatch();
+            logOp(String(e));
             showNotice(String(e), true);
             return;
           }
@@ -860,6 +865,7 @@ function renderBatch() {
         });
         await refreshBatchLocal();
       } catch (e) {
+        logOp(t("toast.start_fail", { err: e }));
         showNotice(String(e), true);
       }
     });
@@ -872,6 +878,7 @@ function renderBatch() {
         });
         await refreshBatchLocal();
       } catch (e) {
+        logOp(t("toast.restart_fail", { err: e }));
         showNotice(String(e), true);
       }
     });
@@ -882,6 +889,7 @@ function renderBatch() {
         await invoke("stop_program", { programId: item.id });
         await refreshBatchLocal();
       } catch (e) {
+        logOp(t("toast.stop_fail", { err: e }));
         showNotice(String(e), true);
       }
     });
@@ -1015,10 +1023,12 @@ async function saveSettings() {
     try {
       await invoke("set_shell_autostart", { enabled: shellAuto });
     } catch (e) {
+      logOp(t("toast.shell_autostart_fail", { err: e }));
       showNotice(t("toast.shell_autostart_fail", { err: e }), true);
     }
     showNotice(t("toast.settings_saved"));
   } catch (e) {
+    logOp(t("toast.settings_fail", { err: e }));
     showNotice(String(e), true);
   }
   closeSettings();
@@ -1072,7 +1082,10 @@ async function checkShellUpdate(manual) {
       showNotice(t("upd.latest", { ver: r.current }));
     }
   } catch (e) {
-    if (manual) showNotice(t("upd.fail", { err: e }), true);
+    if (manual) {
+      logOp(t("upd.fail", { err: e }));
+      showNotice(t("upd.fail", { err: e }), true);
+    }
   } finally {
     shellChecking = false;
     renderShellUpdate();
@@ -1325,6 +1338,7 @@ async function duplicateProgram(p) {
     openEditModal(copy.id);
     if (view === "batch") await refreshBatchLocal();
   } catch (e) {
+    logOp(t("toast.duplicate_fail", { err: e }));
     showNotice(String(e), true);
   }
 }
@@ -1348,6 +1362,7 @@ async function toggleProgramHidden(p) {
     if (current) await switchTo(current.id);
     if (view === "batch") await refreshBatchLocal();
   } catch (e) {
+    logOp(t("toast.visibility_fail", { err: e }));
     showNotice(String(e), true);
   }
 }
@@ -1376,7 +1391,6 @@ async function confirmAndDelete(id, name) {
   try {
     await invoke("delete_program", { programId: id });
     showNotice(t("toast.deleted", { name }));
-    if (current?.id === id) logOp(t("toast.deleted", { name }));
     programs = await invoke("get_programs");
     if (current?.id === id) {
       current = null;
@@ -1386,6 +1400,7 @@ async function confirmAndDelete(id, name) {
     }
     if (view === "batch") await refreshBatchLocal();
   } catch (e) {
+    logOp(t("toast.delete_fail", { err: e }));
     showNotice(String(e), true);
   }
 }
@@ -1639,6 +1654,7 @@ async function saveEdit() {
     if (view === "batch") await refreshBatchLocal();
     renderSidebar();
   } catch (e) {
+    logOp(t("toast.save_fail", { err: e }));
     showNotice(String(e), true);
   }
 }
@@ -1730,7 +1746,9 @@ async function refreshLibrary() {
     templateStatusCache.clear();
     renderLibrary();
   } catch (e) {
-    el.libStatus.textContent = t("toast.manifest_fail", { err: e });
+    const msg = t("toast.manifest_fail", { err: e });
+    el.libStatus.textContent = msg;
+    logOp(msg);
   }
 }
 
@@ -2022,6 +2040,7 @@ async function doImport(id, base, btn) {
     // 本次导入后的状态作废：finally 里重渲染前清掉，等状态重新检测
     templateStatusCache.clear();
   } catch (e) {
+    logOp(t("toast.import_fail", { id, err: e }));
     showNotice(String(e), true);
   } finally {
     importing.delete(id);
@@ -2052,6 +2071,7 @@ async function openTemplateDiffModal(id, base) {
     });
     renderTemplateDiff(content, d);
   } catch (e) {
+    logOp(t("toast.diff_fail", { id, err: e }));
     content.textContent = "";
     content.append(String(e));
   }
@@ -2103,6 +2123,8 @@ async function applyTemplateUpdate() {
     await afterImport(id);
     templateStatusCache.clear();
   } catch (e) {
+    // 更新失败同时写入壳日志（只 toast 在日志窗口里查不到）
+    logOp(t("toast.update_fail", { id, err: e }));
     showNotice(String(e), true);
   } finally {
     importing.delete(id);
@@ -2153,6 +2175,7 @@ async function importLocalFile() {
     programs = await invoke("get_programs");
     renderSidebar();
   } catch (e) {
+    logOp(t("toast.local_import_fail", { err: e }));
     showNotice(String(e), true);
   }
 }
@@ -2170,6 +2193,7 @@ async function exportLocalTemplate(id, name) {
     });
     showNotice(t("op.export", { name }));
   } catch (e) {
+    logOp(t("toast.export_fail", { name, err: e }));
     showNotice(String(e), true);
   }
 }
@@ -2243,6 +2267,7 @@ async function saveSources() {
     manifest = null;
     renderLibrary();
   } catch (e) {
+    logOp(t("toast.sources_fail", { err: e }));
     showNotice(String(e), true);
   }
 }
@@ -2371,6 +2396,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         showNotice(t("toast.stop_all"));
         await refreshBatchLocal();
       } catch (e) {
+        logOp(t("toast.stop_all_fail", { err: e }));
         showNotice(String(e), true);
       }
     };

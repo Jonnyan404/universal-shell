@@ -554,7 +554,7 @@ fn start_program(
     mgr.save_field_values(&p, &payload.values);
     // 应用开机启动字段（若配置了）
     if let Err(e) = mgr.apply_key_autostart(&p, &payload.values) {
-        log::info!("{}", t!("log.autostart.set_fail", err = format!("{e:#}")));
+        mgr.log_op(&t!("log.autostart.set_fail", err = format!("{e:#}")));
     }
     mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
     mgr.log_op(&t!("op.start", name = &p.name));
@@ -591,7 +591,7 @@ fn restart_program(
     mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
     mgr.save_field_values(&p, &payload.values);
     if let Err(e) = mgr.apply_key_autostart(&p, &payload.values) {
-        log::info!("{}", t!("log.autostart.set_fail", err = format!("{e:#}")));
+        mgr.log_op(&t!("log.autostart.set_fail", err = format!("{e:#}")));
     }
     mgr.start(&p, &payload.values).map_err(|e| format!("{e:#}"))?;
     mgr.log_op(&t!("op.restart", name = &p.name));
@@ -1589,7 +1589,7 @@ pub fn run() {
                                 let mut mgr = st.manager.lock().unwrap();
                                 next = !mgr.autostart.shell_is_enabled();
                                 if let Err(e) = mgr.autostart.set_shell_enabled(next) {
-                                    log::warn!("{}", t!("log.shell_autostart_fail", err = format!("{e:#}")));
+                                    mgr.log_op(&t!("log.shell_autostart_fail", err = format!("{e:#}")));
                                 }
                             }
                             let _ = auto_i.set_checked(next);
