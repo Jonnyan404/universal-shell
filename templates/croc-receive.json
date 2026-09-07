@@ -30,11 +30,11 @@
     "aarch64": "ARM64"
   },
   "fields": [
-    { "key": "code", "kind": "string", "label": "接收码", "default": "", "placeholder": "发送方给的码，如 12345678" },
+    { "key": "code", "kind": "string", "label": "接收码", "default": "", "placeholder": "发送方给的码（两端一致），如 12345678" },
     { "key": "args_extra", "kind": "string", "label": "接收目录/参数", "default": "", "placeholder": "可选 --out 目录，如 --out ~/Downloads" }
   ],
   "env": [
-    { "key": "CROC_SECRET", "value": "croc-{code}", "label": "共享密钥（两端一致，缺省为 croc- 加接收码）" }
+    { "key": "CROC_SECRET", "value": "{code}", "label": "共享密钥（两端一致，直接等于接收码）" }
   ],
-  "args": ["{code}", "{args_extra}", "--yes"]
+  "args": ["{args_extra}", "--yes"]
 }
