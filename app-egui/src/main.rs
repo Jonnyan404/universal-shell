@@ -1480,10 +1480,8 @@ impl ShellApp {
     }
 
     /// 内嵌程序日志终端：显示当前程序日志（stderr 行以 \x1F 开头标红）。
+    /// 不依赖运行态：一次性程序秒退后也能看到刚才那次运行的输出（对齐 Tauri showManageLog）。
     fn show_manage_log(&mut self, ui: &mut egui::Ui, p: &shared::config::Program) {
-        if !self.ui_running(p) {
-            return;
-        }
         ui.add_space(4.0);
         ui.separator();
         // 内嵌日志操作栏（对齐 Tauri manage-log-actions）
