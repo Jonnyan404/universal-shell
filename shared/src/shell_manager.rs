@@ -90,9 +90,17 @@ impl TemplateDiff {
         if parts.is_empty() {
             t!("tmpl.none").to_string()
         } else {
-            t!("tmpl.changed", parts = parts.join("、")).to_string()
-        }
+                t!("tmpl.changed", parts = parts.join("、")).to_string()
+            }
     }
+}
+
+/// 「模板更新」弹窗的完整视图：概要 + 类代码块的行级 diff。
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct TemplateDiffView {
+    pub summary: String,
+    pub lines: Vec<crate::diff::DiffLine>,
+    pub empty: bool,
 }
 
 pub struct ShellManager {
@@ -870,6 +878,19 @@ impl ShellManager {
             }
         }
         d
+    }
+
+    /// 差异的「概要 + 类代码块」视图：概要一行 + 两份规范 JSON 的行级 diff。
+    /// 供 Tauri / egui 的“模板更新”弹窗渲染成 git-diff 式红绿效果。
+    pub fn template_diff_view(current: &Program, remote: &Program) -> TemplateDiffView {
+        let diff = Self::template_diff(current, remote);
+        let old = current.diff_json();
+        let new = remote.diff_json();
+        TemplateDiffView {
+            summary: diff.summary(),
+            lines: crate::diff::diff_lines(&old, &new),
+            empty: diff.is_empty(),
+        }
     }
 
     /// 把远端模板应用到实例：用远端定义替换当前实例的结构，但保留用户已填的字段值。

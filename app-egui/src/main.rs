@@ -94,8 +94,8 @@ enum Msg {
     TemplateFetched(String, bool, Result<shared::config::Program, String>),
     /// 模板与本地实例一致性检测完成：(缓存 key, "new"/"update"/"current")
     TemplateStatus(String, Result<String, String>),
-    /// 覆盖导入确认弹窗里的远端差异文本拉取完成
-    ImportDiff(String, Result<shared::TemplateDiff, String>),
+    /// 覆盖导入确认弹窗里的远端差异拉取完成
+    ImportDiff(String, Result<shared::TemplateDiffView, String>),
     /// 后台刷新各程序最新版本完成：携带 (id, 最新版本, 发布时间)
     StatusRefreshed(Vec<(String, Option<String>, String)>),
     /// 托盘菜单「开机自启」被点击：请求主线程切换壳自身自启
@@ -194,8 +194,8 @@ struct ShellApp {
     show_local_drawer: bool,
     /// 待二次确认覆盖导入的远端模板（程序 id, base url, 本地实例）
     pending_import: Option<(String, String, Option<shared::config::Program>)>,
-    /// 覆盖导入弹窗里远端差异文本（拉取完成后填充，None=还在比对中）
-    pending_import_diff: Option<String>,
+    /// 覆盖导入弹窗里远端差异视图（拉取完成后填充，None=还在比对中）
+    pending_import_diff: Option<Result<shared::TemplateDiffView, String>>,
     /// 待二次确认覆盖导入的本地模板文件
     pending_local_import: Option<(std::path::PathBuf, shared::config::Program)>,
     /// 模板源管理弹窗是否打开
@@ -635,7 +635,7 @@ impl ShellApp {
         let proxy = self.manager.proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
-            let result = || -> Result<shared::TemplateDiff, String> {
+            let result = || -> Result<shared::TemplateDiffView, String> {
                 let client = RegistryClient::with_network(
                     &base,
                     cache,
@@ -645,7 +645,7 @@ impl ShellApp {
                 );
                 let (_offline, program) =
                     client.load_template(&id).map_err(|e| format!("{e:#}"))?;
-                Ok(shared::ShellManager::template_diff(&installed, &program))
+                Ok(shared::ShellManager::template_diff_view(&installed, &program))
             }();
             tx.send(Msg::ImportDiff(id, result)).ok();
         });
@@ -768,14 +768,7 @@ impl ShellApp {
                     }
                 }
                 Msg::ImportDiff(_id, result) => {
-                    self.pending_import_diff = Some(match result {
-                        Ok(d) => {
-                            let mut parts = vec![d.summary()];
-                            parts.extend(d.changed_fields_detail);
-                            parts.join("\n")
-                        }
-                        Err(e) => format!("{e:#}"),
-                    });
+                    self.pending_import_diff = Some(result);
                 }
                 Msg::StatusRefreshed(list) => {
                     for (id, ver, ts) in list {
@@ -2155,17 +2148,38 @@ impl ShellApp {
                     ui.add_space(8.0);
                     // 展示远端模板与本地的差异（或「比对中…」/错误）
                     match &self.pending_import_diff {
-                        Some(text) => {
+                        Some(Ok(view)) => {
+                            ui.strong(&view.summary);
                             egui::Frame::group(ui.style())
                                 .inner_margin(egui::Margin::same(8))
                                 .show(ui, |ui| {
-                                    ui.add(
-                                        egui::Label::new(
-                                            egui::RichText::new(text).monospace().size(12.0),
-                                        )
-                                        .wrap(),
-                                    );
+                                    egui::ScrollArea::vertical()
+                                        .max_height(260.0)
+                                        .auto_shrink([false, false])
+                                        .show(ui, |ui| {
+                                            for l in &view.lines {
+                                                let color = if l.kind == '+' {
+                                                    egui::Color32::from_rgb(110, 190, 130)
+                                                } else if l.kind == '-' {
+                                                    egui::Color32::from_rgb(220, 120, 120)
+                                                } else {
+                                                    ui.visuals().text_color()
+                                                };
+                                                ui.label(
+                                                    egui::RichText::new(format!(
+                                                        "{} {}",
+                                                        l.kind, l.text
+                                                    ))
+                                                    .monospace()
+                                                    .size(12.0)
+                                                    .color(color),
+                                                );
+                                            }
+                                        });
                                 });
+                        }
+                        Some(Err(e)) => {
+                            ui.weak(format!("{e}"));
                         }
                         None => {
                             ui.weak(t!("tmpl_diff.loading"));

@@ -2063,22 +2063,23 @@ function renderTemplateDiff(content, d) {
   summary.className = "tmpl-diff-summary";
   summary.textContent = d.summary;
   content.appendChild(summary);
-  if (d.details && d.details.length) {
-    const ul = document.createElement("ul");
-    ul.className = "tmpl-diff-details";
-    for (const line of d.details) {
-      const li = document.createElement("li");
-      li.textContent = line;
-      ul.appendChild(li);
-    }
-    content.appendChild(ul);
-  }
-  if (d.empty) {
+  if (!d.lines || !d.lines.some((l) => l.kind === "+" || l.kind === "-")) {
     const note = document.createElement("div");
     note.className = "tmpl-diff-note";
     note.textContent = t("tmpl_diff.no_diff_detail");
     content.appendChild(note);
+    return;
   }
+  const pre = document.createElement("div");
+  pre.className = "tmpl-diff-code";
+  for (const l of d.lines) {
+    const row = document.createElement("div");
+    row.className =
+      l.kind === "+" ? "tmpl-diff-add" : l.kind === "-" ? "tmpl-diff-del" : "tmpl-diff-keep";
+    row.textContent = (l.kind === " " ? "  " : l.kind + " ") + l.text;
+    pre.appendChild(row);
+  }
+  content.appendChild(pre);
 }
 
 function closeTemplateDiffModal() {

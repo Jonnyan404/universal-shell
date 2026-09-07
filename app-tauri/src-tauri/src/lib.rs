@@ -1377,7 +1377,7 @@ fn template_diff(
     state: State<AppState>,
     registry_url: String,
     template_id: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<shared::TemplateDiffView, String> {
     let mgr = state.manager.lock().unwrap();
     let cache = mgr.data_dir.join("cache/registry");
     let client = shared::RegistryClient::with_network(
@@ -1392,14 +1392,7 @@ fn template_diff(
         .map_err(|e| format!("{e:#}"))?;
     match mgr.all_programs().into_iter().find(|p| p.id == program.id) {
         None => Err(t!("err.program_exists", id = template_id).to_string()),
-        Some(cur) => {
-            let diff = shared::ShellManager::template_diff(&cur, &program);
-            Ok(serde_json::json!({
-                "summary": diff.summary(),
-                "details": diff.changed_fields_detail,
-                "empty": diff.is_empty(),
-            }))
-        }
+        Some(cur) => Ok(shared::ShellManager::template_diff_view(&cur, &program)),
     }
 }
 

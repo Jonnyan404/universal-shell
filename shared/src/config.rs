@@ -324,6 +324,19 @@ pub fn os_key() -> &'static str {
 }
 
 impl Program {
+    /// 序列化为「模板比对」用规范 JSON 文本：去掉纯运行时字段
+    /// （template_source / imported_at / hidden），只留下模板结构本身。
+    /// struct 字段与 BTreeMap 的序列化顺序确定，同一内容两次输出一致。
+    pub fn diff_json(&self) -> String {
+        let mut v = serde_json::to_value(self).unwrap_or_default();
+        if let Some(obj) = v.as_object_mut() {
+            obj.remove("template_source");
+            obj.remove("imported_at");
+            obj.remove("hidden");
+        }
+        serde_json::to_string_pretty(&v).unwrap_or_default()
+    }
+
     /// 渲染 args 模板，field_values 提供 {key} 的展开
     pub fn render_args(&self, field_values: &BTreeMap<String, String>) -> Vec<String> {
         let mut out = Vec::new();
