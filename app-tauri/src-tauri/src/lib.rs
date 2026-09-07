@@ -1338,6 +1338,30 @@ fn import_template(
     Ok(view)
 }
 
+/// macOS WebView 默认开启智能文本替换（智能破折号/引号等），会把程序参数里的
+/// "--" 折叠成单破折号。HTML 的 autocorrect=off 只关一部分，这里按 AppKit
+/// 文本系统读取的 NSUserDefaults 键整套关掉（进程级，对 WKWebView 输入生效）。
+#[cfg(target_os = "macos")]
+fn disable_macos_text_substitution() {
+    use objc2_foundation::{NSUserDefaults, NSString};
+    const KEYS: &[&str] = &[
+        "NSAutomaticQuoteSubstitutionEnabled",
+        "NSAutomaticDashSubstitutionEnabled",
+        "NSAutomaticLinkDetectionEnabled",
+        "NSAutomaticSpellingCorrectionEnabled",
+        "NSAutomaticCapitalizationEnabled",
+        "NSAutomaticPeriodSubstitutionEnabled",
+        "NSAutomaticTextReplacementEnabled",
+        "NSAutomaticTextCompletionEnabled",
+    ];
+    unsafe {
+        let defaults = NSUserDefaults::standardUserDefaults();
+        for key in KEYS {
+            defaults.setBool_forKey(false, &NSString::from_str(key));
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn open_in_file_manager(path: PathBuf) -> Result<(), String> {
     std::process::Command::new("open")
@@ -1368,6 +1392,12 @@ fn open_in_file_manager(path: PathBuf) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    // macOS WebView 默认开智能文本替换（智能破折号/引号/拼写纠正/链接检测），
+    // 会把程序参数里的 "--" 折叠成单破折号（--code 变 -code）。
+    // 它由 AppKit 文本系统读取 NSUserDefaults 控制，HTML 的 autocorrect=off
+    // 只关一部分，这里在进程级整套关掉，保证所有文本框行为一致。
+    disable_macos_text_substitution();
 
     let data_dir = dirs::data_dir()
         .map(|d| d.join("universal-shell"))
