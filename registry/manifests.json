@@ -1,21 +1,13 @@
 {
-  "revision": "rev-1788622688",
+  "revision": "rev-1788748982",
   "categories": [
     "file-sharing",
     "sync",
     "proxy",
-    "utility",
     "clipboard",
     "vcs"
   ],
   "templates": [
-    {
-      "id": "age",
-      "name": "age",
-      "category": "utility",
-      "description": "age — 简单、现代的加密工具，用于文件加密与密钥管理。单次运行即退出。",
-      "repo": "FiloSottile/age"
-    },
     {
       "id": "brook",
       "name": "brook",
@@ -31,10 +23,17 @@
       "repo": "Jonnyan404/cloud-clipboard-go"
     },
     {
-      "id": "croc",
-      "name": "croc",
+      "id": "croc-receive",
+      "name": "croc receive",
       "category": "file-sharing",
-      "description": "croc — 点对点文件传输工具，一条命令在两台电脑之间传文件/文件夹。无需服务器，端到端加密。",
+      "description": "croc 接收——输入发送方给出的接收码领收文件（发送方用「croc send」）。自动接受(--yes)，可指定收件目录。",
+      "repo": "schollz/croc"
+    },
+    {
+      "id": "croc-send",
+      "name": "croc send",
+      "category": "file-sharing",
+      "description": "croc 发送——把文件/文件夹推送给对方，对方用「croc receive」输码接收。端到端加密，无需服务器。",
       "repo": "schollz/croc"
     },
     {

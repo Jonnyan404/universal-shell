@@ -1,7 +1,7 @@
 {
-  "id": "croc",
-  "name": "croc",
-  "description": "croc — 点对点文件传输工具，一条命令在两台电脑之间传文件/文件夹。无需服务器，端到端加密。",
+  "id": "croc-send",
+  "name": "croc send",
+  "description": "croc 发送——把文件/文件夹推送给对方，对方用「croc receive」输码接收。端到端加密，无需服务器。",
   "repo": "schollz/croc",
   "binary": "croc",
   "category": "file-sharing",
@@ -30,7 +30,7 @@
     "aarch64": "ARM64"
   },
   "fields": [
-    { "key": "args_extra", "kind": "string", "label": "参数", "default": "", "placeholder": "--hash 或传文件路径…" }
+    { "key": "args_extra", "kind": "string", "label": "发送参数", "default": "", "placeholder": "--code 12位码 接文件路径，如 --code 12345678 ./photo.jpg" }
   ],
-  "args": ["{args_extra}"]
+  "args": ["send", "{args_extra}"]
 }

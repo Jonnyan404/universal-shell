@@ -1,0 +1,36 @@
+{
+  "id": "croc-receive",
+  "name": "croc receive",
+  "description": "croc 接收——输入发送方给出的接收码领收文件（发送方用「croc send」）。自动接受(--yes)，可指定收件目录。",
+  "repo": "schollz/croc",
+  "binary": "croc",
+  "category": "file-sharing",
+  "assets": {
+    "darwin": {
+      "candidates": ["croc_v{version}_macOS-ARM64.tar.gz", "croc_v{version}_macOS-64bit.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "croc"
+    },
+    "linux": {
+      "candidates": ["croc_v{version}_Linux-ARM64.tar.gz", "croc_v{version}_Linux-64bit.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "croc"
+    },
+    "windows": {
+      "candidates": ["croc_v{version}_Windows-64bit.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "croc.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "64bit",
+    "aarch64": "ARM64"
+  },
+  "fields": [
+    { "key": "args_extra", "kind": "string", "label": "接收参数", "default": "", "placeholder": "接收码必填，可选 --out 目录，如 12345678 --out ~/Downloads" }
+  ],
+  "args": ["{args_extra}", "--yes"]
+}
