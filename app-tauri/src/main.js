@@ -1066,11 +1066,12 @@ const LOG_ERR_PREFIXES = [
   "refused",
 ];
 
-// 日志行是否判为错误：stderr 标记(\x1F)或内容以常见错误词开头。
-// 部分 CLI(如 Go/urfave-cli 的 croc)把 usage 报错打到 stdout，流标记覆盖不到，按内容兜底。
+// 日志行是否判为错误：剥掉 stderr 标记(\x1F)后只按内容判。
+// 很多 CLI（curl/ffmpeg/croc 进度条）把正常进度打到 stderr，不能见 \x1F 就红；
+// 反过来 Go/urfave-cli 的 croc 把 usage 报错打到 stdout，内容兜底同样覆盖。
 function isErrLine(line) {
-  if (line.charCodeAt(0) === 0x1f) return true;
-  const lower = line.trimStart().toLowerCase();
+  const content = line.charCodeAt(0) === 0x1f ? line.slice(1) : line;
+  const lower = content.trimStart().toLowerCase();
   return LOG_ERR_PREFIXES.some((p) => lower.startsWith(p));
 }
 

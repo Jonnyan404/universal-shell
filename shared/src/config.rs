@@ -441,6 +441,9 @@ mod tests {
         assert!(is_err_line("Error: boom"));
         assert!(is_err_line("USAGE:\n  croc send ..."));
         assert!(is_err_line(&('\u{1f}'.to_string() + "fatal: x")));
+        // stderr 进度行（croc Sending… 走 stderr）只按内容判，不标红
+        assert!(!is_err_line(&('\u{1f}'.to_string() + "Sending 'f.txt' (53 B)")));
+        assert!(!is_err_line(&('\u{1f}'.to_string() + "  https://getcroc.com/?code=x")));
         assert!(!is_err_line("usage 200 rows"));
         assert!(!is_err_line("all good"));
     }
