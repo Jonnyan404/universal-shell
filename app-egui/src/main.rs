@@ -115,6 +115,7 @@ struct EditFieldDraft {
     label: String,
     kind: String,
     default: String,
+    placeholder: String,
     required: bool,
 }
 
@@ -2691,6 +2692,7 @@ impl ShellApp {
                 label: f.label().to_string(),
                 kind: kind_name(&f.kind).to_string(),
                 default: field_default(&f.kind),
+                placeholder: field_placeholder(&f.kind),
                 required: f.required,
             })
             .collect();
@@ -2806,6 +2808,7 @@ impl ShellApp {
                                 label: String::new(),
                                 kind: "string".into(),
                                 default: String::new(),
+                                placeholder: String::new(),
                                 required: false,
                             });
                         }
@@ -2842,6 +2845,14 @@ impl ShellApp {
                                         .hint_text(t!("lib.def_val"))
                                         .desired_width(90.0),
                                 );
+                                let is_string = f.kind == "string";
+                                ui.add_enabled_ui(is_string, |ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut f.placeholder)
+                                            .hint_text(t!("edit.field_placeholder_ph"))
+                                            .desired_width(110.0),
+                                    );
+                                });
                                 ui.checkbox(&mut f.required, "").on_hover_text(t!("lib.precheck"));
                                 ui.weak(t!("lib.required"));
                                 if ui.small_button("×").on_hover_text(t!("act.delete_field")).clicked() {
@@ -2976,7 +2987,7 @@ impl ShellApp {
                     _ => shared::config::FieldKind::String {
                         label,
                         default: f.default.clone(),
-                        placeholder: String::new(),
+                        placeholder: f.placeholder.clone(),
                     },
                 };
                 shared::config::Field {
@@ -3262,6 +3273,14 @@ fn field_default(kind: &FieldKind) -> String {
         FieldKind::File { default, .. } => default.clone(),
         FieldKind::Directory { default, .. } => default.clone(),
         FieldKind::AutoStart { default, .. } => default.to_string(),
+    }
+}
+
+/// FieldKind 的 placeholder（编辑弹窗回填用；仅 String 有意义）。
+fn field_placeholder(kind: &FieldKind) -> String {
+    match kind {
+        FieldKind::String { placeholder, .. } => placeholder.clone(),
+        _ => String::new(),
     }
 }
 

@@ -917,6 +917,7 @@ impl ShellManager {
         current.os_map = remote.os_map.clone();
         current.fields = remote.fields.clone();
         current.args = remote.args.clone();
+        current.env = remote.env.clone();
         current.working_dir = remote.working_dir.clone();
         current.check_sha256 = remote.check_sha256.clone();
         current.description = remote.description.clone();
@@ -1424,6 +1425,46 @@ mod tests {
         let after = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
         // 本地编辑语义:默认被当面改过(8080→7070)就跟随新默认,这次声明为准
         assert_eq!(mgr.load_field_values(&after).get("port").map(String::as_str), Some("7070"));
+    }
+
+    /// 编辑保存的环境变量必须持久化：merge_field_values 结构替换要把 env 一并搬到实例。
+    #[test]
+    fn update_program_persists_env() {
+        let dir = std::env::temp_dir().join("cc-env-persist");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg = dir.join("cfg.json");
+        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&cfg).unwrap();
+
+        let base: Program = serde_json::from_str(
+            r#"{"id":"app","name":"App","repo":"a/b","binary":"app",
+               "fields":[{"key":"code","label":"Code","kind":"string","default":"123456"}],
+               "args":[]}"#,
+        )
+        .unwrap();
+        mgr.add_program(&base, &cfg).unwrap();
+
+        // 编辑添加 env 变量（同一处的 shell.json 写入路径）
+        let edited: Program = serde_json::from_str(
+            r#"{"id":"app","name":"App","repo":"a/b","binary":"app",
+               "fields":[{"key":"code","label":"Code","kind":"string","default":"123456"}],
+               "args":[],
+               "env":[{"key":"CROC_SECRET","value":"croc-{code}","label":"发送密钥"}]}"#,
+        )
+        .unwrap();
+        mgr.update_program("app", &edited, &cfg).unwrap();
+        let after = mgr.all_programs().into_iter().find(|p| p.id == "app").unwrap();
+        assert_eq!(after.env.len(), 1);
+        assert_eq!(after.env[0].key, "CROC_SECRET");
+        assert_eq!(after.env[0].value, "croc-{code}");
+
+        // 持久化到 shell.json，重启加载后仍然存在
+        let mut mgr2 = ShellManager::new(dir).unwrap();
+        mgr2.load_config(&cfg).unwrap();
+        let reloaded = mgr2.all_programs().into_iter().find(|p| p.id == "app").unwrap();
+        assert_eq!(reloaded.env.len(), 1);
+        assert_eq!(reloaded.env[0].key, "CROC_SECRET");
     }
 
     /// 复现「新加 UI 字段永远同步、模板自带字段不同步」的根治验证:

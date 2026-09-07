@@ -871,6 +871,9 @@ struct EditField {
     default: String,
     #[serde(default)]
     required: bool,
+    /// 仅 String 类型使用（其余类型忽略）
+    #[serde(default)]
+    placeholder: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -937,7 +940,7 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
                 _ => FieldKind::String {
                     label: f.label.clone(),
                     default: f.default.clone(),
-                    placeholder: String::new(),
+                    placeholder: f.placeholder.clone(),
                 },
             };
             shared::config::Field {

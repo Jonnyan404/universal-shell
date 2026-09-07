@@ -1523,6 +1523,16 @@ function editFieldRow(f) {
   d.setAttribute("spellcheck", "false");
   d.placeholder = t("lib.def_val");
   d.value = f.default ?? "";
+  const ph = document.createElement("input");
+  ph.className = "ph";
+  ph.setAttribute("autocorrect", "off");
+  ph.setAttribute("spellcheck", "false");
+  ph.placeholder = t("edit.field_placeholder_ph");
+  ph.value = f.placeholder ?? "";
+  ph.hidden = f.kind !== "string";
+  sel.addEventListener("change", () => {
+    ph.hidden = sel.value !== "string";
+  });
   const reqWrap = document.createElement("label");
   reqWrap.className = "req";
   reqWrap.title = t("lib.precheck");
@@ -1548,7 +1558,7 @@ function editFieldRow(f) {
   del.textContent = "✕";
   del.title = t("act.delete_field");
   del.onclick = () => row.remove();
-  row.append(k, l, sel, d, reqWrap, reqMark, del);
+  row.append(k, l, sel, d, ph, reqWrap, reqMark, del);
   return row;
 }
 
@@ -1563,7 +1573,14 @@ async function saveEdit() {
       const def = row.querySelector(".d").value;
       const required = row.querySelector(".req input").checked;
       if (!k) return;
-      fields.push({ key: k, kind, label: l || k, default: def, required });
+      fields.push({
+        key: k,
+        kind,
+        label: l || k,
+        default: def,
+        required,
+        placeholder: row.querySelector(".ph").value ?? "",
+      });
     });
   const env = [];
   document

@@ -49,6 +49,7 @@ edit.env_hint: 'Value template supports {field_key}, e.g. CROC_SECRET={code}'
 edit.env_value_ph: Value (e.g. croc-{code})
 edit.env_label_ph: Label (optional)
 edit.env_ro_title: Environment variables (derived, read-only)
+edit.field_placeholder_ph: Placeholder hint (string only)
 edit.http_source: 'HTTP direct-link source (empty = GitHub)'
 edit.http_enable: 'Enable HTTP source (source.kind=http)'
 edit.http_version_url: 'Version URL (version_url)'

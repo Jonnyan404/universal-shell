@@ -482,6 +482,7 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 .edit-field-row .k { flex: 1 1 90px; }
 .edit-field-row .l { flex: 1 1 120px; }
+.edit-field-row .ph { flex: 1 1 130px; }
 .edit-field-row select {
   flex: 0 1 110px; background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px; padding: 6px 6px;
