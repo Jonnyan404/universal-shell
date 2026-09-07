@@ -1,13 +1,21 @@
 {
-  "revision": "rev-1788748982",
+  "revision": "rev-1788749072",
   "categories": [
     "file-sharing",
     "sync",
     "proxy",
+    "utility",
     "clipboard",
     "vcs"
   ],
   "templates": [
+    {
+      "id": "age",
+      "name": "age",
+      "category": "utility",
+      "description": "age — 简单、现代的加密工具，用于文件加密与密钥管理。单次运行即退出。",
+      "repo": "FiloSottile/age"
+    },
     {
       "id": "brook",
       "name": "brook",
