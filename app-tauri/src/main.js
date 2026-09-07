@@ -5,6 +5,8 @@ let programs = [];
 let current = null;
 let values = {};
 let statuses = [];
+// 字段值防抖自动保存：编辑后不再操作约 600ms 时写盘（对齐 egui 的即时生效体验）
+const autosaveTimers = {};
 
 const el = {
   tabs: document.querySelector("#program-tabs"),
@@ -374,6 +376,20 @@ function renderEnvDisplay() {
   }
 }
 
+function scheduleAutosave() {
+  if (!current || !current.id) return;
+  const id = current.id;
+  const snap = values;
+  clearTimeout(autosaveTimers[id]);
+  autosaveTimers[id] = setTimeout(async () => {
+    try {
+      await invoke("save_values", { programId: id, values: snap });
+    } catch (e) {
+      logOp(t("toast.save_fail", { err: e }));
+    }
+  }, 600);
+}
+
 async function renderForm() {
   el.progTitle.textContent = current.name;
   // 状态栏不再显示 owner/repo 文本：GitHub 项目(owner/repo)显示为图标链接，非 GitHub 留空
@@ -425,6 +441,8 @@ async function renderForm() {
             logOp(t("log.autostart.set_fail", { err: e }));
             showNotice(String(e), true);
           }
+        } else {
+          scheduleAutosave();
         }
       });
       wrap.appendChild(check);
@@ -442,6 +460,7 @@ async function renderForm() {
       input.addEventListener("input", () => {
         values[f.key] = input.value;
         renderEnvDisplay();
+        scheduleAutosave();
       });
       row.appendChild(input);
       if (f.kind === "file" || f.kind === "directory") {
@@ -457,6 +476,7 @@ async function renderForm() {
             input.value = path;
             values[f.key] = path;
             renderEnvDisplay();
+            scheduleAutosave();
           }
         };
         row.appendChild(btn);
