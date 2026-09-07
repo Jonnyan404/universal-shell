@@ -2268,12 +2268,12 @@ window.addEventListener("DOMContentLoaded", async () => {
   setInterval(() => {
     if (view === "manage" && current) refreshStatusLocal();
   }, 15000);
-  // 运行日志跟随刷新：仅程序运行期间轮询，避免无谓 IPC。
+  // 运行日志跟随刷新 + 状态轮询：不依赖运行态——一次性程序秒退后 3s 内补上最后输出
+  // （原 gate st?.running 会让已停止的一次性程序日志永远停在空，只有切 tab 才刷）。
   // 同时顺带刷状态：进程一旦退出/崩溃，及时恢复「启动」按钮（原来只靠 15s 轮询，明显偏慢）。
   setInterval(() => {
     if (view !== "manage" || !current) return;
-    const st = statuses.find((s) => s.id === current.id)?.status;
     refreshStatusLocal();
-    if (st?.running) refreshManageLog();
+    refreshManageLog();
   }, 3000);
 });
