@@ -423,6 +423,16 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 .modal-close:hover { color: var(--text); }
 
+/* 模板更新差异弹窗 */
+.template-diff-content {
+  flex: 1; overflow: auto; margin: 0; padding: 12px 16px;
+  line-height: 1.6; color: var(--text); min-height: 40px;
+}
+.tmpl-diff-summary { font-weight: 600; margin-bottom: 6px; }
+.tmpl-diff-details { margin: 0 0 6px; padding-left: 20px; }
+.tmpl-diff-details li { margin-bottom: 2px; }
+.tmpl-diff-note { color: var(--muted); font-size: 12px; }
+
 /* 壳操作日志弹窗 */
 .shell-log-box { width: min(880px, 96vw); height: min(70vh, 560px); }
 .shell-log-hint { font-weight: 400; color: var(--muted); font-size: 12px; }

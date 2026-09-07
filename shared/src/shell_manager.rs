@@ -33,7 +33,7 @@ pub struct ProgramStatus {
 }
 
 /// 实例与远端模板的差异(供「应用模板更新」前展示)
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct TemplateDiff {
     /// 变更是何类内容引起（可空，表示模板定义本身无变化）
     pub changed_repo: bool,
@@ -83,6 +83,9 @@ impl TemplateDiff {
         }
         if self.changed_version_pin {
             parts.push(t!("tmpl.version_pin").to_string());
+        }
+        if self.changed_env {
+            parts.push(t!("tmpl.env").to_string());
         }
         if parts.is_empty() {
             t!("tmpl.none").to_string()

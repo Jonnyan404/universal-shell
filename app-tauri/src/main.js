@@ -1726,6 +1726,8 @@ async function refreshLibrary() {
       libSource = null;
     }
     libPage = 0;
+    // 刷新来源后上次的状态作废：清空后 renderLibrary 会对已导入程序重新检测
+    templateStatusCache.clear();
     renderLibrary();
   } catch (e) {
     el.libStatus.textContent = t("toast.manifest_fail", { err: e });
@@ -1997,34 +1999,25 @@ function renderLocalTemplates() {
   }
 }
 
+// 模板库「导入/更新」：未导入 → 直接导入；已导入 → 先弹差异详情，确认「应用更新」后覆盖。
 async function doImport(id, base, btn) {
   if (importing.has(id)) return;
+  if (programs.some((p) => p.id === id)) {
+    openTemplateDiffModal(id, base);
+    return;
+  }
   importing.add(id);
   if (btn) {
     btn.disabled = true;
     btn.textContent = t("lib.importing");
   }
   try {
-    const exists = programs.some((p) => p.id === id);
-    let overwrite = false;
-    if (exists) {
-      const ok = await confirm(
-        t("confirm.overwrite_import", { id }),
-        { title: t("lib.overwrite"), kind: "warning" }
-      );
-      if (!ok) {
-        importing.delete(id);
-        renderLibrary();
-        return;
-      }
-      overwrite = true;
-    }
     await invoke("import_template", {
       registryUrl: base || registryUrl || "",
       templateId: id,
-      overwrite,
+      overwrite: false,
     });
-    showNotice(exists ? t("toast.import_overwritten", { id }) : t("toast.import_done", { id }));
+    showNotice(t("toast.import_done", { id }));
     await afterImport(id);
     // 本次导入后的状态作废：finally 里重渲染前清掉，等状态重新检测
     templateStatusCache.clear();
@@ -2036,6 +2029,82 @@ async function doImport(id, base, btn) {
       btn.disabled = false;
     }
     // 必须在 importing 清空后再重渲染，否则新按钮会卡在「导入中…」
+    renderLibrary();
+  }
+}
+
+// ---------- 模板更新差异弹窗 ----------
+let pendingTemplateDiff = null; // { id, base } 等待用户确认应用更新的模板
+
+async function openTemplateDiffModal(id, base) {
+  const modal = document.querySelector("#template-diff-modal");
+  const content = document.querySelector("#template-diff-content");
+  const applyBtn = document.querySelector("#template-diff-apply");
+  pendingTemplateDiff = { id, base };
+  content.textContent = "";
+  content.append(t("tmpl_diff.loading"));
+  modal.hidden = false;
+  applyBtn.disabled = false;
+  try {
+    const d = await invoke("template_diff", {
+      registryUrl: base || registryUrl || "",
+      templateId: id,
+    });
+    renderTemplateDiff(content, d);
+  } catch (e) {
+    content.textContent = "";
+    content.append(String(e));
+  }
+}
+
+function renderTemplateDiff(content, d) {
+  content.textContent = "";
+  const summary = document.createElement("div");
+  summary.className = "tmpl-diff-summary";
+  summary.textContent = d.summary;
+  content.appendChild(summary);
+  if (d.details && d.details.length) {
+    const ul = document.createElement("ul");
+    ul.className = "tmpl-diff-details";
+    for (const line of d.details) {
+      const li = document.createElement("li");
+      li.textContent = line;
+      ul.appendChild(li);
+    }
+    content.appendChild(ul);
+  }
+  if (d.empty) {
+    const note = document.createElement("div");
+    note.className = "tmpl-diff-note";
+    note.textContent = t("tmpl_diff.no_diff_detail");
+    content.appendChild(note);
+  }
+}
+
+function closeTemplateDiffModal() {
+  document.querySelector("#template-diff-modal").hidden = true;
+  pendingTemplateDiff = null;
+}
+
+async function applyTemplateUpdate() {
+  if (!pendingTemplateDiff) return;
+  const { id, base } = pendingTemplateDiff;
+  closeTemplateDiffModal();
+  if (importing.has(id)) return;
+  importing.add(id);
+  try {
+    await invoke("import_template", {
+      registryUrl: base || registryUrl || "",
+      templateId: id,
+      overwrite: true,
+    });
+    showNotice(t("toast.import_overwritten", { id }));
+    await afterImport(id);
+    templateStatusCache.clear();
+  } catch (e) {
+    showNotice(String(e), true);
+  } finally {
+    importing.delete(id);
     renderLibrary();
   }
 }
@@ -2449,6 +2518,15 @@ window.addEventListener("DOMContentLoaded", async () => {
   document.querySelector("#sources-save").onclick = saveSources;
   sourcesModal.addEventListener("click", (e) => {
     if (e.target === sourcesModal) closeSourcesModal();
+  });
+
+  // 模板更新差异弹窗
+  const tmplDiffModal = document.querySelector("#template-diff-modal");
+  document.querySelector("#template-diff-modal-close").onclick = closeTemplateDiffModal;
+  document.querySelector("#template-diff-cancel").onclick = closeTemplateDiffModal;
+  document.querySelector("#template-diff-apply").onclick = applyTemplateUpdate;
+  tmplDiffModal.addEventListener("click", (e) => {
+    if (e.target === tmplDiffModal) closeTemplateDiffModal();
   });
   await ensureLibraryFromCache();
   await refresh();

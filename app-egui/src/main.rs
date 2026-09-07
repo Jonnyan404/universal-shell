@@ -94,6 +94,8 @@ enum Msg {
     TemplateFetched(String, bool, Result<shared::config::Program, String>),
     /// 模板与本地实例一致性检测完成：(缓存 key, "new"/"update"/"current")
     TemplateStatus(String, Result<String, String>),
+    /// 覆盖导入确认弹窗里的远端差异文本拉取完成
+    ImportDiff(String, Result<shared::TemplateDiff, String>),
     /// 后台刷新各程序最新版本完成：携带 (id, 最新版本, 发布时间)
     StatusRefreshed(Vec<(String, Option<String>, String)>),
     /// 托盘菜单「开机自启」被点击：请求主线程切换壳自身自启
@@ -190,8 +192,10 @@ struct ShellApp {
     lib_page: usize,
     /// 本地模板抽屉是否展开
     show_local_drawer: bool,
-    /// 待二次确认覆盖导入的远端模板（程序 id, base url）
-    pending_import: Option<(String, String)>,
+    /// 待二次确认覆盖导入的远端模板（程序 id, base url, 本地实例）
+    pending_import: Option<(String, String, Option<shared::config::Program>)>,
+    /// 覆盖导入弹窗里远端差异文本（拉取完成后填充，None=还在比对中）
+    pending_import_diff: Option<String>,
     /// 待二次确认覆盖导入的本地模板文件
     pending_local_import: Option<(std::path::PathBuf, shared::config::Program)>,
     /// 模板源管理弹窗是否打开
@@ -367,6 +371,7 @@ impl ShellApp {
             lib_page: 0,
             show_local_drawer: false,
             pending_import: None,
+            pending_import_diff: None,
             pending_local_import: None,
             show_sources: false,
             sources_rows,
@@ -623,6 +628,29 @@ impl ShellApp {
         });
     }
 
+    /// 覆盖导入确认弹窗：后台拉取远端模板并与本地实例比对，产出差异文本供展示
+    fn spawn_import_diff(&mut self, id: String, base: String, installed: shared::config::Program) {
+        let cache = self.manager.data_dir.join("cache/registry");
+        let pubkeys = self.manager.registry_pubkeys.clone();
+        let proxy = self.manager.proxy.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let result = || -> Result<shared::TemplateDiff, String> {
+                let client = RegistryClient::with_network(
+                    &base,
+                    cache,
+                    pubkeys,
+                    Some(&proxy.accelerate_prefix),
+                    Some(&proxy.http_proxy),
+                );
+                let (_offline, program) =
+                    client.load_template(&id).map_err(|e| format!("{e:#}"))?;
+                Ok(shared::ShellManager::template_diff(&installed, &program))
+            }();
+            tx.send(Msg::ImportDiff(id, result)).ok();
+        });
+    }
+
     /// 后台检查壳自身更新，结果经 Msg::ShellUpdateChecked 回 UI 线程；
     /// manual=true（设置里手动点）时无新版/失败会弹 toast，启动自动检查则静默。
     fn spawn_check_shell_update(&mut self, manual: bool) {
@@ -738,6 +766,16 @@ impl ShellApp {
                             self.template_status.insert(key, "update".to_string());
                         }
                     }
+                }
+                Msg::ImportDiff(_id, result) => {
+                    self.pending_import_diff = Some(match result {
+                        Ok(d) => {
+                            let mut parts = vec![d.summary()];
+                            parts.extend(d.changed_fields_detail);
+                            parts.join("\n")
+                        }
+                        Err(e) => format!("{e:#}"),
+                    });
                 }
                 Msg::StatusRefreshed(list) => {
                     for (id, ver, ts) in list {
@@ -1843,7 +1881,22 @@ impl ShellApp {
                                         .clicked()
                                     {
                                         if imported {
-                                            self.pending_import = Some((id.clone(), base.clone()));
+                                            let installed = self
+                                                .manager
+                                                .all_programs()
+                                                .iter()
+                                                .find(|p| p.id == id)
+                                                .cloned();
+                                            self.pending_import =
+                                                Some((id.clone(), base.clone(), installed.clone()));
+                                            self.pending_import_diff = None;
+                                            if let Some(installed) = installed {
+                                                self.spawn_import_diff(
+                                                    id.clone(),
+                                                    base.clone(),
+                                                    installed,
+                                                );
+                                            }
                                         } else {
                                             self.spawn_import_template(id.clone(), base.clone(), false);
                                         }
@@ -1936,6 +1989,9 @@ impl ShellApp {
                 ),
             );
             if refresh.clicked() {
+                // 刷新来源后上次的检测结果作废：清空后为已导入卡片重新检测
+                self.template_status.clear();
+                self.status_pending.clear();
                 self.spawn_load_manifest(true);
             }
         });
@@ -2085,7 +2141,7 @@ impl ShellApp {
 
     /// 模板库覆盖导入确认弹窗（远端模板 / 本地文件）
     fn show_library_confirms(&mut self, ctx: &egui::Context) {
-        if let Some((id, base)) = self.pending_import.clone() {
+        if let Some((id, base, _installed)) = self.pending_import.clone() {
             let mut open = true;
             let mut confirmed = false;
             let mut cancelled = false;
@@ -2096,6 +2152,25 @@ impl ShellApp {
                 .open(&mut open)
                 .show(ctx, |ui| {
                     ui.label(t!("confirm.overwrite_import", id = &id));
+                    ui.add_space(8.0);
+                    // 展示远端模板与本地的差异（或「比对中…」/错误）
+                    match &self.pending_import_diff {
+                        Some(text) => {
+                            egui::Frame::group(ui.style())
+                                .inner_margin(egui::Margin::same(8))
+                                .show(ui, |ui| {
+                                    ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(text).monospace().size(12.0),
+                                        )
+                                        .wrap(),
+                                    );
+                                });
+                        }
+                        None => {
+                            ui.weak(t!("tmpl_diff.loading"));
+                        }
+                    }
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.button(t!("act.cancel")).clicked() {
@@ -2108,6 +2183,7 @@ impl ShellApp {
                 });
             if cancelled || confirmed || !open {
                 self.pending_import = None;
+                self.pending_import_diff = None;
             }
             if confirmed {
                 self.spawn_import_template(id.clone(), base.clone(), true);

@@ -12,8 +12,12 @@ tmpl.fields: UI fields
 tmpl.arch_os: Arch/OS mapping
 tmpl.workdir: Working dir
 tmpl.version_pin: Version pin
+tmpl.env: ENV vars
 tmpl.none: No material changes
 tmpl.changed: 'Changed: %{parts}'
+tmpl_diff.title: Template update details
+tmpl_diff.loading: Comparing remote template with local instance…
+tmpl_diff.no_diff_detail: The template matches the local instance. You can still apply the update if you wish.
 ui.theme.light: Switch to light mode
 ui.theme.dark: Switch to dark mode
 ui.theme.follow_system: Follow system

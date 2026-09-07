@@ -1371,6 +1371,38 @@ fn template_status(
     }
 }
 
+/// 拉取远端模板并与本地实例比对，返回差异信息（供「更新」弹窗展示）。
+#[tauri::command]
+fn template_diff(
+    state: State<AppState>,
+    registry_url: String,
+    template_id: String,
+) -> Result<serde_json::Value, String> {
+    let mgr = state.manager.lock().unwrap();
+    let cache = mgr.data_dir.join("cache/registry");
+    let client = shared::RegistryClient::with_network(
+        &registry_url,
+        cache,
+        mgr.registry_pubkeys.clone(),
+        Some(&mgr.proxy.accelerate_prefix),
+        Some(&mgr.proxy.http_proxy),
+    );
+    let (_offline, program) = client
+        .load_template(&template_id)
+        .map_err(|e| format!("{e:#}"))?;
+    match mgr.all_programs().into_iter().find(|p| p.id == program.id) {
+        None => Err(t!("err.program_exists", id = template_id).to_string()),
+        Some(cur) => {
+            let diff = shared::ShellManager::template_diff(&cur, &program);
+            Ok(serde_json::json!({
+                "summary": diff.summary(),
+                "details": diff.changed_fields_detail,
+                "empty": diff.is_empty(),
+            }))
+        }
+    }
+}
+
 /// 导入：拉取模板 → 快照进本地配置 → 写回 shell.json
 /// `overwrite=true` 时若同名程序已存在则替换（保留已排序位置）。
 #[tauri::command]
@@ -1642,6 +1674,7 @@ pub fn run() {
             export_template,
             import_template,
             template_status,
+            template_diff,
             get_proxy,
             set_proxy,
             get_locale,

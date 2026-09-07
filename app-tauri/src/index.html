@@ -243,6 +243,21 @@
     </div>
   </div>
 
+  <!-- 模态：模板更新差异详情 -->
+  <div id="template-diff-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span data-i18n="tmpl_diff.title">模板更新详情</span>
+        <button id="template-diff-modal-close" class="modal-close" data-i18n-title="act.close">×</button>
+      </div>
+      <div id="template-diff-content" class="template-diff-content"></div>
+      <div class="edit-actions">
+        <button id="template-diff-apply" data-i18n="act.update">更新</button>
+        <button id="template-diff-cancel" data-i18n="act.cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 模态：壳操作日志 -->
   <div id="shell-log-modal" class="modal" hidden>
     <div class="modal-box shell-log-box">

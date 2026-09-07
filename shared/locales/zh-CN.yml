@@ -12,8 +12,12 @@ tmpl.fields: UI 字段
 tmpl.arch_os: 架构/OS 映射
 tmpl.workdir: 工作目录
 tmpl.version_pin: 版本钉住
+tmpl.env: 环境变量
 tmpl.none: 无实质变化
 tmpl.changed: '变化: %{parts}'
+tmpl_diff.title: 模板更新详情
+tmpl_diff.loading: 正在比对远端模板与本地实例…
+tmpl_diff.no_diff_detail: 模板定义与本地一致。若仍想应用，可直接更新。
 ui.theme.light: 切换到浅色
 ui.theme.dark: 切换到深色
 ui.theme.follow_system: 跟随系统
