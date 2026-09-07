@@ -18,6 +18,7 @@ tmpl.changed: 'Changed: %{parts}'
 tmpl_diff.title: Template update details
 tmpl_diff.loading: Comparing remote template with local instance…
 tmpl_diff.no_diff_detail: The template matches the local instance. You can still apply the update if you wish.
+tmpl_diff.expand_context: '⋯ %{n} unchanged lines · click to expand'
 ui.theme.light: Switch to light mode
 ui.theme.dark: Switch to dark mode
 ui.theme.follow_system: Follow system

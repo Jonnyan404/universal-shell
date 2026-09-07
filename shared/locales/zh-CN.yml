@@ -18,6 +18,7 @@ tmpl.changed: '变化: %{parts}'
 tmpl_diff.title: 模板更新详情
 tmpl_diff.loading: 正在比对远端模板与本地实例…
 tmpl_diff.no_diff_detail: 模板定义与本地一致。若仍想应用，可直接更新。
+tmpl_diff.expand_context: '⋯ %{n} 行未变更 · 点击展开'
 ui.theme.light: 切换到浅色
 ui.theme.dark: 切换到深色
 ui.theme.follow_system: 跟随系统

@@ -2092,13 +2092,40 @@ function renderTemplateDiff(content, d) {
   }
   const pre = document.createElement("div");
   pre.className = "tmpl-diff-code";
-  for (const l of d.lines) {
-    const row = document.createElement("div");
-    row.className =
-      l.kind === "+" ? "tmpl-diff-add" : l.kind === "-" ? "tmpl-diff-del" : "tmpl-diff-keep";
-    row.textContent = (l.kind === " " ? "  " : l.kind + " ") + l.text;
-    pre.appendChild(row);
+
+  function lineClass(kind) {
+    return kind === "+" ? "tmpl-diff-add" : kind === "-" ? "tmpl-diff-del" : "tmpl-diff-keep";
   }
+  function makeRow(l) {
+    const row = document.createElement("div");
+    row.className = lineClass(l.kind);
+    row.textContent = (l.kind === " " ? "  " : l.kind + " ") + l.text;
+    return row;
+  }
+  function makeDetails(run) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.className = "tmpl-diff-summary";
+    summary.textContent = t("tmpl_diff.expand_context", { n: run.length });
+    details.appendChild(summary);
+    for (const l of run) details.appendChild(makeRow(l));
+    return details;
+  }
+
+  let ctxRun = [];
+  for (const l of d.lines) {
+    if (l.kind === " ") {
+      ctxRun.push(l);
+      continue;
+    }
+    if (ctxRun.length) {
+      pre.appendChild(makeDetails(ctxRun));
+      ctxRun = [];
+    }
+    pre.appendChild(makeRow(l));
+  }
+  if (ctxRun.length) pre.appendChild(makeDetails(ctxRun));
+
   content.appendChild(pre);
 }
 
