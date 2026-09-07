@@ -1,7 +1,7 @@
 {
   "id": "croc-send",
   "name": "croc send",
-  "description": "croc 发送——把文件/文件夹推送给对方，对方用「croc receive」输码接收。端到端加密，无需服务器。",
+  "description": "croc 发送——把文件/文件夹推送给对方，对方用「croc receive」输码接收。端到端加密，无需服务器。若提示 could not secure channel，可在「中继地址」两端填同一个自建中继（先用「croc relay」模板启动，host 填 127.0.0.1:9009）。",
   "repo": "schollz/croc",
   "binary": "croc",
   "category": "file-sharing",
@@ -31,10 +31,12 @@
   },
   "fields": [
     { "key": "code", "kind": "string", "label": "共享码", "default": "", "placeholder": "任意双方一致的码（至少 6 位），两端填同一串，如 12345678" },
-    { "key": "args_extra", "kind": "string", "label": "发送文件/参数", "default": "", "placeholder": "文件/目录路径，或 --zip 目录，如 ./photo.jpg" }
+    { "key": "args_extra", "kind": "string", "label": "发送文件/参数", "default": "", "placeholder": "文件/目录路径，或 --zip 目录，如 ./photo.jpg" },
+    { "key": "relay", "kind": "string", "label": "中继地址", "default": "", "placeholder": "默认官方中继；自建填 127.0.0.1:9009，两端一致" }
   ],
   "env": [
-    { "key": "CROC_SECRET", "value": "{code}", "label": "共享密钥（两端一致，直接等于共享码）" }
+    { "key": "CROC_SECRET", "value": "{code}", "label": "共享密钥（两端一致，直接等于共享码）" },
+    { "key": "CROC_RELAY", "value": "{relay}", "label": "中继地址（留空用默认官方中继）" }
   ],
   "args": ["send", "{args_extra}"]
 }

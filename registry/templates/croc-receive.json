@@ -1,7 +1,7 @@
 {
   "id": "croc-receive",
   "name": "croc receive",
-  "description": "croc 接收——输入发送方给出的接收码领收文件（发送方用「croc send」）。自动接受(--yes)，可指定收件目录。",
+  "description": "croc 接收——输入发送方给出的接收码领收文件（发送方用「croc send」）。自动接受(--yes)，保存到接收目录。若提示 could not secure channel，可在「中继地址」两端填同一个自建中继（先用「croc relay」模板启动，host 填 127.0.0.1:9009）。",
   "repo": "schollz/croc",
   "binary": "croc",
   "category": "file-sharing",
@@ -31,10 +31,12 @@
   },
   "fields": [
     { "key": "code", "kind": "string", "label": "接收码", "default": "", "placeholder": "发送方给的码（两端一致），如 12345678" },
-    { "key": "args_extra", "kind": "string", "label": "接收目录/参数", "default": "", "placeholder": "可选 --out 目录，如 --out ~/Downloads" }
+    { "key": "receive_dir", "kind": "directory", "label": "接收目录", "default": ".", "placeholder": "文件保存位置（--out），缺省为程序目录" },
+    { "key": "relay", "kind": "string", "label": "中继地址", "default": "", "placeholder": "默认官方中继；自建填 127.0.0.1:9009，两端一致" }
   ],
   "env": [
-    { "key": "CROC_SECRET", "value": "{code}", "label": "共享密钥（两端一致，直接等于接收码）" }
+    { "key": "CROC_SECRET", "value": "{code}", "label": "共享密钥（两端一致，直接等于接收码）" },
+    { "key": "CROC_RELAY", "value": "{relay}", "label": "中继地址（留空用默认官方中继）" }
   ],
-  "args": ["{args_extra}", "--yes"]
+  "args": ["--yes", "--out", "{receive_dir}"]
 }

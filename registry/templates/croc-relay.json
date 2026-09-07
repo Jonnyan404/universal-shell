@@ -1,0 +1,36 @@
+{
+  "id": "croc-relay",
+  "name": "croc relay",
+  "description": "croc 本地中继——在本机跑官方 relay 服务（默认端口 9009），给「croc send / croc receive」做中转，规避公共中继不可用时 could not secure channel 的问题。需常驻：先启动本模板，再把两端中继地址填 127.0.0.1:9009。",
+  "repo": "schollz/croc",
+  "binary": "croc",
+  "category": "file-sharing",
+  "assets": {
+    "darwin": {
+      "candidates": ["croc_v{version}_macOS-ARM64.tar.gz", "croc_v{version}_macOS-64bit.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "croc"
+    },
+    "linux": {
+      "candidates": ["croc_v{version}_Linux-ARM64.tar.gz", "croc_v{version}_Linux-64bit.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "croc"
+    },
+    "windows": {
+      "candidates": ["croc_v{version}_Windows-64bit.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "croc.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "64bit",
+    "aarch64": "ARM64"
+  },
+  "fields": [
+    { "key": "port", "kind": "string", "label": "中继端口", "default": "9009", "placeholder": "默认 9009" }
+  ],
+  "args": ["relay", "--port", "{port}"]
+}

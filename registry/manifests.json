@@ -1,5 +1,5 @@
 {
-  "revision": "rev-1788822808",
+  "revision": "rev-1788825424",
   "categories": [
     "file-sharing",
     "sync",
@@ -27,14 +27,21 @@
       "id": "croc-receive",
       "name": "croc receive",
       "category": "file-sharing",
-      "description": "croc 接收——输入发送方给出的接收码领收文件（发送方用「croc send」）。自动接受(--yes)，可指定收件目录。",
+      "description": "croc 接收——输入发送方给出的接收码领收文件（发送方用「croc send」）。自动接受(--yes)，保存到接收目录。若提示 could not secure channel，可在「中继地址」两端填同一个自建中继（先用「croc relay」模板启动，host 填 127.0.0.1:9009）。",
+      "repo": "schollz/croc"
+    },
+    {
+      "id": "croc-relay",
+      "name": "croc relay",
+      "category": "file-sharing",
+      "description": "croc 本地中继——在本机跑官方 relay 服务（默认端口 9009），给「croc send / croc receive」做中转，规避公共中继不可用时 could not secure channel 的问题。需常驻：先启动本模板，再把两端中继地址填 127.0.0.1:9009。",
       "repo": "schollz/croc"
     },
     {
       "id": "croc-send",
       "name": "croc send",
       "category": "file-sharing",
-      "description": "croc 发送——把文件/文件夹推送给对方，对方用「croc receive」输码接收。端到端加密，无需服务器。",
+      "description": "croc 发送——把文件/文件夹推送给对方，对方用「croc receive」输码接收。端到端加密，无需服务器。若提示 could not secure channel，可在「中继地址」两端填同一个自建中继（先用「croc relay」模板启动，host 填 127.0.0.1:9009）。",
       "repo": "schollz/croc"
     },
     {
