@@ -1732,6 +1732,31 @@ async function refreshLibrary() {
   }
 }
 
+async function refreshTemplateStatus(base, id, btn) {
+  const stKey = base + "\u0000" + id;
+  try {
+    const st = await invoke("template_status", {
+      registryUrl: base || registryUrl || "",
+      templateId: id,
+    });
+    templateStatusCache[stKey] = st;
+    if (st === "current") {
+      btn.disabled = true;
+      btn.textContent = t("act.latest");
+      btn.title = t("act.latest_hint");
+    } else if (st === "new") {
+      btn.textContent = t("act.import");
+      btn.title = "";
+    } else {
+      btn.textContent = t("act.update");
+      btn.title = t("act.update_hint");
+    }
+  } catch (_) {
+    // 断网/拉取失败时不打扰：保持「更新」可点（或未安装的「导入」）
+    templateStatusCache[stKey] = "update";
+  }
+}
+
 function renderLibrary() {
   if (!manifest) {
     el.libList.innerHTML = t("lib.empty_remote");
@@ -1792,16 +1817,23 @@ function renderLibrary() {
     }
 
     const btn = document.createElement("button");
-    // 本地已存在同名程序 => 主按钮即「更新」（覆盖导入合并语义）；否则「导入」
+    const stKey = base + "\u0000" + id;
+    const status = templateStatusCache[stKey];
+    // 已导入且检测到与模板一致 => 禁用的「最新」；否则按是否已导入给「更新/导入」
+    const latest = imported && status === "current";
     btn.textContent = importing.has(id)
       ? t("lib.importing")
-      : imported
-        ? t("act.update")
-        : t("act.import");
-    btn.disabled = importing.has(id);
+      : latest
+        ? t("act.latest")
+        : imported
+          ? t("act.update")
+          : t("act.import");
+    btn.disabled = importing.has(id) || latest;
     btn.onclick = () => doImport(id, base, btn);
-    if (imported) btn.title = t("act.update_hint");
+    if (imported && latest) btn.title = t("act.latest_hint");
+    else if (imported) btn.title = t("act.update_hint");
     top.append(h, cat, repo, btn);
+    if (imported && status === undefined) refreshTemplateStatus(base, id, btn);
 
     const desc = document.createElement("div");
     desc.className = "lib-desc";
@@ -1994,18 +2026,17 @@ async function doImport(id, base, btn) {
     });
     showNotice(exists ? t("toast.import_overwritten", { id }) : t("toast.import_done", { id }));
     await afterImport(id);
-    renderLibrary();
+    // 本次导入后的状态作废：finally 里重渲染前清掉，等状态重新检测
+    templateStatusCache.clear();
   } catch (e) {
     showNotice(String(e), true);
   } finally {
     importing.delete(id);
     if (btn) {
       btn.disabled = false;
-      btn.textContent = programs.some((p) => p.id === id)
-        ? t("act.update")
-        : t("act.import");
-      btn.title = programs.some((p) => p.id === id) ? t("act.update_hint") : "";
     }
+    // 必须在 importing 清空后再重渲染，否则新按钮会卡在「导入中…」
+    renderLibrary();
   }
 }
 
@@ -2147,6 +2178,8 @@ async function saveSources() {
 }
 
 const importing = new Set();
+// 模板与本地实例一致性缓存：key=`${registryBase}\u0000${templateId}` -> "new"|"update"|"current"
+const templateStatusCache = {};
 
 // ---------- 侧栏收窄 / 主题 ----------
 

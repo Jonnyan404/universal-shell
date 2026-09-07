@@ -116,6 +116,8 @@ menu.copy: 复制
 act.import: 导入
 act.update: 更新
 act.update_hint: 本地已存在同名程序，点击同步模板参数（保留自定义字段值）
+act.latest: 最新
+act.latest_hint: 本地实例与模板库一致，无需更新
 dl.download: 下载
 dl.update: 更新
 dl.downloading: 下载中…

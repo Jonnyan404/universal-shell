@@ -1338,6 +1338,39 @@ fn export_template(
     Ok(())
 }
 
+/// 模板与本地实例一致性检测："new"/"update"/"current"。
+/// 用于模板库把「导入/更新」按钮在已安装且一致时切换成禁用的「最新」。
+#[tauri::command]
+fn template_status(
+    state: State<AppState>,
+    registry_url: String,
+    template_id: String,
+) -> Result<String, String> {
+    let mgr = state.manager.lock().unwrap();
+    let cache = mgr.data_dir.join("cache/registry");
+    let client = shared::RegistryClient::with_network(
+        &registry_url,
+        cache,
+        mgr.registry_pubkeys.clone(),
+        Some(&mgr.proxy.accelerate_prefix),
+        Some(&mgr.proxy.http_proxy),
+    );
+    let (_offline, program) = client
+        .load_template(&template_id)
+        .map_err(|e| format!("{e:#}"))?;
+    match mgr.all_programs().into_iter().find(|p| p.id == program.id) {
+        None => Ok("new".to_string()),
+        Some(cur) => {
+            let diff = shared::ShellManager::template_diff(&cur, &program);
+            Ok(if diff.is_empty() {
+                "current".to_string()
+            } else {
+                "update".to_string()
+            })
+        }
+    }
+}
+
 /// 导入：拉取模板 → 快照进本地配置 → 写回 shell.json
 /// `overwrite=true` 时若同名程序已存在则替换（保留已排序位置）。
 #[tauri::command]
@@ -1364,8 +1397,15 @@ fn import_template(
         if !overwrite {
             return Err(t!("err.program_exists", id = &program.id).to_string());
         }
-        mgr.programs[idx] = program.clone();
-        let view = to_view(&program);
+        // 更新语义（对齐 egui commit_import/apply_template_update）：结构替换 + 字段值合并，
+        // 保留用户自定义、新增字段补默认、删除字段清值。
+        let cur = mgr.programs[idx].clone();
+        let mut next = cur.clone();
+        let values = mgr.load_field_values(&cur);
+        let merged = shared::ShellManager::apply_template_update(&mut next, &program, &values);
+        mgr.save_field_values(&next, &merged);
+        mgr.programs[idx] = next.clone();
+        let view = to_view(&next);
         mgr.save_config(&state.config_path)
             .map_err(|e| format!("{e:#}"))?;
         mgr.log_op(&t!("op.import_overwrite", desc = t!("op.import_local"), id = &program.id));
@@ -1601,6 +1641,7 @@ pub fn run() {
             import_local_template,
             export_template,
             import_template,
+            template_status,
             get_proxy,
             set_proxy,
             get_locale,

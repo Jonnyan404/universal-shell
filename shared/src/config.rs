@@ -243,7 +243,7 @@ fn is_falsef(b: &bool) -> bool {
 
 /// 环境变量定义。`value` 为模板串：`{field_key}` 由字段运行时值展开，
 /// 不含占位符即为常量（如 `RUST_LOG=info`）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EnvVar {
     /// 环境变量名（如 CROC_SECRET / HTTP_PROXY）
     pub key: String,

@@ -45,6 +45,7 @@ pub struct TemplateDiff {
     pub changed_os_map: bool,
     pub changed_working_dir: bool,
     pub changed_version_pin: bool,
+    pub changed_env: bool,
 }
 
 impl TemplateDiff {
@@ -57,6 +58,7 @@ impl TemplateDiff {
             && !self.changed_os_map
             && !self.changed_working_dir
             && !self.changed_version_pin
+            && !self.changed_env
     }
 
     pub fn summary(&self) -> String {
@@ -824,13 +826,14 @@ impl ShellManager {
     // ---------- 模板更新 (C4) ----------
 
     /// 对比实例当前定义与远端模板定义，产出差异摘要。比较结构层面：repo/资产/参数/字段/映射。
-    pub fn template_diff(&self, current: &Program, remote: &Program) -> TemplateDiff {
+    pub fn template_diff(current: &Program, remote: &Program) -> TemplateDiff {
         let mut d = TemplateDiff::default();
         let eqkv = |a: &serde_json::Value, b: &serde_json::Value| a == b;
         d.changed_repo = current.repo != remote.repo;
         d.changed_assets = serde_json::to_value(&current.assets).unwrap_or_default()
             != serde_json::to_value(&remote.assets).unwrap_or_default();
         d.changed_args = current.args != remote.args;
+        d.changed_env = current.env != remote.env;
         d.changed_arch_map = current.arch_map != remote.arch_map;
         d.changed_os_map = current.os_map != remote.os_map;
         d.changed_working_dir = current.working_dir != remote.working_dir;
@@ -1240,7 +1243,7 @@ mod tests {
         remote.fields.push(Field { key: "bind".into(), kind: FieldKind::String { label: "绑定".into(), default: "127.0.0.1".into(), placeholder: String::new() }, required: false });
 
         let mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-unknown")).unwrap();
-        let diff = mgr.template_diff(&current, &remote);
+        let diff = ShellManager::template_diff(&current, &remote);
         assert!(diff.changed_args);
         assert!(diff.changed_fields);
         assert!(!diff.is_empty());
@@ -1262,7 +1265,7 @@ mod tests {
         // 需有匹配 os 的 assets(否则 identity map) —— 直接复制相同 JSON 确保完全一致
         let q = prog_copy(&p);
         let mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-noop")).unwrap();
-        assert!(mgr.template_diff(&p, &q).is_empty());
+        assert!(ShellManager::template_diff(&p, &q).is_empty());
     }
 
     #[test]

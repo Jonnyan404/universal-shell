@@ -92,6 +92,8 @@ enum Msg {
     ManifestLoaded(Result<shared::MergedSource, String>),
     /// 模板拉取完成，携带解析后的 Program 与是否覆盖（供 UI 线程快照进本地配置）
     TemplateFetched(String, bool, Result<shared::config::Program, String>),
+    /// 模板与本地实例一致性检测完成：(缓存 key, "new"/"update"/"current")
+    TemplateStatus(String, Result<String, String>),
     /// 后台刷新各程序最新版本完成：携带 (id, 最新版本, 发布时间)
     StatusRefreshed(Vec<(String, Option<String>, String)>),
     /// 托盘菜单「开机自启」被点击：请求主线程切换壳自身自启
@@ -200,6 +202,10 @@ struct ShellApp {
     sources_new: String,
     /// 正在导入的模板 id -> 状态
     imports: BTreeMap<String, String>,
+    /// 模板与本地实例一致性缓存：key=`{base}\0{id}` -> "new"|"update"|"current"
+    template_status: std::collections::HashMap<String, String>,
+    /// 已在后台检测一致性的 key（避免重复起线程）
+    status_pending: std::collections::HashSet<String>,
     /// 当前下载进度：(程序 id, 完成比例 0.0..=1.0, 阶段文案)
     progress: Option<(String, f64, String)>,
     /// 设置面板：加速前缀 / 通用代理 编辑框
@@ -366,6 +372,8 @@ impl ShellApp {
             sources_rows,
             sources_new: String::new(),
             imports: BTreeMap::new(),
+            template_status: std::collections::HashMap::new(),
+            status_pending: std::collections::HashSet::new(),
             progress: None,
             settings_accel,
             settings_proxy_type,
@@ -584,6 +592,37 @@ impl ShellApp {
         });
     }
 
+    fn spawn_template_status(&mut self, id: String, base: String, installed: shared::config::Program) {
+        let key = format!("{base}\u{0}{id}");
+        if self.status_pending.contains(&key) {
+            return;
+        }
+        self.status_pending.insert(key.clone());
+        let cache = self.manager.data_dir.join("cache/registry");
+        let pubkeys = self.manager.registry_pubkeys.clone();
+        let proxy = self.manager.proxy.clone();
+        let tx = self.tx.clone();
+        std::thread::spawn(move || {
+            let result = || -> Result<String, String> {
+                let client = RegistryClient::with_network(
+                    &base,
+                    cache,
+                    pubkeys,
+                    Some(&proxy.accelerate_prefix),
+                    Some(&proxy.http_proxy),
+                );
+                let (_offline, program) = client.load_template(&id).map_err(|e| format!("{e:#}"))?;
+                let diff = shared::ShellManager::template_diff(&installed, &program);
+                Ok(if diff.is_empty() {
+                    "current".to_string()
+                } else {
+                    "update".to_string()
+                })
+            }();
+            tx.send(Msg::TemplateStatus(key, result)).ok();
+        });
+    }
+
     /// 后台检查壳自身更新，结果经 Msg::ShellUpdateChecked 回 UI 线程；
     /// manual=true（设置里手动点）时无新版/失败会弹 toast，启动自动检查则静默。
     fn spawn_check_shell_update(&mut self, manual: bool) {
@@ -686,6 +725,18 @@ impl ShellApp {
                                 Err(e) => {
                                     self.imports.insert(id.clone(), t!("eg.import_fail", err = e).to_string());
                                 }
+                    }
+                }
+                Msg::TemplateStatus(key, result) => {
+                    self.status_pending.remove(&key);
+                    match result {
+                        Ok(st) => {
+                            self.template_status.insert(key, st);
+                        }
+                        // 失败按「有更新可点」兜底，避免按钮完全不可用
+                        Err(_) => {
+                            self.template_status.insert(key, "update".to_string());
+                        }
                     }
                 }
                 Msg::StatusRefreshed(list) => {
@@ -1744,6 +1795,21 @@ impl ShellApp {
         merged: &shared::MergedSource,
     ) {
         let imported = self.manager.all_programs().iter().any(|p| p.id == id);
+        // 已导入且数据一致 → 禁用「最新」；检测放后台线程，避免逐卡片阻塞网络
+        let st_key = format!("{base}\u{0}{id}");
+        let current_st = self.template_status.get(&st_key).cloned();
+        if imported && current_st.is_none() {
+            let installed = self
+                .manager
+                .all_programs()
+                .iter()
+                .find(|p| p.id == id)
+                .cloned();
+            if let Some(installed) = installed {
+                self.spawn_template_status(id.clone(), base.clone(), installed);
+            }
+        }
+        let latest = imported && current_st.as_deref() == Some("current");
         egui::Frame::group(ui.style())
             .inner_margin(egui::Margin::same(8))
             .show(ui, |ui| {
@@ -1764,13 +1830,18 @@ impl ShellApp {
                             let import_state = self.imports.get(&id).cloned();
                             match import_state {
                                 None => {
-                                    // 本地已有同名程序 => 主按钮即「更新」（覆盖导入合并语义）
-                                    let label = if imported {
+                                    // 已导入且一致 -> 禁用的「最新」；已导入有差异 -> 「更新」；否则「导入」
+                                    let label = if latest {
+                                        t!("act.latest")
+                                    } else if imported {
                                         t!("act.update")
                                     } else {
                                         t!("act.import")
                                     };
-                                    if ui.button(label).clicked() {
+                                    if ui
+                                        .add_enabled(!latest, egui::Button::new(label))
+                                        .clicked()
+                                    {
                                         if imported {
                                             self.pending_import = Some((id.clone(), base.clone()));
                                         } else {

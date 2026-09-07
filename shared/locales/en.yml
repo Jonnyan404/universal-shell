@@ -116,6 +116,8 @@ menu.copy: Duplicate
 act.import: Import
 act.update: Update
 act.update_hint: A program with this id exists; click to sync template params (keeps custom field values)
+act.latest: Latest
+act.latest_hint: Local instance matches the template; no update needed
 dl.download: Download
 dl.update: Update
 dl.downloading: Downloading…
