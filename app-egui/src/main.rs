@@ -1632,7 +1632,7 @@ impl ShellApp {
                         let content = line.strip_prefix('\u{1f}').unwrap_or(&line);
                         ui.colored_label(egui::Color32::from_rgb(220, 90, 90), content);
                     } else {
-                        ui.monospace(line);
+                        ui.monospace(line.strip_prefix('\u{1f}').unwrap_or(&line));
                     }
                 }
             });
@@ -2689,7 +2689,7 @@ impl ShellApp {
                                 let content = line.strip_prefix('\u{1f}').unwrap_or(&line);
                                 ui.colored_label(egui::Color32::from_rgb(220, 90, 90), content);
                             } else {
-                                ui.monospace(line);
+                                ui.monospace(line.strip_prefix('\u{1f}').unwrap_or(&line));
                             }
                         }
                         if log.is_empty() {
