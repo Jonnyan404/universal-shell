@@ -2085,6 +2085,19 @@ function cycleSidebar() {
 // ---------- 启动 ----------
 
 window.addEventListener("DOMContentLoaded", async () => {
+  // 关闭系统智能文本替换（smart dashes/quotes 会把 "--" 折叠成 "-"）。
+  // 程序参数/模板编辑都是精确文本，必须原样保留。这里全局兜底所有静态
+  // 文本框（编辑弹窗 args/名称/http 源、设置、模板源等）；renderForm 动态
+  // 创建的字段输入已在其创建处单独处理。
+  document
+    .querySelectorAll(
+      'input:not([type]), input[type="text"], input[type="search"], input[type="password"], textarea'
+    )
+    .forEach((el) => {
+      el.setAttribute("autocorrect", "off");
+      el.setAttribute("spellcheck", "false");
+      el.setAttribute("autocapitalize", "off");
+    });
   document.documentElement.dataset.theme =
     localStorage.getItem("theme") || "";
   applyTheme();
