@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # us-web — 从 Universal Shell GitHub Release 下载并运行 headless CLI 服务端
-#（不在镜像内编译，直接从 release 拉取预编译的 universal-shell-cli 安装包;
-#  该包在 ubuntu-24.04 runner 上构建，要求 glibc>=2.39，故运行基镜像用 ubuntu:24.04）
+#（不在镜像内编译，直接从 release 拉取预编译的 universal-shell-cli 安装包。
+#  该包在 ubuntu-24.04 runner 上以标准 glibc 动态链接构建，要求 glibc>=2.39，
+#  故运行时用 debian:trixie（glibc 2.41）的标准精简镜像，小且兼容）
 #
 # 构建（ARCH 取 x86_64 或 arm64，对应 release asset 的 -linux-<ARCH> 后缀）：
 #   docker build -t universal-shell:amd64 . --build-arg ARCH=x86_64
@@ -23,7 +24,7 @@ ARG VERSION=0.1.8
 ARG ARCH=x86_64
 
 # ---- 下载阶段：从 Release 拉取预编译二进制 ----
-FROM ubuntu:24.04 AS fetch
+FROM debian:trixie-slim AS fetch
 ARG ARCH
 ARG VERSION
 RUN apt-get update \
@@ -34,7 +35,7 @@ RUN apt-get update \
     && chmod +x /us-web
 
 # ---- 运行阶段 ----
-FROM ubuntu:24.04
+FROM debian:trixie-slim
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        ca-certificates libwayland-client0 libxkbcommon0 \
