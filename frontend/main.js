@@ -537,7 +537,7 @@ function renderActions() {
     const appDir = document.createElement("button");
     appDir.className = "icon-btn ops-dir";
     appDir.title = t("act.open_app_dir");
-    appDir.textContent = "📁";
+    appDir.appendChild(iconSvg("dir"));
     appDir.onclick = async () => {
       try {
         await invoke("reveal_app_dir", { programId: current.id });
@@ -572,13 +572,13 @@ function renderActions() {
   const editBtn = document.createElement("button");
   editBtn.className = "icon-btn ops-edit";
   editBtn.title = t("act.edit");
-  editBtn.textContent = "✎";
+  editBtn.appendChild(iconSvg("edit"));
   editBtn.onclick = () => openEditModal(current);
   pushIcon(editBtn);
   const delBtn = document.createElement("button");
   delBtn.className = "icon-btn ops-del";
   delBtn.title = t("act.delete");
-  delBtn.textContent = "🗑";
+  delBtn.appendChild(iconSvg("del"));
   delBtn.onclick = () => confirmAndDelete(current);
   pushIcon(delBtn);
   if (group2.children.length) {
@@ -892,11 +892,8 @@ function renderBatch() {
         await invoke("set_program_hidden", { programId: item.id, hidden: hide.checked });
         showNotice(hide.checked ? t("toast.hidden", { name: item.name }) : t("toast.unhidden", { name: item.name }));
         programs = await invoke("get_programs");
-        const hidCurrent = item.id === current?.id && hide.checked;
-        if (hidCurrent) current = null;
-        if (!current) current = programs.find((p) => !p.hidden) || null;
+        if (item.id === current?.id && hide.checked) current = null;
         await refreshBatchLocal();
-        if (hidCurrent && current) await switchCurrent(current.id);
       } catch (e) {
         hide.checked = !hide.checked;
         showNotice(String(e), true);
@@ -923,11 +920,32 @@ function hasRemoteSource(item) {
   return !!(item.repo || statusSource(item.id));
 }
 
+const ICONS = {
+  start: '<path fill="#34c759" d="M4.5 3.2v17.6L19.5 12z"/>',
+  stop: '<rect fill="#ff453a" x="4" y="4" width="16" height="16" rx="2.5"/>',
+  restart: '<path fill="#ff9f0a" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/>',
+  dir: '<path fill="#eab308" d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>',
+  edit: '<path fill="#7c5cff" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>',
+  del: '<path fill="#ff453a" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>',
+  dl: '<path fill="#30d158" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>',
+  ok: '<path fill="#34c759" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>',
+};
+
+function iconSvg(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = ICONS[name];
+  return svg;
+}
+
 function batchIconBtn(ico, titleKey, cls, fn) {
   const b = document.createElement("button");
   b.className = "icon-btn" + (cls ? " " + cls : "");
   b.title = t(titleKey);
-  b.textContent = ico;
+  b.appendChild(iconSvg(ico));
   b.onclick = fn;
   return b;
 }
@@ -939,7 +957,7 @@ function batchDownloadBtn(item, s) {
   dl.dataset.programId = item.id;
   dl.dataset.installed = s.installed ? "1" : "0";
   dl.title = isUpToDate ? t("st.latest") : s.installed ? t("dl.update") : t("dl.download");
-  dl.textContent = isUpToDate ? "✓" : "⇩";
+  dl.appendChild(iconSvg(isUpToDate ? "ok" : "dl"));
   dl.disabled = isUpToDate;
   dl.onclick = () => installProgram(item.id, dl);
   return dl;
@@ -962,15 +980,15 @@ function batchOpButtons(item) {
   const ops = document.createElement("span");
   ops.className = "batch-ops";
   if (hasRemoteSource(item)) ops.appendChild(batchDownloadBtn(item, s));
-  ops.appendChild(batchIconBtn("▶", "act.start", "ops-start", () => batchAct(item, "start_program")));
-  ops.appendChild(batchIconBtn("↻", "act.restart", "ops-restart", () => batchAct(item, "restart_program")));
-  ops.appendChild(batchIconBtn("■", "act.stop", "ops-stop", () => batchAct(item, "stop_program")));
-  if (item.repo) ops.appendChild(batchIconBtn("📁", "act.open_app_dir", "ops-dir", async () => {
+  ops.appendChild(batchIconBtn("start", "act.start", "ops-start", () => batchAct(item, "start_program")));
+  ops.appendChild(batchIconBtn("restart", "act.restart", "ops-restart", () => batchAct(item, "restart_program")));
+  ops.appendChild(batchIconBtn("stop", "act.stop", "ops-stop", () => batchAct(item, "stop_program")));
+  if (item.repo) ops.appendChild(batchIconBtn("dir", "act.open_app_dir", "ops-dir", async () => {
     try { await invoke("reveal_app_dir", { programId: item.id }); }
     catch (e) { showNotice(String(e), true); }
   }));
-  ops.appendChild(batchIconBtn("✎", "act.edit", "ops-edit", () => openEditModal(programs.find((x) => x.id === item.id))));
-  ops.appendChild(batchIconBtn("🗑", "act.delete", "ops-del", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
+  ops.appendChild(batchIconBtn("edit", "act.edit", "ops-edit", () => openEditModal(programs.find((x) => x.id === item.id))));
+  ops.appendChild(batchIconBtn("del", "act.delete", "ops-del", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
   return ops;
 }
 
@@ -2228,7 +2246,7 @@ function renderMobCards() {
     body.append(nm, st);
     const dot = document.createElement("span");
     dot.className = "mob-card-dot" + (s.status.running ? " on" : "");
-    card.append(ico, body, dot);
+    card.append(ico, dot, body);
     card.onclick = () => {
       switchCurrent(s.id);
       mobGotoDetail(p);
@@ -2588,3 +2606,4 @@ async function boot() {
 boot().catch((e) => {
   showNotice(String(e), true);
 });
+
