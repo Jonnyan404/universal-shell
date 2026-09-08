@@ -298,9 +298,15 @@ async function duplicateProgram(p) {
 
 async function toggleProgramHidden(p) {
   try {
-    await invoke("set_program_hidden", { programId: p.id, hidden: !p.hidden });
-    showNotice(t(p.hidden ? "toast.unhidden" : "toast.hidden", { name: p.name }));
+    const hiding = !p.hidden;
+    await invoke("set_program_hidden", { programId: p.id, hidden: hiding });
+    showNotice(t(hiding ? "toast.hidden" : "toast.unhidden", { name: p.name }));
     await reloadPrograms();
+    if (hiding && current && current.id === p.id) {
+      const next = programs.find((x) => !x.hidden);
+      if (next) switchCurrent(next.id);
+      else document.querySelector("#manage-view").hidden = true;
+    }
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -527,26 +533,12 @@ function renderActions() {
     dl.onclick = () => installProgram(current.id, dl);
   }
 
-  // 图标组（打开目录/复制地址/打开网站）：仅在存在时插入分隔条
+  // 图标组（复制地址/打开网站）：仅在存在时插入分隔条
   const group2 = document.createElement("span");
   group2.className = "act-group act-icons";
   const pushIcon = (b) => {
     group2.appendChild(b);
   };
-  if (current.repo) {
-    const appDir = document.createElement("button");
-    appDir.className = "icon-btn ops-dir";
-    appDir.title = t("act.open_app_dir");
-    appDir.appendChild(iconSvg("dir"));
-    appDir.onclick = async () => {
-      try {
-        await invoke("reveal_app_dir", { programId: current.id });
-      } catch (e) {
-        showNotice(String(e), true);
-      }
-    };
-    pushIcon(appDir);
-  }
   const url = webUrl(current);
   if (url) {
     const copy = document.createElement("button");
@@ -569,18 +561,6 @@ function renderActions() {
     open.onclick = () => openExternal(url);
     pushIcon(open);
   }
-  const editBtn = document.createElement("button");
-  editBtn.className = "icon-btn ops-edit";
-  editBtn.title = t("act.edit");
-  editBtn.appendChild(iconSvg("edit"));
-  editBtn.onclick = () => openEditModal(current);
-  pushIcon(editBtn);
-  const delBtn = document.createElement("button");
-  delBtn.className = "icon-btn ops-del";
-  delBtn.title = t("act.delete");
-  delBtn.appendChild(iconSvg("del"));
-  delBtn.onclick = () => confirmAndDelete(current);
-  pushIcon(delBtn);
   if (group2.children.length) {
     const sep = document.createElement("span");
     sep.className = "act-sep";
@@ -2606,4 +2586,5 @@ async function boot() {
 boot().catch((e) => {
   showNotice(String(e), true);
 });
+
 
