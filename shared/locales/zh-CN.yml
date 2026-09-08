@@ -267,6 +267,7 @@ log.autostart.launch: '应用自启动：拉起「%{name}」'
 log.autostart.fail: '应用自启动：拉起「%{name}」失败 - %{err}'
 log.autostart.skip: '应用自启动：跳过「%{name}」(已在运行)'
 log.shell_started: '壳启动（本次会话开始）'
+log.web_start_fail: 'Web 管理启动失败: %{err}'
 err.datadir: '无法创建数据目录 %{path}'
 err.init_datadir: 初始化数据目录失败
 err.load_config: 加载配置失败
@@ -325,6 +326,7 @@ op.export: 导出程序「%{name}」模板到本地
 log.autostart.set_fail: 'autostart 设置失败: %{err}'
 log.shell_autostart_fail: '切换壳开机自启失败: %{err}'
 tray.show: 显示主窗口
+tray.web_open: 在浏览器打开
 tray.quit: 退出
 tray.auto_start: 开机自启
 err.registry.sig_rejected: '拒绝使用签名未通过的清单: %{base}'

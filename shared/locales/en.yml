@@ -267,6 +267,7 @@ log.autostart.launch: 'Autostart: launching "%{name}"'
 log.autostart.fail: 'Autostart: launching "%{name}" failed - %{err}'
 log.autostart.skip: 'Autostart: skipping "%{name}" (already running)'
 log.shell_started: 'Shell started (new session)'
+log.web_start_fail: 'Failed to start web UI: %{err}'
 err.datadir: 'Cannot create data dir %{path}'
 err.init_datadir: Failed to initialize data directory
 err.load_config: Failed to load config
@@ -325,6 +326,7 @@ op.export: Exported program "%{name}" template to local
 log.autostart.set_fail: 'autostart set failed: %{err}'
 log.shell_autostart_fail: 'Failed to toggle shell autostart: %{err}'
 tray.show: Show main window
+tray.web_open: Open in browser
 tray.quit: Quit
 tray.auto_start: Autostart
 err.registry.sig_rejected: 'Refusing unsigned-invalid manifest: %{base}'

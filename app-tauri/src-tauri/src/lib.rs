@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use shared::config::{Field, Program};
 use shared::ShellManager;
@@ -15,6 +15,7 @@ use tauri::AppHandle;
 use tauri::Emitter;
 
 use rust_i18n::t;
+use tauri_plugin_opener::OpenerExt;
 
 rust_i18n::i18n!("../../shared/locales");
 
@@ -27,9 +28,13 @@ fn apply_locale(override_locale: Option<&str>) -> String {
 }
 
 struct AppState {
-    manager: Mutex<ShellManager>,
+    manager: Arc<Mutex<ShellManager>>,
     config_path: PathBuf,
 }
+
+/// 内嵌 Web 服务的存活句柄（退出时停止并回收端口）。
+/// JoinHandle 亦可 Sync，但 stop() 需要 &mut self，故包一层 Mutex 供退出事件取用。
+struct WebServerState(Mutex<Option<web_server::WebServerHandle>>);
 
 /// 给前端传的字段（含默认值，但不含运行时值——值由 get_values 单独返回）
 #[derive(serde::Serialize)]
@@ -1537,7 +1542,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
-            manager: Mutex::new(manager),
+            manager: Arc::new(Mutex::new(manager)),
             config_path,
         })
         // D1: 托盘常驻。关闭窗口→隐藏而非退出；托盘菜单唤出/退出。
@@ -1546,6 +1551,7 @@ pub fn run() {
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
             let show_i = MenuItem::with_id(app, "tray_show", t!("tray.show"), true, None::<&str>)?;
+            let web_i = MenuItem::with_id(app, "tray_web", t!("tray.web_open"), true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "tray_quit", t!("tray.quit"), true, None::<&str>)?;
             let auto_i = CheckMenuItem::with_id(app, "tray_auto", t!("tray.auto_start"), true, false, None::<&str>)?;
             if let Ok(on) = app
@@ -1556,7 +1562,7 @@ pub fn run() {
             {
                 let _ = auto_i.set_checked(on);
             }
-            let menu = Menu::with_items(app, &[&show_i, &auto_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&show_i, &web_i, &auto_i, &quit_i])?;
 
             // 托盘专用小图标：实心六边形 + 插头镂空（raw RGBA，避免 image 解码依赖）
             const TRAY_RGBA: &[u8] =
@@ -1594,6 +1600,18 @@ pub fn run() {
                             }
                             let _ = auto_i.set_checked(next);
                         }
+                        "tray_web" => {
+                            if let Some(url) = app
+                                .state::<WebServerState>()
+                                .0
+                                .lock()
+                                .unwrap()
+                                .as_ref()
+                                .map(|h| h.url.clone())
+                            {
+                                let _ = app.opener().open_url(url, None::<&str>);
+                            }
+                        }
                         _ => {}
                     }
                 })
@@ -1621,6 +1639,27 @@ pub fn run() {
                     m.log_op(&t!("log.shell_started"));
                     m.start_autostart_programs()
                 });
+            }
+
+            // 内嵌 Web 管理（F-4）：与浏览器同源同入口；主窗口直达 loopback 服务。
+            // 失败不阻断桌面 UI——桌面仍走自带资源，仅少了 Web 管理。
+            {
+                let st = app.state::<AppState>();
+                let cfg = st.config_path.clone();
+                match web_server::start(st.manager.clone(), cfg, "127.0.0.1", 0) {
+                    Ok(h) => {
+                        let url = h.url.clone();
+                        let _ = app.manage(WebServerState(Mutex::new(Some(h))));
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.navigate(tauri::Url::parse(&url).expect("loopback url"));
+                        }
+                    }
+                    Err(e) => {
+                        let _ = st.manager.lock().map(|m| {
+                            m.log_op(&t!("log.web_start_fail", err = format!("{e:#}")))
+                        });
+                    }
+                }
             }
             Ok(())
         })
@@ -1678,6 +1717,15 @@ pub fn run() {
             get_shell_version,
             check_shell_update
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                if let Some(st) = app_handle.try_state::<WebServerState>() {
+                    if let Some(mut h) = st.0.lock().unwrap().take() {
+                        h.stop();
+                    }
+                }
+            }
+        });
 }
