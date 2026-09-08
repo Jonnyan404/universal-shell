@@ -81,6 +81,21 @@ jobs:
         run: cargo build --release -p app-egui
         shell: bash
 
+      - name: Build CLI (us-web)
+        if: env.skip != '1'
+        run: cargo build --release -p app-cli
+        shell: bash
+
+      - name: Package CLI (us-web)
+        if: env.skip != '1'
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          CLI="dist/cli/linux"
+          mkdir -p "$CLI"
+          cp "target/release/us-web" "$CLI/us-web-$VERSION-linux-${{ matrix.label }}"
+          chmod +x "$CLI/us-web-$VERSION-linux-${{ matrix.label }}"
+        shell: bash
+
       - name: Package egui (Linux binary)
         if: env.skip != '1'
         run: |

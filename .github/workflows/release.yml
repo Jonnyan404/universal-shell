@@ -118,6 +118,33 @@ jobs:
           else
             cargo build --release -p app-egui
           fi
+
+      # ---- cli：无窗口 headless 服务端 us-web（树莓派/NAS/无桌面环境），随各平台打包 ----
+      - name: Build CLI (us-web)
+        env:
+          UNIVERSAL_SHELL_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            TGT=$(echo "${{ matrix.label }}" | grep -q arm64 && echo aarch64-pc-windows-msvc || echo x86_64-pc-windows-msvc)
+            cargo build --release --target "$TGT" -p app-cli
+          else
+            cargo build --release -p app-cli
+          fi
+        shell: bash
+
+      - name: Package CLI (us-web)
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          CLI="dist/cli/${{ matrix.label }}"
+          mkdir -p "$CLI"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            TGT=$(echo "${{ matrix.label }}" | grep -q arm64 && echo aarch64-pc-windows-msvc || echo x86_64-pc-windows-msvc)
+            cp "target/$TGT/release/us-web.exe" "$CLI/us-web-$VERSION-${{ matrix.label }}.exe"
+          else
+            cp "target/release/us-web" "$CLI/us-web-$VERSION-${{ matrix.label }}"
+            chmod +x "$CLI/us-web-$VERSION-${{ matrix.label }}"
+          fi
+        shell: bash
         shell: bash
 
       - name: Package egui (Windows .exe + .msi)
@@ -302,6 +329,7 @@ jobs:
         run: |
           find dist -type f \
             \( -name 'universal-shell-egui-*' \
+               -o -name 'us-web-*' \
                -o -path '*/Contents/MacOS/*' \
                -o -path '*/bin/*' \) \
             -exec chmod +x {} +

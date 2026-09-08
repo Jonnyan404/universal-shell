@@ -85,6 +85,31 @@ jobs:
           cargo build --release --target "$TGT" -p app-egui
         shell: bash
 
+      - name: Build CLI (us-web)
+        if: env.skip != '1'
+        run: |
+          if [ "${{ matrix.label }}" = "arm64" ]; then
+            TGT="aarch64-pc-windows-msvc"
+          else
+            TGT="x86_64-pc-windows-msvc"
+          fi
+          cargo build --release --target "$TGT" -p app-cli
+        shell: bash
+
+      - name: Package CLI (us-web)
+        if: env.skip != '1'
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          CLI="dist/cli/windows"
+          if [ "${{ matrix.label }}" = "arm64" ]; then
+            TGT="aarch64-pc-windows-msvc"
+          else
+            TGT="x86_64-pc-windows-msvc"
+          fi
+          mkdir -p "$CLI"
+          cp "target/$TGT/release/us-web.exe" "$CLI/us-web-$VERSION-${{ matrix.label }}.exe"
+        shell: bash
+
       - name: Package egui (Windows .exe + .msi)
         if: env.skip != '1'
         run: |
