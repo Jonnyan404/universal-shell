@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["shared", "app-egui", "app-tauri/src-tauri", "web-server"]
+members = ["shared", "app-egui", "app-tauri/src-tauri", "web-server", "app-cli"]
 
 [workspace.package]
 version = "0.1.4"
