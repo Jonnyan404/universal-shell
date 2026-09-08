@@ -128,6 +128,10 @@ pub fn start_with_state(
                     .route("/api/rpc", post(rpc_handler))
                     .route("/api/capabilities", get(capabilities))
                     .route("/ws", get(ws_handler))
+                    // F6 鉴权：回环 peer 免 token；其它来源必须携带 token（查询参数或 X-Universal-Token 头）
+                    .route_layer(
+                        axum::middleware::from_fn_with_state(state.clone(), web_auth)
+                    )
                     .with_state(state);
 
                 let shutdown = {
@@ -139,7 +143,10 @@ pub fn start_with_state(
                     }
                 };
                 log::info!("web-server listening on http://{addr}");
-                if let Err(e) = axum::serve(listener, app).with_graceful_shutdown(shutdown).await {
+                if let Err(e) = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+                    .with_graceful_shutdown(shutdown)
+                    .await
+                {
                     log::error!("web-server: {e:#}");
                 }
             })
@@ -206,6 +213,56 @@ async fn capabilities(State(state): State<Arc<RpcState>>) -> axum::Json<serde_js
         "reveal_available": true,
         "native_pick_available": false, // F-2: 服务端 rfd 弹框
     }))
+}
+
+/// F6 鉴权中间件：回环 peer 放行；非回环来源校验令牌。
+async fn web_auth(
+    State(state): State<Arc<RpcState>>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::extract::connect_info::ConnectInfo;
+    let peer_is_loopback = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|c| c.0.ip().is_loopback())
+        .unwrap_or(true);
+    if peer_is_loopback || check_token(&state.token, &req) {
+        return next.run(req).await;
+    }
+    (
+        axum::http::StatusCode::FORBIDDEN,
+        axum::Json(serde_json::json!({
+            "ok": false,
+            "error": rpc::token_required(&state.token)
+        })),
+    )
+        .into_response()
+}
+
+fn check_token(token: &str, req: &axum::http::Request<axum::body::Body>) -> bool {
+    if token.is_empty() {
+        return true;
+    }
+    for name in [axum::http::header::AUTHORIZATION.as_str(), "x-universal-token"] {
+        if let Some(header) = req.headers().get(name) {
+            if let Ok(v) = header.to_str() {
+                let v = v.trim();
+                if v == token || v.strip_prefix("Bearer ").map(|s| s.trim() == token).unwrap_or(false) {
+                    return true;
+                }
+            }
+        }
+    }
+    if let Some(q) = req.uri().query() {
+        for kv in q.split('&') {
+            let mut it = kv.splitn(2, '=');
+            if it.next() == Some("token") && it.next() == Some(token) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// WebSocket 事件通道：订阅 RpcState.events 广播并转发；兼作 25s 保活。

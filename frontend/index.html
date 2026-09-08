@@ -233,6 +233,14 @@
           <span class="sett-check"><input id="sett-web-port" type="number" min="0" max="65535" /> <span data-i18n="sett.web_port_hint">0=随机；改动重启壳后生效</span></span>
         </div>
         <div class="edit-row">
+          <label data-i18n="sett.lan">允许局域网访问</label>
+          <span class="sett-check"><input id="sett-lan" type="checkbox" /> <span data-i18n="sett.lan_hint">绑定 0.0.0.0；非本机访问需带令牌</span></span>
+        </div>
+        <div class="edit-row">
+          <label data-i18n="sett.web_token">访问令牌</label>
+          <span class="sett-token"><input id="sett-token" type="text" readonly spellcheck="false" /> <button type="button" id="sett-token-copy" class="op-btn" data-i18n-title="act.copy">⧉</button></span>
+        </div>
+        <div class="edit-row">
           <label data-i18n="sett.shell_auto">壳开机自启</label>
           <span class="sett-check"><input type="checkbox" id="sett-shell-auto" /> <span data-i18n="sett.shell_auto_label">开机时自动启动本壳（并拉起开启了自启的程序）</span></span>
         </div>

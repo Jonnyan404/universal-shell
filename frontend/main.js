@@ -501,8 +501,9 @@ async function completeInstall(id, error, version) {
 let ws = null;
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const q = globalThis.usToken ? "?token=" + encodeURIComponent(globalThis.usToken) : "";
   try {
-    ws = new WebSocket(`${proto}//${location.host}/ws`);
+    ws = new WebSocket(`${proto}//${location.host}/ws${q}`);
   } catch {
     setTimeout(connectWS, 2000);
     return;
@@ -1179,7 +1180,11 @@ function openSettings() {
     .then((on) => { document.querySelector("#sett-shell-auto").checked = !!on; })
     .catch(() => {});
   invoke("get_web_settings")
-    .then((w) => { document.querySelector("#sett-web-port").value = w.port || 0; })
+    .then((w) => {
+      document.querySelector("#sett-web-port").value = w.port || 0;
+      document.querySelector("#sett-lan").checked = w.bind !== "";
+      document.querySelector("#sett-token").value = w.token || "";
+    })
     .catch(() => {});
   invoke("get_shell_version")
     .then((v) => {
@@ -1199,6 +1204,7 @@ async function saveSettings() {
   const hp = buildProxy(type, host, user, pass);
   const shellAuto = document.querySelector("#sett-shell-auto").checked;
   const webPort = Number(document.querySelector("#sett-web-port").value) || 0;
+  const webBind = document.querySelector("#sett-lan").checked ? "0.0.0.0" : "";
   try {
     await invoke("set_proxy", { acceleratePrefix: acc, httpProxy: hp });
     try {
@@ -1207,7 +1213,7 @@ async function saveSettings() {
       showNotice(t("toast.shell_autostart_fail", { err: e }), true);
     }
     try {
-      await invoke("set_web_settings", { bind: "", port: webPort });
+      await invoke("set_web_settings", { bind: webBind, port: webPort });
     } catch (e) {
       showNotice(String(e), true);
     }
@@ -1701,6 +1707,12 @@ document.querySelector("#settings-form").onsubmit = (e) => {
   saveSettings();
 };
 document.querySelector("#sett-check-update").onclick = () => checkShellUpdate(true);
+document.querySelector("#sett-token-copy").onclick = () => {
+  const inp = document.querySelector("#sett-token");
+  inp.select();
+  inp.setSelectionRange(0, 99999);
+  navigator.clipboard.writeText(inp.value).then(() => showNotice(t("toast.copied"))).catch(() => {});
+};
 
 // 模板库
 document.querySelector("#lib-import-local").onclick = openImportModal;

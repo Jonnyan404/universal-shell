@@ -590,6 +590,10 @@ pub struct WebSettings {
     /// 端口：0 = 自动选空闲高位端口
     #[serde(default, skip_serializing_if = "WebSettings::is_zero_port")]
     pub port: u16,
+    /// 访问令牌：非回环 peer 必须携带（查询参数 token 或 X-Universal-Token 头）。
+    /// 首次启动随机生成并持久化。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub token: String,
 }
 
 impl WebSettings {
@@ -598,7 +602,7 @@ impl WebSettings {
     }
 
     pub fn is_default(&self) -> bool {
-        self.bind.is_empty() && self.port == 0
+        self.bind.is_empty() && self.port == 0 && self.token.is_empty()
     }
 
     /// 生效的监听地址（空 → 回环）。

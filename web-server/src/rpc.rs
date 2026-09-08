@@ -13,19 +13,41 @@ use shared::ShellManager;
 
 use rust_i18n::t;
 
+/// 鉴权失败文案（F6）。供 lib.rs 中间件复用。
+pub fn token_required(_token: &str) -> String {
+    t!("err.web_token_required").to_string()
+}
+
 /// 共享状态：宿主进程(egui / tauri)把同一份 manager 交进来。
 /// `events` 是 WebSocket 事件总线（下载进度等后台任务向浏览器广播，F-3 事件推送复用）。
 pub struct RpcState {
     pub manager: Arc<Mutex<ShellManager>>,
     pub config_path: PathBuf,
     pub events: tokio::sync::broadcast::Sender<String>,
+    /// 访问令牌：非回环 peer 必须携带（F6 鉴权）。首次启动生成并持久化。
+    pub token: String,
 }
 
 impl RpcState {
     pub fn new(manager: Arc<Mutex<ShellManager>>, config_path: PathBuf) -> Self {
         let (tx, _rx) = tokio::sync::broadcast::channel(128);
-        Self { manager, config_path, events: tx }
+        let token = {
+            let mut mgr = manager.lock().unwrap();
+            if mgr.web.token.is_empty() {
+                mgr.web.token = generate_token();
+                let _ = mgr.save_config(&config_path);
+            }
+            mgr.web.token.clone()
+        };
+        Self { manager, config_path, events: tx, token }
     }
+}
+
+/// 生成 48 位十六进制随机令牌（URL 安全字符集）。
+pub fn generate_token() -> String {
+    let mut bytes = [0u8; 24];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 #[derive(Deserialize)]
@@ -576,6 +598,7 @@ pub async fn dispatch(state: &RpcState, cmd: &str, args: &serde_json::Map<String
         manager: state.manager.clone(),
         config_path: state.config_path.clone(),
         events: state.events.clone(),
+        token: state.token.clone(),
     };
     let cmd = cmd.to_string();
     let args = args.clone();
@@ -952,7 +975,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         "get_web_settings" => {
             let mgr = state.manager.lock().unwrap();
             let w = mgr.web_settings();
-            Ok(json!({ "bind": w.bind, "port": w.port }))
+            Ok(json!({ "bind": w.bind, "port": w.port, "token": w.token }))
         }
         "set_web_settings" => {
             let bind = arg_str(args, "bind");

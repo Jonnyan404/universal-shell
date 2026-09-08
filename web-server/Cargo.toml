@@ -17,6 +17,7 @@ sys-locale = "0.3"
 rust-i18n = "4"
 axum = { version = "0.7", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros", "sync"] }
+rand = "0.8"
 
 [build-dependencies]
 serde_json = { workspace = true }

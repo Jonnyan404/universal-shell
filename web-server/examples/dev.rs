@@ -41,5 +41,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn start_serve(manager: Arc<Mutex<ShellManager>>, config_path: std::path::PathBuf) -> anyhow::Result<WebServerHandle> {
-    web_server::start(manager, config_path, "127.0.0.1", 0)
+    // 与 egui/tauri 宿主一致：端口/绑定取配置（默认 127.0.0.1 + 随机；占用自动回退）
+    let (bind, port) = {
+        let mgr = manager.lock().unwrap();
+        let w = mgr.web_settings();
+        (w.effective_bind().to_string(), w.port)
+    };
+    web_server::start_preferred(manager, config_path, &bind, port)
 }

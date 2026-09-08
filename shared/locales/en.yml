@@ -78,6 +78,10 @@ sett.shell_auto: Shell autostart
 sett.shell_auto_label: 'Start this shell at login (and launch autostart programs)'
 sett.web_port: Web admin port
 sett.web_port_hint: '0 = auto; applies after shell restart'
+sett.lan: Allow LAN access
+sett.lan_hint: 'Bind 0.0.0.0; non-local access requires the token'
+sett.web_token: Access token
+err.web_token_required: 'Token required (query param token or X-Universal-Token header)'
 sett.web: Embedded web management
 sett.web_open: Open in browser
 sett.web_on_addr: 'Running: %{url}'

@@ -78,6 +78,10 @@ sett.shell_auto: 壳开机自启
 sett.shell_auto_label: 开机时自动启动本壳（并拉起开启了自启的程序）
 sett.web_port: Web 管理端口
 sett.web_port_hint: 0=随机；改动重启壳后生效
+sett.lan: 允许局域网访问
+sett.lan_hint: 绑定 0.0.0.0；非本机访问需带令牌
+sett.web_token: 访问令牌
+err.web_token_required: 需要访问令牌（查询参数 token 或 X-Universal-Token 请求头）
 sett.web: 内嵌 Web 管理
 sett.web_open: 在浏览器打开
 sett.web_on_addr: 运行中：%{url}
