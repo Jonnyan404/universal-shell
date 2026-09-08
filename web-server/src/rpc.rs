@@ -151,6 +151,57 @@ struct ProxyView {
 #[derive(Serialize)]
 struct LogsView {
     text: String,
+    /// 本次返回时文件 EOF 字节偏移（前端据此做增量尾随）
+    offset: u64,
+    /// 文件被截断/重建导致偏移失效，前端应整体重渲
+    reset: bool,
+}
+
+/// 增量日志读取（F-3/F11）：
+/// - 无 offset：返回最近 64KB 尾部 + EOF 偏移（前端首次加载）
+/// - 有 offset 且 <= len：只返回自 offset 起新增字节（delta，不整页重传）
+/// - 有 offset 但文件已截断/重建：返回尾部 + 新偏移 + reset=true
+fn read_log_delta(path: &std::path::Path, offset: Option<u64>) -> (String, u64, bool) {
+    const TAIL: u64 = 64 * 1024;
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return (String::new(), offset.unwrap_or(0), false);
+    };
+    let Ok(len) = f.metadata().map(|m| m.len()) else {
+        return (String::new(), offset.unwrap_or(0), false);
+    };
+    fn read_tail(f: &mut std::fs::File, len: u64) -> (Vec<u8>, u64) {
+        use std::io::{Read, Seek, SeekFrom};
+        let start = len.saturating_sub(TAIL);
+        if f.seek(SeekFrom::Start(start)).is_err() {
+            return (Vec::new(), len);
+        }
+        let mut v = Vec::new();
+        let _ = f.read_to_end(&mut v);
+        if start > 0 {
+            if let Some(i) = v.iter().position(|&b| b == b'\n') {
+                v = v[(i + 1)..].to_vec();
+            }
+        }
+        (v, len)
+    }
+    match offset {
+        None => {
+            let (v, len) = read_tail(&mut f, len);
+            (String::from_utf8_lossy(&v).to_string(), len, false)
+        }
+        Some(off) if off == len => (String::new(), len, false),
+        Some(off) if off < len => {
+            let _ = f.seek(SeekFrom::Start(off));
+            let mut v = Vec::new();
+            let _ = f.read_to_end(&mut v);
+            (String::from_utf8_lossy(&v).to_string(), len, false)
+        }
+        Some(_) => {
+            let (v, len) = read_tail(&mut f, len);
+            (String::from_utf8_lossy(&v).to_string(), len, true)
+        }
+    }
 }
 
 impl StatusView {
@@ -787,12 +838,14 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         // ---------- 日志 ----------
         "get_logs" => {
             let program_id = arg_str(args, "programId");
+            let offset = args.get("offset").and_then(|v| v.as_u64());
             let mgr = state.manager.lock().unwrap();
             if !mgr.all_programs().iter().any(|p| p.id == program_id) {
                 return Err(program_not_found(&program_id));
             }
-            let (out, _err) = mgr.read_logs(&program_id, 64 * 1024);
-            Ok(serde_json::to_value(LogsView { text: out }).map_err(|e| format!("rpc: logs view: {e}"))?)
+            let path = mgr.log_dir().join(format!("{program_id}.log"));
+            let (text, new_offset, reset) = read_log_delta(&path, offset);
+            Ok(serde_json::to_value(LogsView { text, offset: new_offset, reset }).map_err(|e| format!("rpc: logs view: {e}"))?)
         }
         "get_shell_log" => {
             let mgr = state.manager.lock().unwrap();

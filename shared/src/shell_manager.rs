@@ -264,7 +264,7 @@ impl ShellManager {
         self.app_dir(p).join("bin").join(&name)
     }
 
-    fn log_dir(&self) -> PathBuf {
+    pub fn log_dir(&self) -> PathBuf {
         self.data_dir.join("logs")
     }
 

@@ -12,6 +12,8 @@ pub enum Event {
     ProgramStarted(String),
     /// 程序已停止（显式 stop 成功 / 子进程退出被清扫回收）
     ProgramStopped(String),
+    /// 有新的日志写入（F-3/F11）：前端据此做增量 tail，不整页重传
+    LogWritten(String),
 }
 
 /// 壳操作日志（log_op）是否也要推——暂不需要，状态足够前端刷新。

@@ -151,15 +151,22 @@ pub fn start_with_state(
                         loop {
                             match rx.recv_timeout(std::time::Duration::from_millis(300)) {
                                 Ok(ev) => {
-                                    let (id, running) = match ev {
-                                        shared::events::Event::ProgramStarted(id) => (id, true),
-                                        shared::events::Event::ProgramStopped(id) => (id, false),
-                                    };
-                                    let msg = serde_json::json!({
-                                        "type": "status-change",
-                                        "programId": id,
-                                        "running": running,
-                                    })
+                                    let msg = match ev {
+                                        shared::events::Event::ProgramStarted(id) => serde_json::json!({
+                                            "type": "status-change",
+                                            "programId": id,
+                                            "running": true,
+                                        }),
+                                        shared::events::Event::ProgramStopped(id) => serde_json::json!({
+                                            "type": "status-change",
+                                            "programId": id,
+                                            "running": false,
+                                        }),
+                                        shared::events::Event::LogWritten(id) => serde_json::json!({
+                                            "type": "log-tick",
+                                            "programId": id,
+                                        }),
+                                    }
                                     .to_string();
                                     let _ = fwd_state.events.send(msg);
                                 }

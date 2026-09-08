@@ -516,6 +516,9 @@ function connectWS() {
         // F-3/F10：进程状态由服务端推送（无需轮询）；只刷新本地状态，不发网络请求
         refreshAllStatuses();
         if (current) refreshManageLog();
+      } else if (m && m.type === "log-tick") {
+        // F-3/F11：日志增量推送提示 → 对当前程序做一次增量 tail 拉取
+        if (current && m.programId === current.id) refreshManageLog();
       }
     } catch {}
   };
@@ -1286,11 +1289,32 @@ function renderLogBody(container, text) {
   if (atBottom) container.scrollTop = container.scrollHeight;
 }
 
+// F-3/F11：增量日志尾随。按程序记录上次 EOF 偏移；文件被截断时 reset 整体重渲。
+const logOffsets = {};
+function appendLogText(container, delta) {
+  for (const line of delta.replace(/\r\n?/g, "\n").split("\n")) {
+    const isErr = line.startsWith("\u001f");
+    const clean = isErr ? line.slice(1) : line;
+    const div = document.createElement("div");
+    div.className = isErr ? "log-err" : "";
+    div.textContent = clean;
+    container.appendChild(div);
+  }
+  const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 60;
+  if (atBottom) container.scrollTop = container.scrollHeight;
+}
+
 async function refreshManageLog() {
   if (!current) return;
   try {
-    const { text } = await invoke("get_logs", { programId: current.id });
-    renderLogBody(el.manageLogContent, text);
+    const hasOffset = Object.prototype.hasOwnProperty.call(logOffsets, current.id);
+    const args = { programId: current.id };
+    if (hasOffset) args.offset = logOffsets[current.id];
+    const res = await invoke("get_logs", args);
+    logOffsets[current.id] = res.offset;
+    const el = el.manageLogContent;
+    if (!hasOffset || res.reset) renderLogBody(el, res.text);
+    else if (res.text) appendLogText(el, res.text);
   } catch {
     /* 无日志文件或读取失败：保持现状 */
   }

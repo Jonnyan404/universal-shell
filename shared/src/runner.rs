@@ -15,6 +15,7 @@ fn copy_stream_lines<R: std::io::BufRead>(
     r: &mut R,
     writer: &Arc<Mutex<std::io::BufWriter<std::fs::File>>>,
     is_stderr: bool,
+    id: &str,
 ) {
     use std::io::Write as _;
     let mut buf = String::new();
@@ -38,6 +39,7 @@ fn copy_stream_lines<R: std::io::BufRead>(
                         since_check = 0;
                         trim_program_log(&mut w);
                     }
+                    crate::events::emit(crate::events::Event::LogWritten(id.to_string()));
                 }
             }
         }
@@ -283,14 +285,16 @@ impl Runner {
         let (out, err) = (out.map(std::io::BufReader::new), err.map(std::io::BufReader::new));
         if let Some(mut out) = out {
             let w = writer.clone();
+            let id = id.to_string();
             std::thread::spawn(move || {
-                copy_stream_lines(&mut out, &w, false);
+                copy_stream_lines(&mut out, &w, false, &id);
             });
         }
         if let Some(mut err) = err {
             let w = writer.clone();
+            let id = id.to_string();
             std::thread::spawn(move || {
-                copy_stream_lines(&mut err, &w, true);
+                copy_stream_lines(&mut err, &w, true, &id);
             });
         }
 
