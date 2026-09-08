@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Context;
@@ -70,7 +70,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             install_cjk_font(&cc.egui_ctx);
-            let mut app = ShellApp::new(manager, config_path);
+            let mut app = ShellApp::new(Arc::new(Mutex::new(manager)), config_path);
             // 按持久化的主题设置初始视觉（重启后记住暗/亮）
             cc.egui_ctx.set_visuals(if app.dark_mode {
                 egui::Visuals::dark()
@@ -163,7 +163,8 @@ fn now_secs() -> f64 {
 }
 
 struct ShellApp {
-    manager: ShellManager,
+    /// 与内嵌 Web 服务共享的受管程序管理器（UI 线程经 `self.m()` 加锁访问）
+    manager: Arc<Mutex<ShellManager>>,
     /// program id -> 表单字段运行时值
     values: BTreeMap<String, BTreeMap<String, String>>,
     /// 右上角悬浮提示（操作日志的可见反馈）
@@ -248,6 +249,12 @@ struct ShellApp {
     edit_env: Vec<EditEnvDraft>,
     /// 全局设置弹窗是否打开
     show_settings: bool,
+    /// 「内嵌 Web 管理」开关（默认关，F-3；打开即起 127.0.0.1 随机端口服务）
+    web_on: bool,
+    /// 运行中的内嵌 web 服务（None = 未启动）
+    web_handle: Option<web_server::WebServerHandle>,
+    /// 运行中的访问地址（给设置面板显示，服务停止后清空）
+    web_url: Option<String>,
     /// 暗色主题
     dark_mode: bool,
     /// prefs 中已持久化的主题值（用于检测变化再写盘）
@@ -291,24 +298,34 @@ impl ShellApp {
         manager.data_dir.join("app-prefs")
     }
 
-    fn new(mut manager: ShellManager, config_path: PathBuf) -> Self {
+    /// UI 线程访问共享管理器的唯一入口（web 服务线程同样经由该锁）
+    fn m(&self) -> std::sync::MutexGuard<'_, ShellManager> {
+        self.manager
+            .lock()
+            .expect("shell manager lock poisoned")
+    }
+
+    fn new(manager: Arc<Mutex<ShellManager>>, config_path: PathBuf) -> Self {
+        let mut mgr = manager
+            .lock()
+            .expect("shell manager lock poisoned");
         let (tx, rx) = mpsc::channel();
         let mut info_for_values = vec![];
         let mut values = BTreeMap::new();
-        for p in &manager.all_programs() {
-            info_for_values.push((p.id.clone(), manager.load_field_values(p)));
+        for p in &mgr.all_programs() {
+            info_for_values.push((p.id.clone(), mgr.load_field_values(p)));
         }
         for (id, v) in info_for_values {
             values.insert(id, v);
         }
-        let registry_url = manager
+        let registry_url = mgr
             .template_registries
             .first()
             .cloned()
             .unwrap_or_default();
         // 深浅主题 + 上次选中的程序：从数据目录读 prefs（JSON，兼容旧裸 bool 格式）
         // 启动恢复上次选中的程序，而不是每次都回到列表第一个
-        let raw_prefs = std::fs::read_to_string(ShellApp::prefs_path(&manager)).ok();
+        let raw_prefs = std::fs::read_to_string(ShellApp::prefs_path(&mgr)).ok();
         let (dark_mode, last_program) = match raw_prefs {
             Some(s) => match serde_json::from_str::<serde_json::Value>(s.trim()) {
                 Ok(v) if v.is_object() => {
@@ -326,25 +343,25 @@ impl ShellApp {
             },
             None => (true, None),
         };
-        let programs = manager.all_programs();
+        let programs = mgr.all_programs();
         let current_id = last_program
             .as_ref()
             .and_then(|id| programs.iter().find(|p| &p.id == id).map(|p| p.id.clone()))
             .or_else(|| programs.first().map(|p| p.id.clone()));
-        let settings_accel = manager.proxy.accelerate_prefix.clone();
+        let settings_accel = mgr.proxy.accelerate_prefix.clone();
         let (settings_proxy_type, settings_proxy_host, settings_proxy_user, settings_proxy_pass) =
-            parse_proxy(&manager.proxy.http_proxy);
-        let settings_shell_auto = manager.autostart.shell_is_enabled();
-        let sources_rows = manager.template_registries.clone();
+            parse_proxy(&mgr.proxy.http_proxy);
+        let settings_shell_auto = mgr.autostart.shell_is_enabled();
+        let sources_rows = mgr.template_registries.clone();
         // shell.log 按会话划分：启动分隔线（重启不清档、可审计，手动点 🗑 清空）
-        manager.log_op(&t!("log.shell_started"));
+        mgr.log_op(&t!("log.shell_started"));
         // 壳启动后自动拉起所有开启了「自启动」的程序（方案 B：壳管理，对齐 Tauri）
-        manager.start_autostart_programs();
+        mgr.start_autostart_programs();
         // 启动即读版本检查缓存（曾经联网查过 → 回填最新版本与上次检查时间，对齐 Tauri from_local）
-        let vcheck = manager.load_version_check();
+        let vcheck = mgr.load_version_check();
         let mut latest_versions: BTreeMap<String, (Option<String>, String)> = BTreeMap::new();
         let mut latest_checked_at: Option<i64> = None;
-        for p in &manager.all_programs() {
+        for p in &mgr.all_programs() {
             let key = if p.repo.is_empty() { &p.id } else { &p.repo };
             if let Some((v, t)) = vcheck.get(key) {
                 latest_versions.insert(p.id.clone(), (Some(v.clone()), String::new()));
@@ -352,6 +369,7 @@ impl ShellApp {
                 latest_checked_at = Some(latest_checked_at.map_or(t64, |m| m.max(t64)));
             }
         }
+        drop(mgr);
         let mut app = Self {
             manager,
             values,
@@ -405,6 +423,9 @@ impl ShellApp {
             edit_fields: Vec::new(),
             edit_env: Vec::new(),
             show_settings: false,
+            web_on: false,
+            web_handle: None,
+            web_url: None,
             dark_mode,
             prefs_saved_dark: dark_mode,
             prefs_saved_current: current_id,
@@ -485,7 +506,7 @@ impl ShellApp {
 
         let show = MenuItem::with_id("tray_show", t!("tray.show"), true, None);
         let quit = MenuItem::with_id("tray_quit", t!("tray.quit"), true, None);
-        let checked = self.manager.autostart.shell_is_enabled();
+        let checked = self.m().autostart.shell_is_enabled();
         let auto = CheckMenuItem::with_id("tray_auto", t!("tray.auto_start"), true, checked, None);
         self.tray_auto = Some(auto.clone());
         let menu = Menu::with_items(&[&show, &auto, &quit]).ok()?;
@@ -517,7 +538,7 @@ impl ShellApp {
             0.0,
             t!("dl.downloading").to_string(),
         ));
-        let data_dir = self.manager.data_dir.clone();
+        let data_dir = self.m().data_dir.clone();
         let tx = self.tx.clone();
         let pid = program.id.clone();
         std::thread::spawn(move || {
@@ -540,7 +561,7 @@ impl ShellApp {
             return;
         }
         // 源列表：既支持配置里的多注册表，也支持临时输入的单个 URL
-        let mut bases: Vec<String> = self.manager.template_registries.clone();
+        let mut bases: Vec<String> = self.m().template_registries.clone();
         let typed = self.registry_url.trim().to_string();
         if !typed.is_empty() && !bases.contains(&typed) {
             bases.push(typed);
@@ -550,9 +571,9 @@ impl ShellApp {
             return;
         }
         self.registry_wait = true;
-        let cache = self.manager.data_dir.join("cache/registry");
-        let pubkeys = self.manager.registry_pubkeys.clone();
-        let proxy = self.manager.proxy.clone();
+        let cache = self.m().data_dir.join("cache/registry");
+        let pubkeys = self.m().registry_pubkeys.clone();
+        let proxy = self.m().proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let merged = if refresh {
@@ -574,9 +595,9 @@ impl ShellApp {
     /// 后台拉取模板；成功后由 UI 线程按 `overwrite` 快照进本地配置
     fn spawn_import_template(&mut self, id: String, url: String, overwrite: bool) {
         self.imports.insert(id.clone(), t!("lib.importing").to_string());
-        let cache = self.manager.data_dir.join("cache/registry");
-        let pubkeys = self.manager.registry_pubkeys.clone();
-        let proxy = self.manager.proxy.clone();
+        let cache = self.m().data_dir.join("cache/registry");
+        let pubkeys = self.m().registry_pubkeys.clone();
+        let proxy = self.m().proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let client = RegistryClient::with_network(
@@ -603,9 +624,9 @@ impl ShellApp {
             return;
         }
         self.status_pending.insert(key.clone());
-        let cache = self.manager.data_dir.join("cache/registry");
-        let pubkeys = self.manager.registry_pubkeys.clone();
-        let proxy = self.manager.proxy.clone();
+        let cache = self.m().data_dir.join("cache/registry");
+        let pubkeys = self.m().registry_pubkeys.clone();
+        let proxy = self.m().proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let result = || -> Result<String, String> {
@@ -630,9 +651,9 @@ impl ShellApp {
 
     /// 覆盖导入确认弹窗：后台拉取远端模板并与本地实例比对，产出差异文本供展示
     fn spawn_import_diff(&mut self, id: String, base: String, installed: shared::config::Program) {
-        let cache = self.manager.data_dir.join("cache/registry");
-        let pubkeys = self.manager.registry_pubkeys.clone();
-        let proxy = self.manager.proxy.clone();
+        let cache = self.m().data_dir.join("cache/registry");
+        let pubkeys = self.m().registry_pubkeys.clone();
+        let proxy = self.m().proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let result = || -> Result<shared::TemplateDiffView, String> {
@@ -659,8 +680,8 @@ impl ShellApp {
         }
         self.shell_update_checking = true;
         let current = shared::version::build_version().to_string();
-        let accel = self.manager.proxy.accelerate_prefix.clone();
-        let proxy = self.manager.proxy.http_proxy.clone();
+        let accel = self.m().proxy.accelerate_prefix.clone();
+        let proxy = self.m().proxy.http_proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let result = shared::check_shell_update(&current, &accel, &proxy);
@@ -694,7 +715,7 @@ impl ShellApp {
                         None => {
                             // 下载失败写进壳日志（带程序名），log_op 自带 toast 反馈
                             let name = self
-                                .manager
+                                .m()
                                 .all_programs()
                                 .into_iter()
                                 .find(|p| p.id == pid)
@@ -787,13 +808,14 @@ impl ShellApp {
                     // 落盘版本检查缓存（按 repo 缓存最新版本 + 检查时间，重启后再读）
                     let checked = now.max(0) as u64;
                     let mut vc: BTreeMap<String, (String, u64)> = BTreeMap::new();
-                    for p in &self.manager.all_programs() {
+                    let all = self.m().all_programs();
+                    for p in &all {
                         if let Some((Some(v), _)) = self.latest_versions.get(&p.id) {
                             let key = if p.repo.is_empty() { p.id.clone() } else { p.repo.clone() };
                             vc.insert(key, (v.clone(), checked));
                         }
                     }
-                    self.manager.save_version_check(&vc);
+                    self.m().save_version_check(&vc);
                     self.show_toast(t!("dl.done").to_string());
                 }
                 Msg::RunningPolled(list) => {
@@ -835,13 +857,14 @@ impl ShellApp {
                     }
                 }
                 Msg::TrayAutoToggle => {
-                    let next = !self.manager.autostart.shell_is_enabled();
-                    match self.manager.autostart.set_shell_enabled(next) {
+                    let next = !self.m().autostart.shell_is_enabled();
+                    let result = self.m().autostart.set_shell_enabled(next);
+                    match result {
                         Ok(()) => {
                             if let Some(a) = &self.tray_auto {
                                 a.set_checked(next);
                             }
-                            self.manager.log_op(&t!(
+                            self.m().log_op(&t!(
                                 "op.toggle_shell_autostart",
                                 onoff = t!(if next { "op.enable" } else { "op.disable" })
                             ));
@@ -865,8 +888,8 @@ impl ShellApp {
 
     fn refresh_status(&mut self) {
         // 后台异步刷新各程序最新版本（联网，避免主线程卡顿）
-        let programs = self.manager.all_programs();
-        let proxy = self.manager.proxy.clone();
+        let programs = self.m().all_programs();
+        let proxy = self.m().proxy.clone();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let mut gh = shared::GitHub::default();
@@ -889,17 +912,16 @@ impl ShellApp {
     /// UI 线程运行态：句柄持有（try_wait，无派生）OR 后台路径探测缓存。
     /// 渲染路径禁止调用 manager.is_program_running（内含 pgrep 派生，会卡 UI）。
     fn ui_running(&mut self, p: &shared::config::Program) -> bool {
-        self.manager.is_held(&p.id) || self.path_alive.get(&p.id).copied().unwrap_or(false)
+        self.m().is_held(&p.id) || self.path_alive.get(&p.id).copied().unwrap_or(false)
     }
 
     /// 存活轮询的监听列表：(程序 id, 可执行文件路径)
-    /// 必须覆盖全部实例（含内置）：只看 self.manager.programs 会漏掉内置程序，
+    /// 必须覆盖全部实例（含内置）：只看 self.m().programs 会漏掉内置程序，
     /// 重启后内置的孤儿进程永远认不出，一直显示已停止。
     fn running_watch_list(&self) -> Vec<(String, PathBuf)> {
-        self.manager
-            .all_programs()
-            .iter()
-            .map(|p| (p.id.clone(), self.manager.bin_path(p)))
+        let all = self.m().all_programs();
+        all.iter()
+            .map(|p| (p.id.clone(), self.m().bin_path(p)))
             .collect()
     }
 
@@ -939,9 +961,9 @@ impl ShellApp {
     /// 渲染用状态：本地状态 + 后台缓存的最新版本（不在渲染时联网，
     /// 也不在渲染时派生进程查存活；运行态走 ui_running 缓存）。
     fn display_status(&mut self, p: &shared::config::Program) -> shared::ProgramStatus {
-        let installed = self.manager.bin_path(p).exists();
+        let installed = self.m().bin_path(p).exists();
         let running = self.ui_running(p);
-        let local_version = self.manager.local_version(p);
+        let local_version = self.m().local_version(p);
         let mut st = shared::ProgramStatus {
             installed,
             running,
@@ -960,33 +982,41 @@ impl ShellApp {
     /// 覆盖 = 远端模板更新语义：结构替换 + 字段值合并（保留用户自定义、新增补默认），
     /// 与「检查更新→应用更新」同一套合并逻辑，通用操作统一走这里。
     fn commit_import(&mut self, program: &shared::config::Program, overwrite: bool) -> anyhow::Result<()> {
-        if let Some(idx) = self.manager.programs.iter().position(|p| p.id == program.id) {
+        let idx = {
+            let m = self.m();
+            m.programs.iter().position(|p| p.id == program.id)
+        };
+        if let Some(idx) = idx {
             if !overwrite {
                 anyhow::bail!(t!("err.program_exists", id = program.id));
             }
-            let cur = self.manager.programs[idx].clone();
+            let (cur, values) = {
+                let m = self.m();
+                let cur = m.programs[idx].clone();
+                let values = m.load_field_values(&cur);
+                (cur, values)
+            };
             let mut next = cur.clone();
-            let values = self.manager.load_field_values(&cur);
             let merged = shared::ShellManager::apply_template_update(&mut next, program, &values);
             self.values.insert(next.id.clone(), merged.clone());
-            self.manager.save_field_values(&next, &merged);
-            self.manager.programs[idx] = next;
+            self.m().save_field_values(&next, &merged);
+            self.m().programs[idx] = next;
         } else {
             // 写入用户运行时值（默认值）
-            let defaults = self.manager.load_field_values(program);
+            let defaults = self.m().load_field_values(program);
             self.values.insert(program.id.clone(), defaults);
             if self.current_id.is_none() {
                 self.current_id = Some(program.id.clone());
             }
-            self.manager.programs.push(program.clone());
+            self.m().programs.push(program.clone());
         }
         self.refresh_running_watch();
-        self.manager.save_config(&self.config_path)
+        self.m().save_config(&self.config_path)
     }
 
     fn shown_program(&self) -> Option<shared::config::Program> {
         let id = self.current_id.as_deref()?;
-        self.manager.all_programs().into_iter().find(|p| p.id == id)
+        self.m().all_programs().into_iter().find(|p| p.id == id)
     }
 
     fn show_form(&mut self, ui: &mut egui::Ui) {
@@ -996,12 +1026,15 @@ impl ShellApp {
         let pid = p.id.clone();
         // 自启动开关走壳状态，因需 &mut self 调用 set_autostart，故先记录、循环后统一应用
         let mut pending_autostart: Option<bool> = None;
+        // 一次性读取自启状态（避免在 `values` 可变借用存续期内再锁管理器）
+        let auto_start_state = self.m().program_autostart(&pid);
         {
             // 缓存缺失（如复制/导入刚落地）时实时补读盘上字段值，避免显示空值
-            let values = self
-                .values
-                .entry(pid.clone())
-                .or_insert_with(|| self.manager.load_field_values(&p));
+            if self.values.get(&pid).is_none() {
+                let defaults = self.m().load_field_values(&p);
+                self.values.insert(pid.clone(), defaults);
+            }
+            let values = self.values.entry(pid.clone()).or_default();
             for field in &p.fields {
                 match &field.kind {
                 FieldKind::String { label, placeholder, .. } => {
@@ -1057,7 +1090,7 @@ impl ShellApp {
                 }
                 // 自启动由壳统一管理（program-autostart.json），模板字段值仅作展示；切换即写壳状态
                 FieldKind::AutoStart { label, .. } => {
-                    let mut b = self.manager.program_autostart(&pid);
+                    let mut b = auto_start_state;
                     if ui.checkbox(&mut b, label).changed() {
                         pending_autostart = Some(b);
                     }
@@ -1096,21 +1129,22 @@ impl ShellApp {
                 };
                 ui.ctx().set_visuals(visuals);
             }
-            let lang_label = match self.manager.locale.as_str() {
+            let lang_label = match self.m().locale.as_str() {
                 "auto" => "文",
                 "zh-CN" => "中",
                 _ => "EN",
             };
             if ui.small_button(lang_label).on_hover_text(t!("ui.lang")).clicked() {
-                let next = match self.manager.locale.as_str() {
+                let locale = self.m().locale.clone();
+                let next = match locale.as_str() {
                     "auto" => "zh-CN",
                     "zh-CN" => "en",
                     _ => "auto",
                 };
-                self.manager.locale = next.to_string();
+                self.m().locale = next.to_string();
                 let override_locale = if next == "auto" { None } else { Some(next) };
                 shared::locale::apply(override_locale, &system_hint());
-                let _ = self.manager.save_config(&self.config_path);
+                let _ = self.m().save_config(&self.config_path);
             }
             if ui.small_button("⚙").on_hover_text(t!("ui.settings")).clicked() {
                 self.show_settings = true;
@@ -1129,7 +1163,7 @@ impl ShellApp {
         ui.separator();
 
         // 程序列表（可滚动），预留底部链接空间
-        let programs = self.manager.all_programs();
+        let programs = self.m().all_programs();
         let visible: Vec<_> = programs.iter().filter(|p| !p.hidden).collect();
         let selected_id = self.current_id.clone();
         let list_height = (ui.available_height() - 86.0).max(80.0);
@@ -1342,6 +1376,24 @@ impl ShellApp {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.settings_shell_auto, t!("sett.shell_auto_label"));
                 });
+                // 内嵌 Web 管理（F-3）：默认关，开启即本机起随机高位端口服务并打开浏览器
+                ui.horizontal(|ui| {
+                    if ui.checkbox(&mut self.web_on, t!("sett.web")).changed() && self.web_on {
+                        if let Some(h) = &self.web_handle {
+                            let _ = h.open_in_browser();
+                        }
+                    }
+                    if let Some(url) = &self.web_url {
+                        ui.weak(t!("sett.web_on_addr", url = url).to_string());
+                        if ui.small_button(t!("sett.web_open")).clicked() {
+                            if let Some(h) = &self.web_handle {
+                                let _ = h.open_in_browser();
+                            }
+                        }
+                    } else {
+                        ui.weak(t!("sett.web_off").to_string());
+                    }
+                });
                 // 壳自身更新：当前版本 + 手动检查按钮
                 ui.horizontal(|ui| {
                     ui.add_sized([100.0, 0.0], egui::Label::new(t!("upd.check")));
@@ -1376,15 +1428,16 @@ impl ShellApp {
                                 self.settings_proxy_user.trim(),
                                 &self.settings_proxy_pass,
                             );
-                            self.manager.proxy.accelerate_prefix = accel.clone();
-                            self.manager.proxy.http_proxy = proxy.clone();
-                            self.manager.github.apply_network(&accel, &proxy);
+                            self.m().proxy.accelerate_prefix = accel.clone();
+                            self.m().proxy.http_proxy = proxy.clone();
+                            self.m().github.apply_network(&accel, &proxy);
                             let shell_auto = self.settings_shell_auto;
                             let autostart_r = self
-                                .manager
+                                .m()
                                 .autostart
                                 .set_shell_enabled(shell_auto);
-                            if let Err(e) = self.manager.save_config(&self.config_path) {
+                            let save_r = self.m().save_config(&self.config_path);
+                            if let Err(e) = save_r {
                                 self.log_op(
                                     &t!("toast.settings_fail", err = format!("{e:#}"))
                                         .to_string(),
@@ -1402,6 +1455,34 @@ impl ShellApp {
                 });
             });
         self.show_settings = open;
+        // 开关生效在窗口绘制之外执行（避免 egui 闭包内整体捕获 self 与字段级捕获冲突）
+        self.sync_web();
+    }
+
+    /// 「内嵌 Web 管理」开关的启停落地：默认关；开 → 起 127.0.0.1 随机端口服务并打开浏览器。
+    fn sync_web(&mut self) {
+        if self.web_on && self.web_handle.is_none() {
+            match web_server::start(self.manager.clone(), self.config_path.clone(), "127.0.0.1", 0) {
+                Ok(h) => {
+                    let url = h.url.clone();
+                    self.web_url = Some(url.clone());
+                    let _ = h.open_in_browser();
+                    self.web_handle = Some(h);
+                    self.show_toast(t!("toast.web_started", url = url).to_string());
+                }
+                Err(e) => {
+                    self.web_on = false;
+                    self.web_url = None;
+                    self.log_op(&t!("toast.web_start_fail", err = format!("{e:#}")).to_string());
+                }
+            }
+        }
+        if !self.web_on {
+            if let Some(mut h) = self.web_handle.take() {
+                h.stop();
+            }
+            self.web_url = None;
+        }
     }
 
     /// 壳新版提示窗：显示远端版本与当前版本，前往下载用系统浏览器打开 Release 页
@@ -1500,7 +1581,7 @@ impl ShellApp {
                 .small()
                 .weak(),
             );
-            if self.manager.program_autostart(&p.id) {
+            if self.m().program_autostart(&p.id) {
                 ui.label(
                     egui::RichText::new(t!("st.autostart"))
                         .small()
@@ -1543,8 +1624,9 @@ impl ShellApp {
             let running_now = running;
             let start_btn = ui.add_enabled(!running_now, egui::Button::new(format!("▶ {}", t!("act.start"))));
             if start_btn.clicked() {
-                self.manager.save_field_values(&p, &values_for_start);
-                match self.manager.start(&p, &values_for_start) {
+                self.m().save_field_values(&p, &values_for_start);
+                let start_r = self.m().start(&p, &values_for_start);
+                match start_r {
                     Ok(()) => {
                         self.log_op(&t!("op.start", name = &p.name));
                     }
@@ -1555,7 +1637,8 @@ impl ShellApp {
             }
             let stop_btn = ui.add_enabled(running_now, egui::Button::new(format!("■ {}", t!("act.stop"))));
             if stop_btn.clicked() {
-                match self.manager.stop(&p.id) {
+                let stop_r = self.m().stop(&p.id);
+                match stop_r {
                     Ok(()) => {
                         // 立刻失效存活缓存，否则 ui_running 会沿用上次轮询的 true 到下个 3s 周期
                         self.path_alive.insert(p.id.clone(), false);
@@ -1577,7 +1660,7 @@ impl ShellApp {
             if !p.repo.is_empty()
                 && ui.button("🗁").on_hover_text(t!("act.open_app_dir")).clicked()
             {
-                let app_dir = self.manager.app_dir(&p);
+                let app_dir = self.m().app_dir(&p);
                 let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
             }
             if url.is_some() {
@@ -1608,7 +1691,7 @@ impl ShellApp {
                 fullscreen = true;
             }
             if ui.small_button("📋").on_hover_text(t!("act.copy")).clicked() {
-                let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
+                let (log, _) = self.m().read_logs(&p.id, 64 * 1024);
                 ui.ctx().copy_text(log);
                 self.show_toast(t!("toast.copied").to_string());
             }
@@ -1619,7 +1702,7 @@ impl ShellApp {
         if fullscreen {
             self.show_log = true;
         }
-        let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
+        let (log, _) = self.m().read_logs(&p.id, 64 * 1024);
         egui::ScrollArea::vertical()
             .id_salt("manage_log_scroll")
             .max_height(ui.available_height().max(60.0))
@@ -1640,7 +1723,7 @@ impl ShellApp {
 
     /// 记录一条会话操作日志（持久化到壳日志 + 右上角 toast 反馈）。
     fn log_op(&mut self, msg: &str) {
-        self.manager.log_op(msg);
+        self.m().log_op(msg);
         // 操作日志同样以右上角 toast 呈现，给用户可见反馈
         self.show_toast(msg.to_string());
     }
@@ -1682,13 +1765,15 @@ impl ShellApp {
     /// 重启程序：停止 → 保存字段值 → 启动（与 Tauri restart_program 一致）。
     /// 返回是否成功，失败时已写入壳日志并 toast，调用方据返回值决定是否记成功日志。
     fn restart_program(&mut self, p: &shared::config::Program, values: &BTreeMap<String, String>) -> bool {
-        if let Err(e) = self.manager.stop(&p.id) {
+        let stop_r = self.m().stop(&p.id);
+        if let Err(e) = stop_r {
             self.log_op(&t!("toast.restart_fail", err = format!("{e:#}")).to_string());
             return false;
         }
         self.path_alive.insert(p.id.clone(), false);
-        self.manager.save_field_values(p, values);
-        if let Err(e) = self.manager.start(p, values) {
+        self.m().save_field_values(p, values);
+        let start_r = self.m().start(p, values);
+        if let Err(e) = start_r {
             self.log_op(&t!("toast.restart_fail", err = format!("{e:#}")).to_string());
             return false;
         }
@@ -1710,7 +1795,7 @@ impl ShellApp {
                         self.import_local_path(path);
                     }
                 }
-                if ui.button(format!("{} ({})", t!("lib.local"), self.manager.all_programs().len())).clicked() {
+                if ui.button(format!("{} ({})", t!("lib.local"), self.m().all_programs().len())).clicked() {
                     self.show_local_drawer = !self.show_local_drawer;
                 }
             });
@@ -1841,13 +1926,13 @@ impl ShellApp {
         base: String,
         merged: &shared::MergedSource,
     ) {
-        let imported = self.manager.all_programs().iter().any(|p| p.id == id);
+        let imported = self.m().all_programs().iter().any(|p| p.id == id);
         // 已导入且数据一致 → 禁用「最新」；检测放后台线程，避免逐卡片阻塞网络
         let st_key = format!("{base}\u{0}{id}");
         let current_st = self.template_status.get(&st_key).cloned();
         if imported && current_st.is_none() {
             let installed = self
-                .manager
+                .m()
                 .all_programs()
                 .iter()
                 .find(|p| p.id == id)
@@ -1891,7 +1976,7 @@ impl ShellApp {
                                     {
                                         if imported {
                                             let installed = self
-                                                .manager
+                                                .m()
                                                 .all_programs()
                                                 .iter()
                                                 .find(|p| p.id == id)
@@ -1933,7 +2018,7 @@ impl ShellApp {
             let srcs: Vec<(String, bool, u64)> = if let Some(m) = merged {
                 m.sources.clone()
             } else {
-                self.manager
+                self.m()
                     .template_registries
                     .iter()
                     .map(|r| (r.clone(), false, 0u64))
@@ -2050,7 +2135,7 @@ impl ShellApp {
     /// 本地模板抽屉：列出已导入程序 + 管理按钮（对齐 Tauri renderLocalTemplates）
     fn show_local_drawer_ui(&mut self, ui: &mut egui::Ui) {
         ui.strong(t!("lib.local_has"));
-        let list = self.manager.all_programs();
+        let list = self.m().all_programs();
         if list.is_empty() {
             ui.label(t!("lib.empty_local"));
             ui.separator();
@@ -2093,7 +2178,7 @@ impl ShellApp {
             program.binary = program.id.clone();
         }
         let exists = self
-            .manager
+            .m()
             .programs
             .iter()
             .any(|p| p.id == program.id);
@@ -2113,12 +2198,8 @@ impl ShellApp {
 
     /// 导出受管程序的模板定义为本地 JSON（分享给他人/备份）。
     fn export_local_template(&mut self, id: &str) {
-        let p = match self
-            .manager
-            .all_programs()
-            .into_iter()
-            .find(|p| p.id == id)
-        {
+        let found = self.m().all_programs().into_iter().find(|p| p.id == id);
+        let p = match found {
             Some(p) => p,
             None => {
                 self.log_op(&t!("toast.export_fail", err = t!("err.program_not_found", id = id)).to_string());
@@ -2305,7 +2386,7 @@ impl ShellApp {
 
     /// 打开模板源管理弹窗（对齐 Tauri openSourcesModal/renderSourcesList）
     fn open_sources(&mut self) {
-        let rows = self.manager.template_registries.clone();
+        let rows = self.m().template_registries.clone();
         self.sources_rows = if rows.is_empty() {
             vec![String::new()]
         } else {
@@ -2334,12 +2415,13 @@ impl ShellApp {
             self.show_toast(t!("lib.keep_one").to_string());
             return false;
         }
-        self.manager.template_registries = cleaned.clone();
-        if let Err(e) = self.manager.save_config(&self.config_path) {
+        self.m().template_registries = cleaned.clone();
+        let save_r = self.m().save_config(&self.config_path);
+        if let Err(e) = save_r {
             self.log_op(&t!("toast.sources_fail", err = format!("{e:#}")).to_string());
             return false;
         }
-        self.manager.log_op(&t!("op.update_sources", list = cleaned.join(", ")));
+        self.m().log_op(&t!("op.update_sources", list = cleaned.join(", ")));
         self.registry_url = cleaned.first().cloned().unwrap_or_default();
         self.lib_source = cleaned.first().cloned();
         self.lib_page = 0;
@@ -2424,7 +2506,7 @@ impl ShellApp {
 
     /// 批量管理视图：列出所有受管程序，每行 start/stop + 打开应用目录，统一刷新/停止。
     fn show_batch(&mut self, ui: &mut egui::Ui) {
-        let programs = self.manager.all_programs();
+        let programs = self.m().all_programs();
         // 工具栏：刷新状态 / 检查更新 / 停止所有（匹配 Tauri batch-toolbar）
         ui.horizontal(|ui| {
             ui.heading(t!("batch.title"));
@@ -2442,7 +2524,7 @@ impl ShellApp {
                     ui.ctx().request_repaint();
                 }
                 if ui.button(t!("batch.stop_all")).clicked() {
-                    self.manager.stop_all();
+                    self.m().stop_all();
                     // 存活缓存清零即时生效，3s 轮询会重新填充
                     self.path_alive.clear();
                     self.log_op(&t!("op.stop_all"));
@@ -2535,13 +2617,14 @@ impl ShellApp {
                             ),
                         );
                     }
-                    let mut auto = self.manager.program_autostart(&p.id);
+                    let mut auto = self.m().program_autostart(&p.id);
                     if ui.checkbox(&mut auto, "").changed() {
                         self.set_autostart(p, auto);
                     }
                     let mut hidden = p.hidden;
                     if ui.checkbox(&mut hidden, "").changed() {
-                        match self.manager.set_hidden(&p.id, hidden, &self.config_path) {
+                        let set_hidden_r = self.m().set_hidden(&p.id, hidden, &self.config_path);
+                        match set_hidden_r {
                             Ok(()) => {
                                 self.log_op(&t!(
                                     "op.toggle_visibility",
@@ -2584,8 +2667,9 @@ impl ShellApp {
                     // 启动 / 重启 / 停止：三个操作始终显示（对齐 Tauri renderBatch ops）
                     if ui.small_button(t!("act.start")).clicked() {
                         let values = self.values.get(&p.id).cloned().unwrap_or_default();
-                        self.manager.save_field_values(p, &values);
-                        if let Err(e) = self.manager.start(p, &values) {
+                        self.m().save_field_values(p, &values);
+                        let start_r = self.m().start(p, &values);
+                        if let Err(e) = start_r {
                             self.log_op(&t!("toast.start_fail", err = format!("{e:#}")).to_string());
                         } else {
                             self.log_op(&t!("op.start", name = &p.name));
@@ -2598,7 +2682,8 @@ impl ShellApp {
                         }
                     }
                     if ui.small_button(t!("act.stop")).clicked() {
-                        if let Err(e) = self.manager.stop(&p.id) {
+                        let stop_r = self.m().stop(&p.id);
+                        if let Err(e) = stop_r {
                             self.log_op(&t!("toast.stop_fail", err = format!("{e:#}")).to_string());
                         } else {
                             self.path_alive.insert(p.id.clone(), false);
@@ -2616,7 +2701,7 @@ impl ShellApp {
                             .on_hover_text(t!("act.open_app_dir"))
                             .clicked()
                     {
-                        let d = self.manager.app_dir(p);
+                        let d = self.m().app_dir(p);
                         let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
                     }
                     if ui.small_button(t!("act.edit")).clicked() {
@@ -2633,7 +2718,7 @@ impl ShellApp {
 
     /// 切换程序开机自启（由壳统一管理，独立于模板字段；模板可不带 autostart 参数）。
     fn set_autostart(&mut self, p: &shared::config::Program, enabled: bool) {
-        self.manager.set_program_autostart(&p.id, enabled);
+        self.m().set_program_autostart(&p.id, enabled);
         self.log_op(&t!(
             "op.toggle_autostart",
             onoff = t!(if enabled { "op.enable" } else { "op.disable" }),
@@ -2661,7 +2746,7 @@ impl ShellApp {
                 // 操作栏：复制 / 刷新 / 打开日志目录 / 关闭
                 ui.horizontal(|ui| {
                     if ui.small_button("📋").on_hover_text(t!("act.copy")).clicked() {
-                        let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
+                        let (log, _) = self.m().read_logs(&p.id, 64 * 1024);
                         ui.ctx().copy_text(log);
                         copied = true;
                     }
@@ -2669,7 +2754,7 @@ impl ShellApp {
                         ctx.request_repaint();
                     }
                     if ui.small_button("🗁").on_hover_text(t!("act.open_log_dir")).clicked() {
-                        let d = self.manager.data_dir.join("logs");
+                        let d = self.m().data_dir.join("logs");
                         let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -2680,7 +2765,7 @@ impl ShellApp {
                 });
                 ui.separator();
                 // 日志内容（stderr 行以 \x1F 开头标红，只渲染末尾 N 行防卡顿）
-                let (log, _) = self.manager.read_logs(&p.id, 64 * 1024);
+                let (log, _) = self.m().read_logs(&p.id, 64 * 1024);
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
@@ -2732,7 +2817,7 @@ impl ShellApp {
                     });
                 });
                 ui.separator();
-                let content = std::fs::read_to_string(self.manager.op_log_path())
+                let content = std::fs::read_to_string(self.m().op_log_path())
                     .unwrap_or_default();
                 // 只渲染末尾 400 行：shell.log 长期追加会变大，逐帧全量布局会卡
                 let lines: Vec<&str> = content.lines().collect();
@@ -2754,7 +2839,7 @@ impl ShellApp {
         }
         self.show_shell_log = open;
         if clear_req {
-            self.manager.clear_op_log();
+            self.m().clear_op_log();
         }
     }
 
@@ -2814,7 +2899,7 @@ impl ShellApp {
                         }
                         SidebarCtx::Row { id } => {
                             let hidden = self
-                                .manager
+                                .m()
                                 .all_programs()
                                 .iter()
                                 .find(|p| p.id == *id)
@@ -2862,10 +2947,8 @@ impl ShellApp {
         match act {
             SidebarCtxAction::NewTemplate => self.open_new_edit(),
             SidebarCtxAction::Duplicate(id) => {
-                match self
-                    .manager
-                    .duplicate_program(&id, &self.config_path)
-                {
+                let dup_r = self.m().duplicate_program(&id, &self.config_path);
+                match dup_r {
                     Ok(copy) => {
                         // 复制后立即切到副本并丢弃其 values 缓存（对齐 Tauri duplicateProgram→switchTo），
                         // 否则右侧操作面板仍停留在原程序，改副本值保存后界面看着像没同步
@@ -2873,7 +2956,7 @@ impl ShellApp {
                         self.values.remove(&copy.id);
                         self.open_edit(&copy.id);
                         self.show_toast(t!("toast.duplicated", name = &copy.name));
-                        self.manager.log_op(&t!("op.duplicate", name = &copy.name));
+                        self.m().log_op(&t!("op.duplicate", name = &copy.name));
                     }
                     Err(e) => {
                         self.log_op(&t!("toast.duplicate_fail", err = format!("{e:#}")).to_string())
@@ -2883,14 +2966,15 @@ impl ShellApp {
             SidebarCtxAction::Edit(id) => self.open_edit(&id),
             SidebarCtxAction::ToggleHide(id) => {
                 let hidden = self
-                    .manager
+                    .m()
                     .all_programs()
                     .iter()
                     .find(|p| p.id == id)
                     .map_or(false, |p| p.hidden);
-                match self.manager.set_hidden(&id, !hidden, &self.config_path) {
+                let set_hidden_r = self.m().set_hidden(&id, !hidden, &self.config_path);
+                match set_hidden_r {
                     Ok(()) => {
-                        self.manager.log_op(&t!(
+                        self.m().log_op(&t!(
                             "op.toggle_visibility",
                             showhide = t!(if hidden { "op.hide" } else { "op.show" }),
                             name = id
@@ -2909,7 +2993,7 @@ impl ShellApp {
 
     /// 打开编辑弹窗，按程序当前定义填充表单缓冲。
     fn open_edit(&mut self, id: &str) {
-        let Some(base) = self.manager.all_programs().iter().find(|p| p.id == id).cloned() else {
+        let Some(base) = self.m().all_programs().iter().find(|p| p.id == id).cloned() else {
             return;
         };
         self.edit_id = Some(id.to_string());
@@ -3200,7 +3284,7 @@ impl ShellApp {
         let base_owned = if is_new {
             None
         } else {
-            self.manager.all_programs().iter().find(|p| p.id == id).cloned()
+            self.m().all_programs().iter().find(|p| p.id == id).cloned()
         };
         if base_owned.is_none() && !is_new {
             return;
@@ -3321,14 +3405,15 @@ impl ShellApp {
             hidden: b.map_or(false, |x| x.hidden),
         };
         if is_new {
-            match self.manager.add_program(&updated, &self.config_path) {
+            let add_r = self.m().add_program(&updated, &self.config_path);
+            match add_r {
                 Ok(()) => {
                     // 新程序常见于手动新建；id 交由配置决定，预写空字段值文件
                     self.edit_id = Some(id.clone());
                     self.values.remove(&id);
-                    self.manager
+                    self.m()
                         .log_op(&t!("op.add_template", name = &updated.name));
-                    self.manager
+                    self.m()
                         .save_field_values(&updated, &std::collections::BTreeMap::new());
                 }
                 Err(e) => {
@@ -3338,9 +3423,10 @@ impl ShellApp {
             return;
         }
         let base = base_owned.unwrap();
-        match self.manager.update_program(&id, &updated, &self.config_path) {
+        let upd_r = self.m().update_program(&id, &updated, &self.config_path);
+        match upd_r {
             Ok(()) => {
-                self.manager.log_op(&t!("op.edit_template", name = &base.name));
+                self.m().log_op(&t!("op.edit_template", name = &base.name));
                 self.values.remove(&id);
             }
             Err(e) => {
@@ -3356,7 +3442,7 @@ impl ShellApp {
         let mut confirmed = false;
         let mut closing = false;
         let name = self
-            .manager
+            .m()
             .all_programs()
             .into_iter()
             .find(|p| p.id == id)
@@ -3383,12 +3469,13 @@ impl ShellApp {
         if confirmed {
             if let Some(id) = self.confirm_delete.take() {
                 let name = self
-                    .manager
+                    .m()
                     .all_programs()
                     .into_iter()
                     .find(|p| p.id == id)
                     .map(|p| p.name.clone());
-                match self.manager.delete_program(&id, &self.config_path) {
+                let del_r = self.m().delete_program(&id, &self.config_path);
+                match del_r {
                     Ok(()) => {
                         // 取消选中/清理相关运行时状态
                         if self.current_id.as_deref() == Some(id.as_str()) {
@@ -3401,7 +3488,7 @@ impl ShellApp {
                         self.show_toast(
                             t!("toast.deleted", name = name.unwrap_or(id.clone())).to_string(),
                         );
-                        self.manager.log_op(&t!("op.delete", name = id));
+                        self.m().log_op(&t!("op.delete", name = id));
                     }
                     Err(e) => {
                         let msg = format!("{e:#}");
@@ -3411,6 +3498,14 @@ impl ShellApp {
             }
         } else if !open || closing {
             self.confirm_delete = None;
+        }
+    }
+}
+
+impl Drop for ShellApp {
+    fn drop(&mut self) {
+        if let Some(mut h) = self.web_handle.take() {
+            h.stop();
         }
     }
 }
@@ -3443,7 +3538,7 @@ impl eframe::App for ShellApp {
                 "last_program": cur,
             });
             let _ = std::fs::write(
-                ShellApp::prefs_path(&self.manager),
+                ShellApp::prefs_path(&self.m()),
                 serde_json::to_string(&prefs).unwrap_or_default(),
             );
             self.prefs_saved_dark = self.dark_mode;

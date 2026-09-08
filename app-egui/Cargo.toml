@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 shared = { workspace = true }
+web-server = { path = "../web-server" }
 serde_json = { workspace = true }
 rust-i18n = "4"
 sys-locale = "0.3"

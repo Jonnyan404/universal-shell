@@ -71,6 +71,12 @@ sett.proxy_user: 用户名（可选）
 sett.proxy_pass: 密码（可选）
 sett.shell_auto: 壳开机自启
 sett.shell_auto_label: 开机时自动启动本壳（并拉起开启了自启的程序）
+sett.web: 内嵌 Web 管理
+sett.web_open: 在浏览器打开
+sett.web_on_addr: 运行中：%{url}
+sett.web_off: 未运行
+toast.web_started: Web 管理已启动：%{url}
+toast.web_start_fail: 'Web 管理启动失败: %{err}'
 sources.title: 模板源管理
 sources.placeholder: https://…/templates/
 shell_log.title: 壳操作日志

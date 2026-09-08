@@ -275,6 +275,7 @@ dependencies = [
  "shared",
  "sys-locale",
  "tray-icon",
+ "web-server",
 ]
 
 [[package]]

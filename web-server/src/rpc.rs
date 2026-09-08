@@ -114,14 +114,6 @@ struct LogsView {
 }
 
 impl StatusView {
-    fn now_unix() -> u64 {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0)
-    }
-
     /// 本地即时渲染阶段：未知最新版本；有版本检查缓存则回填
     fn from_local(
         s: &shared::ProgramStatus,
@@ -279,11 +271,13 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let mgr = state.manager.lock().unwrap();
             let manual = mgr.locale.clone();
             let effective = apply_locale(if manual == "auto" { None } else { Some(&manual) });
-            Ok(json!({
-                "effective": effective,
-                "manual": manual,
-                "available": shared::locale::LOCALES,
-            }))
+            let view = serde_json::to_value(LocaleView {
+                effective,
+                manual,
+                available: shared::locale::LOCALES.iter().map(|s| s.to_string()).collect(),
+            })
+            .map_err(|e| format!("rpc: locale view: {e}"))?;
+            Ok(view)
         }
         "set_locale" => {
             let locale = arg_str(args, "locale");
@@ -437,7 +431,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 return Err(program_not_found(&program_id));
             }
             let (out, _err) = mgr.read_logs(&program_id, 64 * 1024);
-            Ok(json!({ "text": out }))
+            Ok(serde_json::to_value(LogsView { text: out }).map_err(|e| format!("rpc: logs view: {e}"))?)
         }
         "get_shell_log" => {
             let mgr = state.manager.lock().unwrap();

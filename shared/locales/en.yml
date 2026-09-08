@@ -71,6 +71,12 @@ sett.proxy_user: Username (optional)
 sett.proxy_pass: Password (optional)
 sett.shell_auto: Shell autostart
 sett.shell_auto_label: 'Start this shell at login (and launch autostart programs)'
+sett.web: Embedded web management
+sett.web_open: Open in browser
+sett.web_on_addr: 'Running: %{url}'
+sett.web_off: Not running
+toast.web_started: 'Web UI started: %{url}'
+toast.web_start_fail: 'Failed to start web UI: %{err}'
 sources.title: Template sources
 sources.placeholder: https://…/templates/
 shell_log.title: Shell operation log
