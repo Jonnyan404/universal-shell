@@ -599,3 +599,62 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .ctx-menu .ctx-item.danger:hover { background: var(--danger); color: #fff; }
 .ctx-menu .ctx-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 .ctx-menu[hidden] { display: none; }
+
+/* ---------- 移动端响应式（F-3/F12）：手机浏览器可启停/查看 ---------- */
+@media (max-width: 720px) {
+  body { overflow: auto; }
+  .app { flex-direction: column; height: auto; min-height: 100vh; }
+
+  /* 侧栏变顶部工具条：图标 + 横向可滚程序条 + 按钮 */
+  .sidebar {
+    position: sticky; top: 0; z-index: 50;
+    width: 100%; min-width: 0; height: auto;
+    flex-direction: row; align-items: center; gap: 8px;
+    padding: 6px 10px;
+  }
+  .sidebar-head { flex-direction: row; padding: 0; gap: 4px; }
+  #program-tabs, .program-list {
+    flex: 1; display: flex; overflow-x: auto; margin: 0; padding: 0 4px;
+  }
+  .prog-item { flex: none; padding: 6px 8px; margin-bottom: 0; }
+  .prog-item .sub, .prog-item .status-text { display: none; }
+  .sidebar-foot {
+    flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+    gap: 4px; margin-left: auto; padding: 0;
+  }
+  .manage-tools { gap: 4px; margin-bottom: 0; }
+  .sidebar-foot .sidebar-settings { padding: 8px 9px; line-height: 1; }
+  .sidebar-foot .app-btn-label { display: none; }
+  .sidebar-edge { display: none; }
+  /* 用户已收窄时同样强制顶部工具条布局 */
+  html[data-sidebar='narrow'] .sidebar,
+  html[data-sidebar='wide'] .sidebar {
+    width: 100%; min-width: 0; padding: 6px 10px; flex-direction: row;
+  }
+  html[data-sidebar='narrow'] .sidebar-head { flex-direction: row; padding: 0; gap: 4px; }
+  html[data-sidebar='narrow'] .prog-item { flex-direction: row; text-align: left; gap: 8px; }
+  html[data-sidebar='narrow'] .prog-item .info { display: flex; width: auto; text-align: inherit; }
+  html[data-sidebar='narrow'] .sidebar-foot { margin-left: auto; }
+
+  .main { height: auto; min-height: calc(100vh - 52px); }
+  .statusbar { padding: 8px 12px; }
+  .manage-body { padding: 12px; }
+  .manage-log { height: 40vh; }
+  .field-row { flex-wrap: wrap; }
+  .field-label { width: 100%; text-align: left; }
+
+  .panel { padding: 12px; }
+  .batch-toolbar { flex-wrap: wrap; gap: 6px; }
+  .batch-btns { flex-wrap: wrap; gap: 6px; }
+  .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .batch-table { min-width: 620px; }
+
+  /* 弹窗底下抽屉式，扩大操作区 */
+  .modal { align-items: flex-end; }
+  .modal-box { width: 100vw; max-height: 92vh; border-radius: 12px 12px 0 0; }
+  .edit-row label { flex-basis: auto; text-align: left; min-width: 88px; }
+  .edit-scroll { padding: 12px; }
+  .sett-token input { min-width: 0; }
+
+  button, .op-btn, .log-action, .sidebar-settings { touch-action: manipulation; }
+}
