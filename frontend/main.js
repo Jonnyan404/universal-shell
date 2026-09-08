@@ -181,10 +181,11 @@ function hideCtxMenu() {
 document.addEventListener("click", hideCtxMenu);
 window.addEventListener("resize", hideCtxMenu);
 
-// 侧栏空白区右键 = 新建（行右键已自行 stopPropagation，不会冒泡到这里）
+// 侧栏空白区右键 = 新建（行右键已自行 stopPropagation，不会冒泡到这里）。
+// 只排除程序条目本身，nav 内空白（如列表下方空区）也应弹出菜单。
 document.querySelector(".sidebar").addEventListener("contextmenu", (e) => {
   if (
-    !e.target.closest("#program-tabs") &&
+    !e.target.closest(".prog-item") &&
     !e.target.closest("#ctx-menu") &&
     !e.target.closest(".modal")
   ) {
@@ -1672,6 +1673,7 @@ async function saveEdit() {
 
 async function reloadPrograms() {
   programs = await invoke("get_programs");
+  statuses = (await invoke("batch_status_local")) || [];
   renderSidebar();
 }
 
@@ -1725,7 +1727,6 @@ function openImportModal() {
   document.querySelector("#import-modal").hidden = false;
 }
 
-document.querySelector("#import-btn").onclick = openImportModal;
 document.querySelector("#import-file").addEventListener("change", () => {
   importFileHandle = document.querySelector("#import-file").files[0] || null;
   document.querySelector("#import-drop").hidden = !!importFileHandle;
@@ -1733,7 +1734,7 @@ document.querySelector("#import-file").addEventListener("change", () => {
 });
 document.querySelector("#import-drop").onclick = () => document.querySelector("#import-file").click();
 
-async function doImport() {
+async function doLocalImport() {
   if (!importFileHandle) {
     document.querySelector("#import-file").click();
     return;
@@ -1753,7 +1754,7 @@ async function doImport() {
   }
 }
 
-document.querySelector("#import-modal-ok").onclick = doImport;
+document.querySelector("#import-modal-ok").onclick = doLocalImport;
 
 // ---------- 主题 / 语言 / 收窄 ----------
 function toggleTheme() {
@@ -1798,7 +1799,6 @@ document.querySelector("#manage-log-copy").onclick = () => {
 document.querySelector("#manage-log-refresh").onclick = refreshManageLog;
 
 // 程序管理按钮
-document.querySelector("#new-btn").onclick = () => openEditModal(null);
 document.querySelector("#edit-modal-close").onclick = () => (document.querySelector("#edit-modal").hidden = true);
 document.querySelector("#edit-modal-cancel").onclick = () => (document.querySelector("#edit-modal").hidden = true);
 document.querySelector("#edit-modal-save").onclick = saveEdit;
