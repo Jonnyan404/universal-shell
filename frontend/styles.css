@@ -127,7 +127,7 @@ nav#program-tabs.room-list { flex: 1; overflow-y: auto; overflow-x: hidden; marg
 
 /* 收窄模式：保留名称的窄栏 */
 html[data-sidebar='narrow'] .sidebar { width: 84px; min-width: 84px; padding: 14px 6px; }
-html[data-sidebar='narrow'] .sidebar-head { flex-direction: column; gap: 6px; padding: 2px 0 12px; }
+html[data-sidebar='narrow'] .sidebar-head { display: grid; grid-template-columns: repeat(2, 28px); justify-content: center; gap: 7px; padding: 2px 0 12px; }
 html[data-sidebar='narrow'] .theme-btn { margin-left: 0; width: 28px; height: 28px; }
 html[data-sidebar='narrow'] .settings-btn { margin-left: 0; width: 28px; height: 28px; }
 html[data-sidebar='narrow'] .lang-btn { margin-left: 0; width: 28px; height: 28px; }
@@ -334,6 +334,14 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 /* ---------- 日志中心 ---------- */
 #log-view { display: flex; flex-direction: column; min-height: 0; padding: 12px; overflow: hidden; }
 .log-panel { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; padding: 12px; }
+
+/* ---------- 模板库 ---------- */
+/* 搜索栏及以上部分固定，卡片列表区独立滚动 */
+#library-view { display: flex; flex-direction: column; min-height: 0; padding: 12px; overflow: hidden; }
+#library-view .panel { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+#library-view .panel > :not(#lib-list) { flex: 0 0 auto; }
+#library-view #lib-list { flex: 1 1 0; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 2px 0 0; }
+#library-view #lib-pager { flex: 0 0 auto; }
 .log-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex: 0 0 auto; }
 .log-tabs {
   display: flex; flex-wrap: nowrap; gap: 4px; min-width: 0;
@@ -674,7 +682,7 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   html[data-sidebar='wide'] .sidebar {
     width: 100%; min-width: 0; padding: 6px 10px; flex-direction: row;
   }
-  html[data-sidebar='narrow'] .sidebar-head { flex-direction: row; padding: 0; gap: 4px; }
+  html[data-sidebar='narrow'] .sidebar-head { display: flex; flex-direction: row; padding: 0; gap: 4px; }
   html[data-sidebar='narrow'] .prog-item { flex-direction: row; text-align: left; gap: 8px; }
   html[data-sidebar='narrow'] .prog-item .info { display: flex; width: auto; text-align: inherit; }
   html[data-sidebar='narrow'] .sidebar-foot { margin-left: auto; }
@@ -719,8 +727,8 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   .manage-log-resize { display: none; }
   .manage-log-head { flex-wrap: wrap; }
 
-  /* 日志中心：显式高度，避免 flex 在自动高容器里塌成 0 */
-  #log-view, .log-panel { height: 68vh; min-height: 300px; }
+  /* 日志中心 / 模板库：显式高度，避免 flex 在自动高容器里塌成 0 */
+  #log-view, .log-panel, #library-view, #library-view .panel { height: 68vh; min-height: 300px; }
   .log-search { flex: 1 1 120px; min-width: 120px; }
 
   /* 操作区：按钮触控目标加大，图标按钮 38px */
