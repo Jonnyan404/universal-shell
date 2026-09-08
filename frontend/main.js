@@ -427,7 +427,8 @@ function renderActions() {
     dl.onclick = () => installProgram(current.id, dl);
   }
 
-  // 右侧图标组整体靠右：第一个图标吃掉左侧剩余空间（对齐 Tauri/egui）
+  // 右侧图标组整体靠右：只保留 打开目录/复制地址/打开网站（对齐 Tauri）。
+  // 编辑/复制/隐藏/删除 已在侧栏右键与批量页提供，这里不重复堆图标。
   const icons = [];
   if (current.repo) {
     const appDir = document.createElement("button");
@@ -465,34 +466,6 @@ function renderActions() {
     open.onclick = () => window.open(url, "_blank");
     icons.push(open);
   }
-  const edit = document.createElement("button");
-  edit.className = "icon-btn";
-  edit.title = t("act.edit");
-  edit.textContent = "✎";
-  edit.onclick = () => openEditModal(current);
-  icons.push(edit);
-
-  const dup = document.createElement("button");
-  dup.className = "icon-btn";
-  dup.title = t("menu.copy");
-  dup.textContent = "⧉";
-  dup.onclick = duplicateCurrent;
-  icons.push(dup);
-
-  const hide = document.createElement("button");
-  hide.className = "icon-btn";
-  hide.title = t(current.hidden ? "act.unhide" : "act.hide");
-  hide.textContent = current.hidden ? "👁" : "🙈";
-  hide.onclick = toggleHidden;
-  icons.push(hide);
-
-  const del = document.createElement("button");
-  del.className = "icon-btn";
-  del.title = t("act.delete");
-  del.textContent = "🗑";
-  del.onclick = deleteCurrent;
-  icons.push(del);
-
   if (icons.length) icons[0].style.marginLeft = "auto";
   for (const b of icons) actions.appendChild(b);
 }
@@ -811,54 +784,56 @@ function renderBatch() {
     const ops = document.createElement("span");
     ops.className = "batch-ops";
     const hasRemote = !!(item.repo || statusSource(item.id));
+    const mkIcon = (ico, titleKey, fn) => {
+      const b = document.createElement("button");
+      b.className = "icon-btn";
+      b.title = t(titleKey);
+      b.textContent = ico;
+      b.onclick = fn;
+      return b;
+    };
     if (hasRemote) {
       const isUpToDate = s.installed && s.up_to_date;
       const dl = document.createElement("button");
-      dl.className = "op-btn";
+      dl.className = "icon-btn";
       dl.dataset.programId = item.id;
       dl.dataset.installed = s.installed ? "1" : "0";
-      dl.textContent = s.installed ? (isUpToDate ? t("st.latest") : t("dl.update")) : t("dl.download");
+      dl.title = isUpToDate ? t("st.latest") : s.installed ? t("dl.update") : t("dl.download");
+      dl.textContent = isUpToDate ? "✓" : "⇩";
       dl.disabled = isUpToDate;
       dl.onclick = () => installProgram(item.id, dl);
       ops.appendChild(dl);
     }
-    const mkOp = (label, fn) => {
-      const b = document.createElement("button");
-      b.className = "op-btn";
-      b.textContent = label;
-      b.onclick = fn;
-      return b;
-    };
-    ops.appendChild(mkOp(t("act.start"), async () => {
+    ops.appendChild(mkIcon("▶", "act.start", async () => {
       try {
         const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
         await invoke("start_program", { programId: item.id, values: vals });
         await refreshBatchLocal();
       } catch (e) { showNotice(String(e), true); }
     }));
-    ops.appendChild(mkOp(t("act.restart"), async () => {
+    ops.appendChild(mkIcon("↻", "act.restart", async () => {
       try {
         const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
         await invoke("restart_program", { programId: item.id, values: vals });
         await refreshBatchLocal();
       } catch (e) { showNotice(String(e), true); }
     }));
-    ops.appendChild(mkOp(t("act.stop"), async () => {
+    ops.appendChild(mkIcon("■", "act.stop", async () => {
       try { await invoke("stop_program", { programId: item.id }); await refreshBatchLocal(); }
       catch (e) { showNotice(String(e), true); }
     }));
-    ops.appendChild(mkOp(t("act.log"), async () => {
+    ops.appendChild(mkIcon("🗒", "act.log", async () => {
       await switchCurrent(item.id);
       refreshManageLog();
     }));
     if (item.repo) {
-      ops.appendChild(mkOp(t("act.open_app_dir"), async () => {
+      ops.appendChild(mkIcon("📁", "act.open_app_dir", async () => {
         try { await invoke("reveal_app_dir", { programId: item.id }); }
         catch (e) { showNotice(String(e), true); }
       }));
     }
-    ops.appendChild(mkOp(t("act.edit"), () => openEditModal(programs.find((x) => x.id === item.id))));
-    ops.appendChild(mkOp(t("act.delete"), () => confirmAndDelete(programs.find((x) => x.id === item.id))));
+    ops.appendChild(mkIcon("✎", "act.edit", () => openEditModal(programs.find((x) => x.id === item.id))));
+    ops.appendChild(mkIcon("🗑", "act.delete", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
     const opsRow = document.createElement("tr");
     opsRow.className = "batch-ops-row";
     const opsCell = document.createElement("td");
@@ -1150,6 +1125,9 @@ async function doImport(id, base, btn) {
 
 async function afterImport(id) {
   programs = await invoke("get_programs");
+  try {
+    statuses = await invoke("batch_status_local");
+  } catch {}
   renderSidebar();
   if (!current || !programs.some((p) => p.id === current.id)) await switchCurrent(id);
 }
