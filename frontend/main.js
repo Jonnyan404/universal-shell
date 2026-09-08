@@ -1494,9 +1494,9 @@ async function refreshManageLog() {
     if (hasOffset) args.offset = logOffsets[current.id];
     const res = await invoke("get_logs", args);
     logOffsets[current.id] = res.offset;
-    const el = el.manageLogContent;
-    if (!hasOffset || res.reset) renderLogBody(el, res.text);
-    else if (res.text) appendLogText(el, res.text);
+    const box = el.manageLogContent;
+    if (!hasOffset || res.reset) renderLogBody(box, res.text);
+    else if (res.text) appendLogText(box, res.text);
   } catch {
     /* 无日志文件或读取失败：保持现状 */
   }
