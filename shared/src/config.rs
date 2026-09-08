@@ -576,6 +576,39 @@ pub struct ShellConfig {
     /// 界面语言：`auto`（跟随系统）/ `zh-CN` / `en`
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub locale: String,
+    /// Web 管理界面监听设置（空 = 默认回环 + 随机端口）
+    #[serde(default, skip_serializing_if = "WebSettings::is_default")]
+    pub web: WebSettings,
+}
+
+/// Web 管理界面监听设置（F7：端口/绑定可配置）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct WebSettings {
+    /// 监听地址：空 = 默认回环 127.0.0.1
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bind: String,
+    /// 端口：0 = 自动选空闲高位端口
+    #[serde(default, skip_serializing_if = "WebSettings::is_zero_port")]
+    pub port: u16,
+}
+
+impl WebSettings {
+    fn is_zero_port(p: &u16) -> bool {
+        *p == 0
+    }
+
+    pub fn is_default(&self) -> bool {
+        self.bind.is_empty() && self.port == 0
+    }
+
+    /// 生效的监听地址（空 → 回环）。
+    pub fn effective_bind(&self) -> &str {
+        if self.bind.is_empty() {
+            "127.0.0.1"
+        } else {
+            &self.bind
+        }
+    }
 }
 
 /// 网络代理/加速设置。

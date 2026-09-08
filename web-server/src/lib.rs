@@ -70,6 +70,24 @@ pub fn start(
     start_with_state(state, bind, port)
 }
 
+/// 首选指定端口；占用时回退自动分配（F7 端口配置的容错启动）。
+pub fn start_preferred(
+    manager: Arc<Mutex<ShellManager>>,
+    config_path: PathBuf,
+    bind: &str,
+    port: u16,
+) -> anyhow::Result<WebServerHandle> {
+    if port != 0 {
+        match start(manager.clone(), config_path.clone(), bind, port) {
+            Ok(h) => return Ok(h),
+            Err(e) => {
+                log::warn!("web-server: preferred port {port} unavailable ({e:#}); auto-assigning");
+            }
+        }
+    }
+    start(manager, config_path, bind, 0)
+}
+
 /// 同 [`start`]，但接受调用方已构造好的状态（便于宿主进程把同一含锁 manager 共享进来）。
 pub fn start_with_state(
     state: Arc<RpcState>,

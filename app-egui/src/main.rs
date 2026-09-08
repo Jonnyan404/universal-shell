@@ -1459,10 +1459,15 @@ impl ShellApp {
         self.sync_web();
     }
 
-    /// 「内嵌 Web 管理」开关的启停落地：默认关；开 → 起 127.0.0.1 随机端口服务并打开浏览器。
+    /// 「内嵌 Web 管理」开关的启停落地：默认关；开 → 起服务（端口/绑定取配置，默认回环随机）并打开浏览器。
     fn sync_web(&mut self) {
         if self.web_on && self.web_handle.is_none() {
-            match web_server::start(self.manager.clone(), self.config_path.clone(), "127.0.0.1", 0) {
+            let (bind, port) = {
+                let mgr = self.manager.lock().unwrap();
+                let w = mgr.web_settings();
+                (w.effective_bind().to_string(), w.port) // port 0 = 自动
+            };
+            match web_server::start_preferred(self.manager.clone(), self.config_path.clone(), &bind, port) {
                 Ok(h) => {
                     let url = h.url.clone();
                     self.web_url = Some(url.clone());

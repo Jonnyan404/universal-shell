@@ -76,6 +76,8 @@ sett.proxy_user: 用户名（可选）
 sett.proxy_pass: 密码（可选）
 sett.shell_auto: 壳开机自启
 sett.shell_auto_label: 开机时自动启动本壳（并拉起开启了自启的程序）
+sett.web_port: Web 管理端口
+sett.web_port_hint: 0=随机；改动重启壳后生效
 sett.web: 内嵌 Web 管理
 sett.web_open: 在浏览器打开
 sett.web_on_addr: 运行中：%{url}
@@ -330,6 +332,7 @@ op.duplicate: 复制程序「%{name}」
 op.delete: 删除程序「%{name}」
 op.toggle_visibility: '%{showhide}程序「%{name}」'
 op.update_sources: '更新模板源列表：%{list}'
+op.web_update: '更新 Web 监听设置：%{bind}:%{port}'
 op.import_overwrite: '%{desc} 覆盖导入「%{id}」'
 op.import: '%{desc} 导入「%{name}」'
 op.export: 导出程序「%{name}」模板到本地

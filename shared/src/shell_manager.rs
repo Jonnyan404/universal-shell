@@ -125,6 +125,8 @@ pub struct ShellManager {
     pub proxy: crate::config::ProxySettings,
     /// 界面语言：`auto`（跟随系统）/ `zh-CN` / `en`
     pub locale: String,
+    /// Web 管理界面监听设置（bind/port；均为默认值时 = 回环 + 随机端口）
+    pub web: crate::config::WebSettings,
 }
 
 impl ShellManager {
@@ -150,6 +152,7 @@ impl ShellManager {
             program_autostart_map: program_autostart,
             proxy: crate::config::ProxySettings::default(),
             locale: "auto".to_string(),
+            web: crate::config::WebSettings::default(),
         })
     }
 
@@ -198,6 +201,7 @@ impl ShellManager {
         );
         self.proxy = cfg.proxy;
         self.locale = if cfg.locale.is_empty() { "auto".to_string() } else { cfg.locale };
+        self.web = cfg.web;
         info!("{}", t!("log.config.loaded", count = self.programs.len()));
         Ok(())
     }
@@ -210,6 +214,7 @@ impl ShellManager {
             registry_pubkeys: self.registry_pubkeys.clone(),
             proxy: self.proxy.clone(),
             locale: self.locale.clone(),
+            web: self.web.clone(),
         };
         let json = serde_json::to_string_pretty(&cfg).context(t!("err.serialize_config"))?;
         if let Some(parent) = path.parent() {
@@ -223,6 +228,17 @@ impl ShellManager {
 
     pub fn default_config_path(&self) -> PathBuf {
         self.data_dir.join("shell.json")
+    }
+
+    /// Web 管理界面监听设置（bind/port）。
+    pub fn web_settings(&self) -> crate::config::WebSettings {
+        self.web.clone()
+    }
+
+    /// 更新 Web 监听设置（不持久化；调用方负责 save_config）。
+    pub fn set_web_settings(&mut self, bind: &str, port: u16) {
+        self.web.bind = bind.trim().to_string();
+        self.web.port = port;
     }
 
     /// 程序专属数据目录(下载的二进制、版本、字段值、整包解压都归于此，与其它应用隔离)。

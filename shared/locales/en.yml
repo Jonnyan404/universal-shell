@@ -76,6 +76,8 @@ sett.proxy_user: Username (optional)
 sett.proxy_pass: Password (optional)
 sett.shell_auto: Shell autostart
 sett.shell_auto_label: 'Start this shell at login (and launch autostart programs)'
+sett.web_port: Web admin port
+sett.web_port_hint: '0 = auto; applies after shell restart'
 sett.web: Embedded web management
 sett.web_open: Open in browser
 sett.web_on_addr: 'Running: %{url}'
@@ -330,6 +332,7 @@ op.duplicate: 'Duplicated program "%{name}"'
 op.delete: Delete program "%{name}"
 op.toggle_visibility: '%{showhide} program "%{name}"'
 op.update_sources: 'Updated template sources: %{list}'
+op.web_update: 'Updated web listening settings: %{bind}:%{port}'
 op.import_overwrite: '%{desc} overwrote import "%{id}"'
 op.import: '%{desc} imported "%{name}"'
 op.export: Exported program "%{name}" template to local

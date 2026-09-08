@@ -1178,6 +1178,9 @@ function openSettings() {
   invoke("shell_autostart_enabled")
     .then((on) => { document.querySelector("#sett-shell-auto").checked = !!on; })
     .catch(() => {});
+  invoke("get_web_settings")
+    .then((w) => { document.querySelector("#sett-web-port").value = w.port || 0; })
+    .catch(() => {});
   invoke("get_shell_version")
     .then((v) => {
       if (!shellUpdate) shellUpdate = { current: v, latest_tag: null, release_url: null };
@@ -1195,12 +1198,18 @@ async function saveSettings() {
   const pass = document.querySelector("#sett-proxy-pass").value;
   const hp = buildProxy(type, host, user, pass);
   const shellAuto = document.querySelector("#sett-shell-auto").checked;
+  const webPort = Number(document.querySelector("#sett-web-port").value) || 0;
   try {
     await invoke("set_proxy", { acceleratePrefix: acc, httpProxy: hp });
     try {
       await invoke("set_shell_autostart", { enabled: shellAuto });
     } catch (e) {
       showNotice(t("toast.shell_autostart_fail", { err: e }), true);
+    }
+    try {
+      await invoke("set_web_settings", { bind: "", port: webPort });
+    } catch (e) {
+      showNotice(String(e), true);
     }
     showNotice(t("toast.settings_saved"));
   } catch (e) {

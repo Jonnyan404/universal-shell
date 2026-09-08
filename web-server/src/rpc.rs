@@ -948,6 +948,23 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             Ok(serde_json::to_value(view).map_err(|e| format!("rpc: view: {e}"))?)
         }
 
+        // ---------- Web 监听设置（端口/绑定） ----------
+        "get_web_settings" => {
+            let mgr = state.manager.lock().unwrap();
+            let w = mgr.web_settings();
+            Ok(json!({ "bind": w.bind, "port": w.port }))
+        }
+        "set_web_settings" => {
+            let bind = arg_str(args, "bind");
+            let port = args.get("port").and_then(|v| v.as_u64()).unwrap_or(0).min(65535) as u16;
+            let mut mgr = state.manager.lock().unwrap();
+            mgr.set_web_settings(&bind, port);
+            mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
+            let bind_show = if bind.is_empty() { "127.0.0.1".to_string() } else { bind };
+            mgr.log_op(&t!("op.web_update", bind = bind_show, port = port.to_string()));
+            Ok(json!({}))
+        }
+
         // ---------- 批量管理：远端最新版本 ----------
         "batch_status" => {
             let (layout, locals) = {

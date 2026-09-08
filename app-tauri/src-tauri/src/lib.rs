@@ -1646,7 +1646,13 @@ pub fn run() {
             {
                 let st = app.state::<AppState>();
                 let cfg = st.config_path.clone();
-                match web_server::start(st.manager.clone(), cfg, "127.0.0.1", 0) {
+                // 端口/绑定取配置（默认 127.0.0.1 + 随机高位；指定端口被占用时自动回退）
+                let (bind, port) = {
+                    let mgr = st.manager.lock().unwrap();
+                    let w = mgr.web_settings();
+                    (w.effective_bind().to_string(), w.port)
+                };
+                match web_server::start_preferred(st.manager.clone(), cfg, &bind, port) {
                     Ok(h) => {
                         let url = h.url.clone();
                         let _ = app.manage(WebServerState(Mutex::new(Some(h))));
