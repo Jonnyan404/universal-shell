@@ -222,6 +222,21 @@ button:disabled { opacity: 0.6; cursor: default; }
   cursor: pointer;
 }
 #actions .icon-btn:hover, .batch-ops .icon-btn:hover { color: var(--text); border-color: var(--accent); }
+/* 批量管理中心操作图标：按语义着色，一眼区分启停/重启/日志/下载 */
+.batch-ops .ops-start { color: #34c759; }
+.batch-ops .ops-restart { color: #ff9f0a; }
+.batch-ops .ops-stop { color: #ff453a; }
+.batch-ops .ops-log { color: #0a84ff; }
+.batch-ops .ops-dir { color: #b8860b; }
+.batch-ops .ops-edit { color: #7c5cff; }
+.batch-ops .ops-del { color: #ff453a; }
+.batch-ops .ops-dl { color: #30d158; }
+.batch-ops .ops-ok { color: #34c759; }
+.batch-ops .ops-start:hover, .batch-ops .ops-restart:hover, .batch-ops .ops-stop:hover,
+.batch-ops .ops-log:hover, .batch-ops .ops-dir:hover, .batch-ops .ops-edit:hover,
+.batch-ops .ops-del:hover, .batch-ops .ops-dl:hover, .batch-ops .ops-ok:hover {
+  color: var(--text); border-color: var(--accent);
+}
 
 #notice { margin: 10px 0; padding: 8px 12px; border-radius: 6px; }
 #notice.ok { color: var(--ok); }

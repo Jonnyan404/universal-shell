@@ -230,6 +230,8 @@ impl Runner {
 
     /// 前台启动(窗口应用用这个)：stdout/stderr 合并写入同一日志文件，
     /// 其中 stderr 行以记录分隔符 `\x1F` 开头，供前端着色区分。
+    /// 日志采用「会话追加」语义：不截断历史，逐会话写入一条分隔标记
+    /// （与 shell.log 同策略），界面始终能见到上次会话内容、避免空窗。
     pub fn start_async(
         &mut self,
         id: &str,
@@ -250,8 +252,27 @@ impl Runner {
             .read(true)
             .write(true)
             .create(true)
-            .truncate(true)
+            .append(true)
             .open(&log_path)?;
+        // 会话标记：与上次内容接在同一个文件里，写线程按顺序继续
+        let prior_len = log_file.metadata().map(|m| m.len()).unwrap_or(0);
+        let mut writer = std::io::BufWriter::new(log_file);
+        {
+            use std::io::Write as _;
+            use time::format_description::well_known::Rfc3339;
+            let stamp = time::OffsetDateTime::now_local()
+                .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
+                .format(&Rfc3339)
+                .unwrap_or_else(|_| "?".into());
+            let mut marker = String::new();
+            if prior_len > 0 {
+                marker.push('\n');
+            }
+            marker.push_str(&t!("log.session_started", time = stamp));
+            marker.push('\n');
+            let _ = writer.write_all(marker.as_bytes());
+            let _ = writer.flush();
+        }
 
         let mut cmd = std::process::Command::new(bin_path);
         cmd.args(args)
@@ -281,7 +302,7 @@ impl Runner {
         // 后台线程把 stdout/stderr 两路写到同一文件；stderr 行加前缀
         let out = child.stdout.take();
         let err = child.stderr.take();
-        let writer = std::sync::Arc::new(std::sync::Mutex::new(std::io::BufWriter::new(log_file)));
+        let writer = std::sync::Arc::new(std::sync::Mutex::new(writer));
         let (out, err) = (out.map(std::io::BufReader::new), err.map(std::io::BufReader::new));
         if let Some(mut out) = out {
             let w = writer.clone();

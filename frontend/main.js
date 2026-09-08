@@ -806,9 +806,9 @@ function renderBatch() {
     const ops = document.createElement("span");
     ops.className = "batch-ops";
     const hasRemote = !!(item.repo || statusSource(item.id));
-    const mkIcon = (ico, titleKey, fn) => {
+    const mkIcon = (ico, titleKey, cls, fn) => {
       const b = document.createElement("button");
-      b.className = "icon-btn";
+      b.className = "icon-btn" + (cls ? " " + cls : "");
       b.title = t(titleKey);
       b.textContent = ico;
       b.onclick = fn;
@@ -817,7 +817,7 @@ function renderBatch() {
     if (hasRemote) {
       const isUpToDate = s.installed && s.up_to_date;
       const dl = document.createElement("button");
-      dl.className = "icon-btn";
+      dl.className = "icon-btn" + (isUpToDate ? " ops-ok" : " ops-dl");
       dl.dataset.programId = item.id;
       dl.dataset.installed = s.installed ? "1" : "0";
       dl.title = isUpToDate ? t("st.latest") : s.installed ? t("dl.update") : t("dl.download");
@@ -826,36 +826,36 @@ function renderBatch() {
       dl.onclick = () => installProgram(item.id, dl);
       ops.appendChild(dl);
     }
-    ops.appendChild(mkIcon("▶", "act.start", async () => {
+    ops.appendChild(mkIcon("▶", "act.start", "ops-start", async () => {
       try {
         const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
         await invoke("start_program", { programId: item.id, values: vals });
         await refreshBatchLocal();
       } catch (e) { showNotice(String(e), true); }
     }));
-    ops.appendChild(mkIcon("↻", "act.restart", async () => {
+    ops.appendChild(mkIcon("↻", "act.restart", "ops-restart", async () => {
       try {
         const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
         await invoke("restart_program", { programId: item.id, values: vals });
         await refreshBatchLocal();
       } catch (e) { showNotice(String(e), true); }
     }));
-    ops.appendChild(mkIcon("■", "act.stop", async () => {
+    ops.appendChild(mkIcon("■", "act.stop", "ops-stop", async () => {
       try { await invoke("stop_program", { programId: item.id }); await refreshBatchLocal(); }
       catch (e) { showNotice(String(e), true); }
     }));
-    ops.appendChild(mkIcon("🗒", "act.log", async () => {
+    ops.appendChild(mkIcon("🗒", "act.log", "ops-log", async () => {
       await switchCurrent(item.id);
       refreshManageLog();
     }));
     if (item.repo) {
-      ops.appendChild(mkIcon("📁", "act.open_app_dir", async () => {
+      ops.appendChild(mkIcon("📁", "act.open_app_dir", "ops-dir", async () => {
         try { await invoke("reveal_app_dir", { programId: item.id }); }
         catch (e) { showNotice(String(e), true); }
       }));
     }
-    ops.appendChild(mkIcon("✎", "act.edit", () => openEditModal(programs.find((x) => x.id === item.id))));
-    ops.appendChild(mkIcon("🗑", "act.delete", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
+    ops.appendChild(mkIcon("✎", "act.edit", "ops-edit", () => openEditModal(programs.find((x) => x.id === item.id))));
+    ops.appendChild(mkIcon("🗑", "act.delete", "ops-del", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
     const opsRow = document.createElement("tr");
     opsRow.className = "batch-ops-row";
     const opsCell = document.createElement("td");

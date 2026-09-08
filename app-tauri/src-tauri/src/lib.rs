@@ -1632,13 +1632,21 @@ pub fn run() {
             tray.build(app)?;
 
             // shell.log 按会话划分：启动分隔线（重启不清档、可审计）
-            // 方案 B：壳启动后自动拉起开启了「自启动」的程序
+            // 方案 B：壳启动后自动拉起开启了「自启动」的程序。
+            // 放进后台线程：启动每个程序要创建管道/日志线程，逐个同步执行会拖慢
+            // 窗口与 Web 管理就绪；异步拉起遇到失败也只是记日志，不影响后续。
             {
-                let mgr = app.state::<AppState>();
-                let _ = mgr.manager.lock().map(|mut m| {
-                    m.log_op(&t!("log.shell_started"));
-                    m.start_autostart_programs()
-                });
+                let mgr = app.handle().state::<AppState>();
+                let boot_mgr = mgr.manager.clone();
+                std::thread::Builder::new()
+                    .name("us-autostart".to_string())
+                    .spawn(move || {
+                        if let Ok(mut m) = boot_mgr.lock() {
+                            m.log_op(&t!("log.shell_started"));
+                            m.start_autostart_programs()
+                        }
+                    })
+                    .expect("spawn us-autostart");
             }
 
             // 内嵌 Web 管理（F-4）：与浏览器同源同入口；主窗口直达 loopback 服务。

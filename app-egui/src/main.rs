@@ -354,9 +354,19 @@ impl ShellApp {
         let settings_shell_auto = mgr.autostart.shell_is_enabled();
         let sources_rows = mgr.template_registries.clone();
         // shell.log 按会话划分：启动分隔线（重启不清档、可审计，手动点 🗑 清空）
-        mgr.log_op(&t!("log.shell_started"));
-        // 壳启动后自动拉起所有开启了「自启动」的程序（方案 B：壳管理，对齐 Tauri）
-        mgr.start_autostart_programs();
+        // 壳启动后自动拉起开启「自启动」的程序（方案 B：壳管理，对齐 Tauri）。
+        // 放进后台线程：逐个拉起会做进程探测/建管道，阻塞在 GUI 启动路径上会
+        // 让窗口感觉「卡住」；异步拉起失败也只记日志，不影响界面。
+        let boot_mgr = Arc::clone(&manager);
+        std::thread::Builder::new()
+            .name("eg-autostart".to_string())
+            .spawn(move || {
+                if let Ok(mut bm) = boot_mgr.lock() {
+                    bm.log_op(&t!("log.shell_started"));
+                    bm.start_autostart_programs()
+                }
+            })
+            .expect("spawn eg-autostart");
         // 启动即读版本检查缓存（曾经联网查过 → 回填最新版本与上次检查时间，对齐 Tauri from_local）
         let vcheck = mgr.load_version_check();
         let mut latest_versions: BTreeMap<String, (Option<String>, String)> = BTreeMap::new();
