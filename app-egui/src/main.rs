@@ -1469,6 +1469,7 @@ impl ShellApp {
             };
             match web_server::start_preferred(self.manager.clone(), self.config_path.clone(), &bind, port) {
                 Ok(h) => {
+                    web_server::enable_native_pick();
                     let url = h.url.clone();
                     self.web_url = Some(url.clone());
                     let _ = h.open_in_browser();

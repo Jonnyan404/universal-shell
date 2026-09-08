@@ -5,6 +5,8 @@
 
 pub mod rpc;
 
+pub use rpc::enable_native_pick;
+
 rust_i18n::i18n!("../shared/locales");
 
 use std::net::SocketAddr;
@@ -209,9 +211,8 @@ async fn capabilities(State(state): State<Arc<RpcState>>) -> axum::Json<serde_js
     let _ = state;
     axum::Json(serde_json::json!({
         "ok": true,
-        // 当前跑在哪个宿主上（浏览器不可感知，桌面窗口可从 /api/health 得知）
         "reveal_available": true,
-        "native_pick_available": false, // F-2: 服务端 rfd 弹框
+        "native_pick_available": rpc::NATIVE_PICK.load(std::sync::atomic::Ordering::Relaxed),
     }))
 }
 

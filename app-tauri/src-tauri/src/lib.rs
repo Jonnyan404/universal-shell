@@ -1654,6 +1654,7 @@ pub fn run() {
                 };
                 match web_server::start_preferred(st.manager.clone(), cfg, &bind, port) {
                     Ok(h) => {
+                        web_server::enable_native_pick();
                         let url = h.url.clone();
                         let _ = app.manage(WebServerState(Mutex::new(Some(h))));
                         if let Some(w) = app.get_webview_window("main") {

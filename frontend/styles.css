@@ -513,6 +513,8 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   flex: 1; min-width: 0; background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
 }
+.sett-token { display: flex; gap: 6px; align-items: center; }
+.sett-token input { flex: 1; min-width: 0; width: auto; }
 .edit-fields { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }
 .edit-fields-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
 .edit-env-box { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; color: var(--muted); font-size: 13px; }

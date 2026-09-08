@@ -1671,6 +1671,25 @@ document.querySelector("#new-btn").onclick = () => openEditModal(null);
 document.querySelector("#edit-modal-close").onclick = () => (document.querySelector("#edit-modal").hidden = true);
 document.querySelector("#edit-modal-cancel").onclick = () => (document.querySelector("#edit-modal").hidden = true);
 document.querySelector("#edit-modal-save").onclick = saveEdit;
+
+// F9：本机窗口支持服务端原生选择器；远程（无该能力）隐藏按钮、手填路径
+const browseBtn = document.querySelector("#edit-binary-browse");
+globalThis.haveNativePick = false;
+(async () => {
+  try {
+    const caps = await (await fetch("/api/capabilities")).json();
+    globalThis.haveNativePick = !!caps.native_pick_available;
+  } catch {}
+  browseBtn.hidden = !globalThis.haveNativePick;
+})();
+browseBtn.onclick = async () => {
+  try {
+    const r = await invoke("pick_file");
+    if (r.supported && r.path) document.querySelector("#edit-binary").value = r.path;
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+};
 document.querySelector("#edit-add-field").onclick = () => {
   editing.fields.push({ key: "", kind: "string", label: "", default: "", placeholder: "", required: false });
   renderFieldRows();

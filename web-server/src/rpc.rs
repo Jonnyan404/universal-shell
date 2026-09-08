@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -16,6 +17,14 @@ use rust_i18n::t;
 /// 鉴权失败文案（F6）。供 lib.rs 中间件复用。
 pub fn token_required(_token: &str) -> String {
     t!("err.web_token_required").to_string()
+}
+
+/// 原生文件选择器（F9）：egui/tauri 宿主进程启动时调用 `enable_native_pick()`；
+/// 纯浏览器上下文（独立 web 服务）不启用 → SPA 回退为手填路径。
+pub static NATIVE_PICK: AtomicBool = AtomicBool::new(false);
+
+pub fn enable_native_pick() {
+    NATIVE_PICK.store(true, Ordering::Relaxed);
 }
 
 /// 共享状态：宿主进程(egui / tauri)把同一份 manager 交进来。
@@ -986,6 +995,20 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let bind_show = if bind.is_empty() { "127.0.0.1".to_string() } else { bind };
             mgr.log_op(&t!("op.web_update", bind = bind_show, port = port.to_string()));
             Ok(json!({}))
+        }
+
+        // ---------- 原生路径选择（F9）：本机窗口走服务端 rfd；远程/无 GUI 返回 supported:false ----------
+        "pick_file" => {
+            if !NATIVE_PICK.load(Ordering::Relaxed) {
+                return Ok(json!({ "supported": false }));
+            }
+            let mut dialog = rfd::FileDialog::new().set_title(t!("dlg.pick_binary").into_owned());
+            if let Ok(cwd) = std::env::current_dir() {
+                dialog = dialog.set_directory(cwd);
+            }
+            let picked = dialog.pick_file();
+            let path = picked.map(|p| p.to_string_lossy().to_string());
+            Ok(json!({ "supported": true, "path": path }))
         }
 
         // ---------- 批量管理：远端最新版本 ----------

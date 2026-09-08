@@ -81,6 +81,7 @@ sett.web_port_hint: '0 = auto; applies after shell restart'
 sett.lan: Allow LAN access
 sett.lan_hint: 'Bind 0.0.0.0; non-local access requires the token'
 sett.web_token: Access token
+dlg.pick_binary: Choose program executable
 err.web_token_required: 'Token required (query param token or X-Universal-Token header)'
 sett.web: Embedded web management
 sett.web_open: Open in browser
