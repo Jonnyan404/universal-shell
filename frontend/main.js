@@ -122,11 +122,113 @@ function renderSidebar(preferId) {
     it.appendChild(ico);
     it.appendChild(info);
     it.onclick = () => switchCurrent(s.id);
+    it.oncontextmenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const p = programs.find((x) => x.id === s.id);
+      ctxMenuAt(e.clientX, e.clientY, [
+        { label: t("menu.copy"), onClick: () => duplicateProgram(p) },
+        { label: t("act.edit"), onClick: () => openEditModal(p) },
+        { label: p.hidden ? t("act.unhide") : t("act.hide"), onClick: () => toggleProgramHidden(p) },
+        { sep: true },
+        { label: t("act.delete"), danger: true, onClick: () => confirmAndDelete(p) },
+      ]);
+    };
     el.tabs.appendChild(it);
   });
   if (preferId && programs.some((p) => p.id === preferId)) {
     const target = el.tabs.querySelector(`.prog-item[data-id="${preferId}"]`);
     target && target.scrollIntoView({ block: "nearest" });
+  }
+}
+
+// ---------- 侧栏右键菜单 ----------
+function ctxMenuAt(x, y, items) {
+  hideCtxMenu();
+  const menu = document.querySelector("#ctx-menu");
+  for (const it of items) {
+    if (it.sep) {
+      const s = document.createElement("div");
+      s.className = "ctx-sep";
+      menu.appendChild(s);
+      continue;
+    }
+    const b = document.createElement("button");
+    b.className = "ctx-item" + (it.danger ? " danger" : "");
+    b.textContent = it.label;
+    b.onclick = () => {
+      hideCtxMenu();
+      it.onClick();
+    };
+    menu.appendChild(b);
+  }
+  menu.hidden = false;
+  const r = menu.getBoundingClientRect();
+  let px = x;
+  let py = y;
+  if (px + r.width > window.innerWidth) px = window.innerWidth - r.width - 4;
+  if (py + r.height > window.innerHeight) py = window.innerHeight - r.height - 4;
+  menu.style.left = px + "px";
+  menu.style.top = py + "px";
+}
+
+function hideCtxMenu() {
+  const menu = document.querySelector("#ctx-menu");
+  menu.hidden = true;
+  menu.innerHTML = "";
+}
+
+document.addEventListener("click", hideCtxMenu);
+window.addEventListener("resize", hideCtxMenu);
+
+// 侧栏空白区右键 = 新建（行右键已自行 stopPropagation，不会冒泡到这里）
+document.querySelector(".sidebar").addEventListener("contextmenu", (e) => {
+  if (
+    !e.target.closest("#program-tabs") &&
+    !e.target.closest("#ctx-menu") &&
+    !e.target.closest(".modal")
+  ) {
+    e.preventDefault();
+    ctxMenuAt(e.clientX, e.clientY, [
+      { label: t("menu.new"), onClick: () => openEditModal(null) },
+    ]);
+  }
+});
+
+async function duplicateProgram(p) {
+  try {
+    const copy = await invoke("duplicate_program", { programId: p.id });
+    showNotice(t("toast.duplicated", { name: copy.name }));
+    await reloadPrograms();
+    switchCurrent(copy.id);
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+async function toggleProgramHidden(p) {
+  try {
+    await invoke("set_program_hidden", { programId: p.id, hidden: !p.hidden });
+    showNotice(t(p.hidden ? "toast.unhidden" : "toast.hidden", { name: p.name }));
+    await reloadPrograms();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+async function confirmAndDelete(p) {
+  if (!confirm(t("confirm.delete", { name: p.name }))) return;
+  try {
+    await invoke("delete_program", { programId: p.id });
+    showNotice(t("toast.deleted", { name: p.name }));
+    await reloadPrograms();
+    if (current && current.id === p.id) {
+      const next = programs[0];
+      if (next) switchCurrent(next.id);
+      else document.querySelector("#manage-view").hidden = true;
+    }
+  } catch (e) {
+    showNotice(String(e), true);
   }
 }
 
