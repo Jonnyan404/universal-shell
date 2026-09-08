@@ -1034,10 +1034,6 @@ impl ShellApp {
             return;
         };
         let pid = p.id.clone();
-        // 自启动开关走壳状态，因需 &mut self 调用 set_autostart，故先记录、循环后统一应用
-        let mut pending_autostart: Option<bool> = None;
-        // 一次性读取自启状态（避免在 `values` 可变借用存续期内再锁管理器）
-        let auto_start_state = self.m().program_autostart(&pid);
         {
             // 缓存缺失（如复制/导入刚落地）时实时补读盘上字段值，避免显示空值
             if self.values.get(&pid).is_none() {
@@ -1098,13 +1094,6 @@ impl ShellApp {
                         *v = if b { "true" } else { "false" }.to_string();
                     }
                 }
-                // 自启动由壳统一管理（program-autostart.json），模板字段值仅作展示；切换即写壳状态
-                FieldKind::AutoStart { label, .. } => {
-                    let mut b = auto_start_state;
-                    if ui.checkbox(&mut b, label).changed() {
-                        pending_autostart = Some(b);
-                    }
-                }
             }
         }
         if !p.env.is_empty() {
@@ -1118,9 +1107,6 @@ impl ShellApp {
                     }
                 });
         }
-        }
-        if let Some(b) = pending_autostart {
-            self.set_autostart(&p, b);
         }
     }
 
@@ -3186,7 +3172,7 @@ impl ShellApp {
                                     .selected_text(&f.kind)
                                     .width(90.0)
                                     .show_ui(ui, |ui| {
-                                        for k in ["string", "boolean", "file", "directory", "autostart"] {
+                                        for k in ["string", "boolean", "file", "directory"] {
                                             ui.selectable_value(&mut f.kind, k.to_string(), k);
                                         }
                                     });
@@ -3327,10 +3313,6 @@ impl ShellApp {
                         default: f.default.clone(),
                     },
                     "boolean" => shared::config::FieldKind::Boolean {
-                        label: label.clone(),
-                        default: f.default == "true",
-                    },
-                    "autostart" => shared::config::FieldKind::AutoStart {
                         label: label.clone(),
                         default: f.default == "true",
                     },
@@ -3625,7 +3607,6 @@ fn kind_name(kind: &FieldKind) -> &'static str {
         FieldKind::Boolean { .. } => "boolean",
         FieldKind::File { .. } => "file",
         FieldKind::Directory { .. } => "directory",
-        FieldKind::AutoStart { .. } => "autostart",
     }
 }
 
@@ -3636,7 +3617,6 @@ fn field_default(kind: &FieldKind) -> String {
         FieldKind::Boolean { default, .. } => default.to_string(),
         FieldKind::File { default, .. } => default.clone(),
         FieldKind::Directory { default, .. } => default.clone(),
-        FieldKind::AutoStart { default, .. } => default.to_string(),
     }
 }
 

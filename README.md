@@ -5,7 +5,7 @@ A configuration-driven manager that downloads, configures, and runs third-party 
 **English** · [中文](#中文文档)
 
 - Downloads/updates program binaries from GitHub into its own data dir (never overwrites itself), verifies SHA256, spawns/stops processes with templated args.
-- **Config-driven UI**: the `fields` in `shell.json` decide which widgets render (string / file / directory / boolean / autostart).
+- **Config-driven UI**: the `fields` in `shell.json` decide which widgets render (string / file / directory / boolean).
 - Multiple programs in tabs, each with its own data dir.
 - Tray resident: closing the window hides to tray; tray can reopen or quit (both Tauri & egui).
 
@@ -72,8 +72,7 @@ Field type is set by `fields[].kind`; `args` uses `{key}` to reference field val
         { "key": "port",     "kind": "string",    "label": "Port",        "default": "9000" },
         { "key": "config",   "kind": "file",      "label": "Config file", "required": true },
         { "key": "data_dir", "kind": "directory", "label": "Data dir" },
-        { "key": "verbose",  "kind": "boolean",   "label": "Verbose",     "default": false },
-        { "key": "autostart","kind": "autostart", "label": "Autostart",   "default": false }
+        { "key": "verbose",  "kind": "boolean",   "label": "Verbose",     "default": false }
       ],
       "args": ["-host", "{host}", "-port", "{port}", "-config", "{config}", "-dir", "{data_dir}"]
     }
@@ -81,7 +80,7 @@ Field type is set by `fields[].kind`; `args` uses `{key}` to reference field val
 }
 ```
 
-Field kinds: `string` / `file` / `directory` / `boolean` / `autostart`. Asset `filename` supports `{name}` `{version}` `{arch}` `{ext}`; `args` supports any `{fieldKey}`. Mark a field `required: true` to block start until filled (its label gets a `*`).
+Field kinds: `string` / `file` / `directory` / `boolean`. Asset `filename` supports `{name}` `{version}` `{arch}` `{ext}`; `args` supports any `{fieldKey}`. Mark a field `required: true` to block start until filled (its label gets a `*`). Program autostart is shell-managed state (the shell's autostart toggle/`program-autostart.json`), not a template field.
 
 ## Data directory
 
@@ -149,7 +148,7 @@ MIT — see [LICENSE](LICENSE).
 [English](#universal-shell) · 中文文档
 
 - 从 GitHub 自动下载/更新受管程序二进制到独立数据目录（天然防覆盖），SHA256 校验、参数模板替换、启动/停止子进程。
-- **配置驱动界面**：`shell.json` 里的 `fields` 决定渲染什么控件（string / file / directory / boolean / autostart）。
+- **配置驱动界面**：`shell.json` 里的 `fields` 决定渲染什么控件（string / file / directory / boolean）。
 - 多程序多 Tab，每个程序独立数据目录。
 - 托盘常驻：关窗即隐藏到托盘，托盘可唤出/退出（Tauri 与 egui 双端）。
 
@@ -212,8 +211,7 @@ cargo run -p app-egui
         { "key": "port",     "kind": "string",    "label": "端口",     "default": "9000" },
         { "key": "config",   "kind": "file",      "label": "配置文件", "required": true },
         { "key": "data_dir", "kind": "directory", "label": "数据目录" },
-        { "key": "verbose",  "kind": "boolean",   "label": "详细日志", "default": false },
-        { "key": "autostart","kind": "autostart", "label": "开机启动", "default": false }
+        { "key": "verbose",  "kind": "boolean",   "label": "详细日志", "default": false }
       ],
       "args": ["-host", "{host}", "-port", "{port}", "-config", "{config}", "-dir", "{data_dir}"]
     }
@@ -221,7 +219,7 @@ cargo run -p app-egui
 }
 ```
 
-`fields[].kind` 支持：`string` / `file` / `directory` / `boolean` / `autostart`。资产 `filename` 支持 `{name}` `{version}` `{arch}` `{ext}`；`args` 支持任意 `{fieldKey}`。字段标 `"required": true` 后，值为空时无法启动（标签显示 `*`）。
+`fields[].kind` 支持：`string` / `file` / `directory` / `boolean`。资产 `filename` 支持 `{name}` `{version}` `{arch}` `{ext}`；`args` 支持任意 `{fieldKey}`。字段标 `"required": true` 后，值为空时无法启动（标签显示 `*`）。程序自启动是壳统一管理的状态（自启开关 / `program-autostart.json`），不是模板字段。
 
 ## 数据目录
 

@@ -59,7 +59,7 @@ edit.env_label_ph: Label (optional)
 edit.env_ro_title: Environment variables (derived, read-only)
 edit.field_placeholder_ph: Placeholder hint (string only)
 edit.field_label: Label
-edit.field_kind: 'Kind (string/boolean/file/directory/autostart)'
+edit.field_kind: 'Kind (string/boolean/file/directory)'
 edit.fields: Fields
 ui.empty_binary: Leave blank to use the id
 ui.args_hint: One argument per line; supports {key} placeholders

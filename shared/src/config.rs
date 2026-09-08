@@ -117,13 +117,6 @@ pub enum FieldKind {
         #[serde(default)]
         default: bool,
     },
-    /// 开机启动复选框(特殊:写入系统 LoginItem / 自启配置)
-    #[serde(rename = "autostart")]
-    AutoStart {
-        label: String,
-        #[serde(default)]
-        default: bool,
-    },
 }
 
 /// 一个受管程序
@@ -260,15 +253,14 @@ impl Field {
             FieldKind::String { label, .. }
             | FieldKind::File { label, .. }
             | FieldKind::Directory { label, .. }
-            | FieldKind::Boolean { label, .. }
-            | FieldKind::AutoStart { label, .. } => label,
+            | FieldKind::Boolean { label, .. } => label,
         }
     }
 
     pub fn default_raw(&self) -> String {
         match &self.kind {
             FieldKind::String { default, .. } | FieldKind::File { default, .. } | FieldKind::Directory { default, .. } => default.clone(),
-            FieldKind::Boolean { default, .. } | FieldKind::AutoStart { default, .. } => {
+            FieldKind::Boolean { default, .. } => {
                 if *default { "true".into() } else { "false".into() }
             }
         }

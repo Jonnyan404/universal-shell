@@ -342,7 +342,6 @@ function scheduleAutosave() {
 function renderForm() {
   el.form.innerHTML = "";
   for (const f of current.fields) {
-    if (f.kind === "autostart") continue;
     const row = document.createElement("div");
     row.className = "field-row";
     const label = document.createElement("label");

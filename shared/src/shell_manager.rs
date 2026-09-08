@@ -1819,7 +1819,7 @@ mod tests {
             r#"{"id":"dufs","name":"dufs","repo":"sigoden/dufs","binary":"dufs","fields":[],"args":[]}"#,
         )
         .unwrap();
-        assert!(!p.fields.iter().any(|f| matches!(f.kind, FieldKind::AutoStart { .. })));
+        assert!(p.fields.is_empty());
 
         {
             let mut mgr = ShellManager::new(dir.clone()).unwrap();

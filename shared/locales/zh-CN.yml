@@ -59,7 +59,7 @@ edit.env_label_ph: 说明（可选）
 edit.env_ro_title: 环境变量（派生只读）
 edit.field_placeholder_ph: 占位提示（placeholder，仅 string）
 edit.field_label: 标签
-edit.field_kind: 类型（string/boolean/file/directory/autostart）
+edit.field_kind: 类型（string/boolean/file/directory）
 edit.fields: 字段
 ui.empty_binary: 留空则用 ID
 ui.args_hint: 每行一个参数；支持 {key} 占位

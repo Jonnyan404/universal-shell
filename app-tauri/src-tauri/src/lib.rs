@@ -235,9 +235,6 @@ fn to_field_view(f: &Field) -> FieldView {
         shared::config::FieldKind::Boolean { label, default } => {
             ("boolean", label.clone(), default.to_string(), String::new())
         }
-        shared::config::FieldKind::AutoStart { label, default } => {
-            ("autostart", label.clone(), default.to_string(), String::new())
-        }
     };
     FieldView { key: f.key.clone(), kind: kind.to_string(), label, default, placeholder, required: f.required }
 }
@@ -935,10 +932,6 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
                     default: f.default.clone(),
                 },
                 "boolean" => FieldKind::Boolean {
-                    label: f.label.clone(),
-                    default: f.default == "true",
-                },
-                "autostart" => FieldKind::AutoStart {
                     label: f.label.clone(),
                     default: f.default == "true",
                 },
