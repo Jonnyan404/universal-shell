@@ -1955,13 +1955,19 @@ async function doLocalImport() {
 document.querySelector("#import-modal-ok").onclick = doLocalImport;
 
 // ---------- 主题 / 语言 / 收窄 ----------
+function applyTheme(theme) {
+  const root = document.documentElement;
+  root.dataset.theme = theme;
+  document.querySelector("#theme-btn").textContent = theme === "dark" ? "☾" : "☀";
+  try {
+    localStorage.setItem("us-theme", theme);
+  } catch {}
+}
+
 function toggleTheme() {
   const root = document.documentElement;
   const cur = root.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-  const next = cur === "dark" ? "light" : "dark";
-  root.dataset.theme = next;
-  const btn = document.querySelector("#theme-btn");
-  btn.textContent = next === "dark" ? "☾" : "☀";
+  applyTheme(cur === "dark" ? "light" : "dark");
 }
 
 async function toggleLang() {
@@ -2202,10 +2208,13 @@ async function boot() {
     await loadLocale();
   } catch {}
   applyStaticI18n();
-  // 主题默认跟随系统
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  document.documentElement.dataset.theme = dark ? "dark" : "light";
-  document.querySelector("#theme-btn").textContent = dark ? "☾" : "☀";
+  // 主题：优先用上次选择，未选择过才跟随系统
+  let savedTheme = null;
+  try {
+    savedTheme = localStorage.getItem("us-theme");
+  } catch {}
+  const dark = savedTheme ? savedTheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  applyTheme(dark ? "dark" : "light");
 
   programs = await invoke("get_programs");
   statuses = (await invoke("batch_status_local")) || [];
