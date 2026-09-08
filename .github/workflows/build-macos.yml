@@ -84,8 +84,8 @@ jobs:
           VERSION="${{ steps.version.outputs.value }}"
           CLI="dist/cli/macos"
           mkdir -p "$CLI"
-          cp "target/release/us-web" "$CLI/us-web-$VERSION-${{ matrix.label }}"
-          chmod +x "$CLI/us-web-$VERSION-${{ matrix.label }}"
+          cp "target/release/us-web" "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}"
+          chmod +x "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}"
         shell: bash
 
       - name: Package egui (macOS .app + .dmg)

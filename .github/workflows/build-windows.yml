@@ -107,7 +107,7 @@ jobs:
             TGT="x86_64-pc-windows-msvc"
           fi
           mkdir -p "$CLI"
-          cp "target/$TGT/release/us-web.exe" "$CLI/us-web-$VERSION-${{ matrix.label }}.exe"
+          cp "target/$TGT/release/us-web.exe" "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}.exe"
         shell: bash
 
       - name: Package egui (Windows .exe + .msi)

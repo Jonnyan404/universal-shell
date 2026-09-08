@@ -132,19 +132,18 @@ jobs:
           fi
         shell: bash
 
-      - name: Package CLI (us-web)
+      - name: Package CLI (universal-shell-cli)
         run: |
           VERSION="${{ steps.version.outputs.value }}"
           CLI="dist/cli/${{ matrix.label }}"
           mkdir -p "$CLI"
           if [ "$RUNNER_OS" = "Windows" ]; then
             TGT=$(echo "${{ matrix.label }}" | grep -q arm64 && echo aarch64-pc-windows-msvc || echo x86_64-pc-windows-msvc)
-            cp "target/$TGT/release/us-web.exe" "$CLI/us-web-$VERSION-${{ matrix.label }}.exe"
+            cp "target/$TGT/release/us-web.exe" "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}.exe"
           else
-            cp "target/release/us-web" "$CLI/us-web-$VERSION-${{ matrix.label }}"
-            chmod +x "$CLI/us-web-$VERSION-${{ matrix.label }}"
+            cp "target/release/us-web" "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}"
+            chmod +x "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}"
           fi
-        shell: bash
         shell: bash
 
       - name: Package egui (Windows .exe + .msi)
@@ -258,11 +257,12 @@ jobs:
           (cd app-tauri && npx tauri build --bundles "$BUNDLES" \
             --config "{\"version\":\"$VERSION\"}")
           mkdir -p dist/bundle
-          # 仅保留最终安装包，丢开 tauri 的中间/展开文件
+          # 仅保留最终安装包，丢开 tauri 的中间/展开文件；
+          # 统一改名为 universal-shell-tauri-<原名>，与 egui/cli 前缀保持一致
           find target/release/bundle -type f \
             \( -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
                -o -name '*.msi' -o -name '*.exe' \) \
-            -exec cp {} dist/bundle/ \;
+            -exec sh -c 'cp "$1" "dist/bundle/universal-shell-tauri-$(basename "$1")"' _ {} \;
         shell: bash
 
       - name: SHA256
@@ -329,7 +329,7 @@ jobs:
         run: |
           find dist -type f \
             \( -name 'universal-shell-egui-*' \
-               -o -name 'us-web-*' \
+               -o -name 'universal-shell-cli-*' \
                -o -path '*/Contents/MacOS/*' \
                -o -path '*/bin/*' \) \
             -exec chmod +x {} +

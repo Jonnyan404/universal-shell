@@ -1505,6 +1505,7 @@ pub fn run() {
     // 会把程序参数里的 "--" 折叠成单破折号（--code 变 -code）。
     // 它由 AppKit 文本系统读取 NSUserDefaults 控制，HTML 的 autocorrect=off
     // 只关一部分，这里在进程级整套关掉，保证所有文本框行为一致。
+    #[cfg(target_os = "macos")]
     disable_macos_text_substitution();
 
     let data_dir = dirs::data_dir()
