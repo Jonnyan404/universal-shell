@@ -312,7 +312,6 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 
 .batch-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
-.batch-title { font-size: 16px; font-weight: 600; color: var(--text); flex: 1; }
 .batch-actions { display: flex; flex-direction: column; align-items: center; }
 .batch-btns { display: flex; align-items: center; gap: 10px; }
 
@@ -569,6 +568,8 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 
 /* 程序管理：隐藏/日志入口 */
 .batch-toolbar .spacer { flex: 1; }
+.batch-ops { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.batch-ops-row td { padding-top: 4px; }
 /* 侧栏右键菜单（自绘浮层） */
 .ctx-menu {
   position: fixed;

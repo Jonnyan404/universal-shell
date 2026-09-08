@@ -239,6 +239,8 @@ function switchView(v) {
   el.manageView.hidden = v !== "manage";
   el.batchView.hidden = v !== "batch";
   el.libraryView.hidden = v !== "library";
+  const dlBtn = document.querySelector("#dl-btn");
+  if (dlBtn) dlBtn.hidden = v !== "manage";
   if (v === "manage") {
     if (current) {
       el.progTitle.textContent = current.name;
@@ -263,7 +265,7 @@ async function switchCurrent(id) {
   switchView("manage");
   current = programs.find((p) => p.id === id) || null;
   if (!current) return;
-  values = {};
+  values = (await invoke("get_values", { programId: current.id }).catch(() => ({}))) || {};
   renderHeader();
   renderForm();
   renderActions();
@@ -417,48 +419,82 @@ function renderActions() {
   };
   actions.appendChild(restart);
 
-  const st = statuses.find((s) => s.id === current.id)?.status;
-  if (current.repo || current.http_enabled) {
-    const dl = document.createElement("button");
-    dl.id = "dl-btn";
-    dl.className = "op-btn dl-btn";
+  // 下载/更新按钮已迁入状态栏（对齐 Tauri），这里只接上绑定
+  const dl = document.querySelector("#dl-btn");
+  if (dl) {
     dl.dataset.programId = current.id;
-    dl.dataset.installed = st?.installed ? "1" : "0";
-    dl.textContent = st?.installed
-      ? st?.up_to_date ? t("st.latest") : t("dl.update")
-      : t("dl.download");
-    dl.disabled = !!(st?.installed && st?.up_to_date);
+    dl.dataset.installed = statuses.find((s) => s.id === current.id)?.status?.installed ? "1" : "0";
     dl.onclick = () => installProgram(current.id, dl);
-    actions.appendChild(dl);
   }
 
+  // 右侧图标组整体靠右：第一个图标吃掉左侧剩余空间（对齐 Tauri/egui）
+  const icons = [];
+  if (current.repo) {
+    const appDir = document.createElement("button");
+    appDir.className = "icon-btn";
+    appDir.title = t("act.open_app_dir");
+    appDir.textContent = "📁";
+    appDir.onclick = async () => {
+      try {
+        await invoke("reveal_app_dir", { programId: current.id });
+      } catch (e) {
+        showNotice(String(e), true);
+      }
+    };
+    icons.push(appDir);
+  }
+  const url = webUrl(current);
+  if (url) {
+    const copy = document.createElement("button");
+    copy.className = "icon-btn";
+    copy.title = t("act.copy_addr");
+    copy.textContent = "⧉";
+    copy.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(url);
+        showNotice(t("toast.addr_copied"));
+      } catch {
+        showNotice(t("toast.copy_fail"), true);
+      }
+    };
+    icons.push(copy);
+    const open = document.createElement("button");
+    open.className = "icon-btn";
+    open.title = t("act.open_site");
+    open.textContent = "↗";
+    open.onclick = () => window.open(url, "_blank");
+    icons.push(open);
+  }
   const edit = document.createElement("button");
   edit.className = "icon-btn";
   edit.title = t("act.edit");
   edit.textContent = "✎";
   edit.onclick = () => openEditModal(current);
-  actions.appendChild(edit);
+  icons.push(edit);
 
   const dup = document.createElement("button");
   dup.className = "icon-btn";
   dup.title = t("menu.copy");
   dup.textContent = "⧉";
   dup.onclick = duplicateCurrent;
-  actions.appendChild(dup);
+  icons.push(dup);
 
   const hide = document.createElement("button");
   hide.className = "icon-btn";
   hide.title = t(current.hidden ? "act.unhide" : "act.hide");
   hide.textContent = current.hidden ? "👁" : "🙈";
   hide.onclick = toggleHidden;
-  actions.appendChild(hide);
+  icons.push(hide);
 
   const del = document.createElement("button");
   del.className = "icon-btn";
   del.title = t("act.delete");
   del.textContent = "🗑";
   del.onclick = deleteCurrent;
-  actions.appendChild(del);
+  icons.push(del);
+
+  if (icons.length) icons[0].style.marginLeft = "auto";
+  for (const b of icons) actions.appendChild(b);
 }
 
 // ---------- 状态 ----------
@@ -504,6 +540,23 @@ function renderButtons(st) {
     if (b.id === "stop-btn") b.disabled = !st.running;
     if (b.id === "restart-btn") b.disabled = !st.running;
   });
+}
+
+// 构造程序的 Web 访问地址(如有地址/端口字段)。无地址返回 null
+function webUrl(prog) {
+  if (!prog) return null;
+  const fieldVal = (key) => {
+    const v = values[key];
+    if (v && String(v).trim()) return String(v).trim();
+    const f = prog.fields.find((x) => x.key === key);
+    return f && f.default && String(f.default).trim() ? String(f.default).trim() : null;
+  };
+  const addr = fieldVal("host") ?? fieldVal("bind") ?? fieldVal("addr");
+  if (!addr) return null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(addr)) return addr;
+  const port = fieldVal("port");
+  if (port && !/:\d+$/.test(addr)) return `http://${addr}:${port}`;
+  return `http://${addr}`;
 }
 
 // ---------- 下载 / 安装（进度走 WS 事件总线） ----------
@@ -554,16 +607,24 @@ function syncInstallBtns(id) {
   if (!dl || current?.id !== id || view !== "manage") return;
   const st = statuses.find((s) => s.id === id)?.status;
   const busy = installing.has(id);
-  if (!st?.installed) {
-    dl.disabled = busy;
-    dl.textContent = busy ? t("dl.downloading") : t("dl.download");
-  } else if (st?.up_to_date) {
-    dl.disabled = true;
-    dl.textContent = t("st.latest");
-  } else {
-    dl.disabled = busy;
-    dl.textContent = busy ? t("dl.downloading") : t("dl.update");
+  const isLocal = current && !current.repo;
+  if (isLocal) {
+    dl.hidden = true;
+    return;
   }
+  if (st?.installed && st?.up_to_date) {
+    dl.hidden = true;
+    return;
+  }
+  if (st?.installed && !st?.latest_version) {
+    dl.hidden = true;
+    return;
+  }
+  dl.hidden = false;
+  dl.dataset.programId = id;
+  dl.dataset.installed = st?.installed ? "1" : "0";
+  dl.disabled = busy;
+  dl.textContent = busy ? t("dl.downloading") : st?.installed ? t("dl.update") : t("dl.download");
 }
 
 function handleInstallProgress(p) {
@@ -769,17 +830,35 @@ function renderBatch() {
       return b;
     };
     ops.appendChild(mkOp(t("act.start"), async () => {
-      try { await invoke("start_program", { programId: item.id, values: {} }); await refreshBatchLocal(); }
-      catch (e) { showNotice(String(e), true); }
+      try {
+        const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
+        await invoke("start_program", { programId: item.id, values: vals });
+        await refreshBatchLocal();
+      } catch (e) { showNotice(String(e), true); }
     }));
     ops.appendChild(mkOp(t("act.restart"), async () => {
-      try { await invoke("restart_program", { programId: item.id, values: {} }); await refreshBatchLocal(); }
-      catch (e) { showNotice(String(e), true); }
+      try {
+        const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
+        await invoke("restart_program", { programId: item.id, values: vals });
+        await refreshBatchLocal();
+      } catch (e) { showNotice(String(e), true); }
     }));
     ops.appendChild(mkOp(t("act.stop"), async () => {
       try { await invoke("stop_program", { programId: item.id }); await refreshBatchLocal(); }
       catch (e) { showNotice(String(e), true); }
     }));
+    ops.appendChild(mkOp(t("act.log"), async () => {
+      await switchCurrent(item.id);
+      refreshManageLog();
+    }));
+    if (item.repo) {
+      ops.appendChild(mkOp(t("act.open_app_dir"), async () => {
+        try { await invoke("reveal_app_dir", { programId: item.id }); }
+        catch (e) { showNotice(String(e), true); }
+      }));
+    }
+    ops.appendChild(mkOp(t("act.edit"), () => openEditModal(programs.find((x) => x.id === item.id))));
+    ops.appendChild(mkOp(t("act.delete"), () => confirmAndDelete(programs.find((x) => x.id === item.id))));
     const opsRow = document.createElement("tr");
     opsRow.className = "batch-ops-row";
     const opsCell = document.createElement("td");
