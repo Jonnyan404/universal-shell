@@ -1704,12 +1704,15 @@ document.querySelector("#edit-modal-save").onclick = saveEdit;
 // F9：本机窗口支持服务端原生选择器；远程（无该能力）隐藏按钮、手填路径
 const browseBtn = document.querySelector("#edit-binary-browse");
 globalThis.haveNativePick = false;
+globalThis.canUpload = true;
 (async () => {
   try {
     const caps = await (await fetch("/api/capabilities")).json();
     globalThis.haveNativePick = !!caps.native_pick_available;
+    globalThis.canUpload = caps.upload_supported !== false;
   } catch {}
   browseBtn.hidden = !globalThis.haveNativePick;
+  uploadBtn.hidden = !globalThis.canUpload;
 })();
 browseBtn.onclick = async () => {
   try {
@@ -1717,6 +1720,36 @@ browseBtn.onclick = async () => {
     if (r.supported && r.path) document.querySelector("#edit-binary").value = r.path;
   } catch (e) {
     showNotice(String(e), true);
+  }
+};
+
+// F-9 二期：远程上传二进制 → 服务端存盘并回填绝对路径（本地程序 binary 直接引用）
+const uploadBtn = document.querySelector("#edit-binary-upload");
+const uploadInput = document.querySelector("#edit-binary-file");
+uploadBtn.onclick = () => uploadInput.click();
+uploadInput.onchange = async () => {
+  const f = uploadInput.files[0];
+  uploadInput.value = "";
+  if (!f) return;
+  const headers = {};
+  if (usToken) headers["X-Universal-Token"] = usToken;
+  uploadBtn.disabled = true;
+  uploadBtn.textContent = Math.round(f.size / 1048576) + "M…";
+  try {
+    const res = await fetch("/api/upload?name=" + encodeURIComponent(f.name), {
+      method: "POST",
+      headers,
+      body: f,
+    });
+    const j = await res.json();
+    if (!res.ok || !j.ok) throw new Error(j.error || "upload failed: HTTP " + res.status);
+    document.querySelector("#edit-binary").value = j.data.path;
+    showNotice(t("toast.uploaded", { name: j.data.name }));
+  } catch (e) {
+    showNotice(String(e), true);
+  } finally {
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = t("act.upload");
   }
 };
 document.querySelector("#edit-add-field").onclick = () => {

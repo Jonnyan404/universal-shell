@@ -220,6 +220,10 @@ impl ShellManager {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        // 落盘前把上一份配置保留为 .bak，防止写坏/误删导致配置整份丢失
+        if path.exists() {
+            let _ = std::fs::copy(path, path.with_extension("json.bak"));
+        }
         std::fs::write(path, json)
             .with_context(|| t!("err.write_config", path = path.display().to_string()))?;
         info!("{}", t!("log.config.saved", path = path.display()));
@@ -1064,6 +1068,15 @@ impl ShellManager {
 
     /// 删除实例：从配置移除程序，并清理其二进制/版本/字段值文件。
     pub fn delete_program(&mut self, id: &str, path: &Path) -> anyhow::Result<()> {
+        // 防御：id 必须是单段安全标识，杜绝 ".." / 路径分隔符 等导致清理目录越权
+        if id.is_empty()
+            || id == ".."
+            || id.contains('/')
+            || id.contains('\\')
+            || id.contains('\0')
+        {
+            anyhow::bail!(t!("err.program_not_found", id = &id));
+        }
         let is_builtin = if self.programs.iter().any(|p| p.id == id) {
             false
         } else if self.builtin_programs.iter().any(|p| p.id == id) {

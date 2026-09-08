@@ -133,6 +133,7 @@ act.restart: Restart
 act.open_site: Open website
 act.copy_addr: Copy address
 act.browse: Browse…
+act.upload: Upload
 act.edit: Edit
 act.delete: Delete
 act.hide: Hide
@@ -175,6 +176,7 @@ toast.stopped: Stopped
 toast.stop_fail: 'Stop failed: %{err}'
 toast.restarted: Restarted
 toast.restart_fail: 'Restart failed: %{err}'
+toast.uploaded: 'Uploaded "%{name}", save to apply'
 toast.copied: Copied
 toast.copy_fail: Copy failed
 toast.saved: Changes saved

@@ -133,6 +133,7 @@ act.restart: 重启
 act.open_site: 打开网站
 act.copy_addr: 复制地址
 act.browse: 浏览…
+act.upload: 上传
 act.edit: 编辑
 act.delete: 删除
 act.hide: 隐藏
@@ -175,6 +176,7 @@ toast.stopped: 已停止
 toast.stop_fail: '停止失败: %{err}'
 toast.restarted: 已重启
 toast.restart_fail: '重启失败: %{err}'
+toast.uploaded: 已上传「%{name}」，保存可生效
 toast.copied: 已复制
 toast.copy_fail: 复制失败
 toast.saved: 已保存修改

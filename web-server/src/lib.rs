@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path as PathParam, State};
+use axum::extract::{Path as PathParam, Query, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -189,6 +189,7 @@ pub fn start_with_state(
                     .route("/locales/:lang", get(locale))
                     .route("/api/rpc", post(rpc_handler))
                     .route("/api/capabilities", get(capabilities))
+                    .route("/api/upload", post(upload_binary))
                     .route("/ws", get(ws_handler))
                     // F6 鉴权：回环 peer 免 token；其它来源必须携带 token（查询参数或 X-Universal-Token 头）
                     .route_layer(
@@ -273,7 +274,76 @@ async fn capabilities(State(state): State<Arc<RpcState>>) -> axum::Json<serde_js
         "ok": true,
         "reveal_available": true,
         "native_pick_available": rpc::NATIVE_PICK.load(std::sync::atomic::Ordering::Relaxed),
+        "upload_supported": true, // F-9 二期：远程可直接上传二进制
     }))
+}
+
+/// 二进制上传（F-9 二期）：远程浏览器把可执行文件传到服务端，
+/// 存到 `<data_dir>/uploads/` 并返回绝对路径，供「本地程序」直接引用。
+/// 受 F6 鉴权保护；单文件大小上限 512MB。
+async fn upload_binary(
+    State(state): State<Arc<RpcState>>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    bytes: axum::body::Bytes,
+) -> Response {
+    const MAX: usize = 512 * 1024 * 1024;
+    if bytes.is_empty() {
+        return err_response(StatusCode::BAD_REQUEST, "upload: empty body");
+    }
+    if bytes.len() > MAX {
+        return err_response(StatusCode::PAYLOAD_TOO_LARGE, "upload: too large (max 512MB)");
+    }
+    let raw = params
+        .get("name")
+        .filter(|s| !s.is_empty())
+        .map(|s| s.as_str())
+        .unwrap_or("binary");
+    // 只取 basename，剔除路径分隔与非法字符
+    let raw = raw.rsplit(['/', '\\']).next().unwrap_or(raw);
+    let fname: String = raw
+        .chars()
+        .filter(|c| c.is_ascii() && !matches!(c, '/' | '\\' | '\0'))
+        .collect();
+    let fname = if fname.trim().is_empty() { "binary".to_string() } else { fname };
+
+    let mut path = state.manager.lock().unwrap().data_dir.join("uploads").join(&fname);
+    let _ = std::fs::create_dir_all(path.parent().unwrap());
+    // 重名自动加序号，避免覆盖已有文件
+    if path.exists() {
+        let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let ext = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+        let mut n = 1usize;
+        loop {
+            let cand = path.with_file_name(format!("{stem}-{n}{ext}"));
+            if !cand.exists() {
+                path = cand;
+                break;
+            }
+            n += 1;
+        }
+    }
+    if let Err(e) = std::fs::write(&path, &bytes) {
+        return err_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("upload: write failed: {e:#}"));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755));
+    }
+    log::info!("uploaded {} ({} bytes)", path.display(), bytes.len());
+    axum::Json(serde_json::json!({
+        "ok": true,
+        "data": {
+            "path": path.to_string_lossy().to_string(),
+            "name": fname,
+            "size": bytes.len(),
+        },
+    }))
+    .into_response()
+}
+
+fn err_response(status: StatusCode, msg: &str) -> Response {
+    (status, axum::Json(serde_json::json!({ "ok": false, "error": msg }))).into_response()
 }
 
 /// F6 鉴权中间件：回环 peer 放行；非回环来源校验令牌。
