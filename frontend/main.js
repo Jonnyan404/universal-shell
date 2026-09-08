@@ -1892,7 +1892,7 @@ function renderFieldRows() {
     lab.value = f.label;
     lab.oninput = () => (editing.fields[i].label = lab.value);
     const kind = document.createElement("select");
-    for (const kd of ["string", "boolean", "file", "directory", "autostart"]) {
+    for (const kd of ["string", "boolean", "file", "directory"]) {
       const o = document.createElement("option");
       o.value = kd;
       o.textContent = kd;
