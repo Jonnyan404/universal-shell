@@ -55,6 +55,11 @@ edit.env_value_ph: Value (e.g. croc-{code})
 edit.env_label_ph: Label (optional)
 edit.env_ro_title: Environment variables (derived, read-only)
 edit.field_placeholder_ph: Placeholder hint (string only)
+edit.field_label: Label
+edit.field_kind: 'Kind (string/boolean/file/directory/autostart)'
+edit.fields: Fields
+ui.empty_binary: Leave blank to use the id
+ui.args_hint: One argument per line; supports {key} placeholders
 edit.http_source: 'HTTP direct-link source (empty = GitHub)'
 edit.http_enable: 'Enable HTTP source (source.kind=http)'
 edit.http_version_url: 'Version URL (version_url)'
@@ -112,6 +117,9 @@ st.never: Never
 st.just: Just now
 st.local_ver: 'Local version: %{ver}'
 ui.not_imported: No programs imported
+ui.confirm_delete: 'Delete "%{name}"? This cannot be undone.'
+ui.import_overwrite: Overwrite existing program with same id
+ui.import_choose: Choose a template JSON file (.json)
 act.start: Start
 act.stop: Stop
 act.restart: Restart
@@ -219,6 +227,7 @@ toast.unhidden: 'Unhidden "%{name}"'
 toast.deleted: 'Deleted "%{name}"'
 toast.added: 'Added "%{name}"'
 toast.duplicated: 'Duplicated as "%{name}"'
+toast.imported: 'Imported "%{name}"'
 toast.shell_autostart_fail: 'Failed to set shell autostart: %{err}'
 toast.manifest_fail: 'Failed to pull manifest: %{err}'
 toast.import_fail: 'Template "%{id}" import failed: %{err}'
@@ -307,6 +316,7 @@ op.disable: Disable
 op.hide: Hide
 op.show: Show
 op.import_local: from local file
+op.import_web: web UI
 op.start: Start program "%{name}"
 op.stop: Stop program "%{name}"
 op.restart: Restart program "%{name}"

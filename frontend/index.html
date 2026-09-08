@@ -15,6 +15,10 @@
       </div>
       <nav id="program-tabs" class="room-list"></nav>
       <div class="sidebar-foot">
+        <div id="manage-tools" class="manage-tools">
+          <button id="new-btn" class="sidebar-settings" data-i18n="menu.new">＋ 新建</button>
+          <button id="import-btn" class="sidebar-settings" data-i18n="act.import">⇪ 导入</button>
+        </div>
         <button id="shell-log-link" class="sidebar-settings" data-i18n-title="ui.shell_log">🗒 <span class="app-btn-label" data-i18n="ui.shell_log_short">壳日志</span></button>
       </div>
     </aside>
@@ -61,6 +65,83 @@
         <button id="shell-log-modal-close" class="modal-close" data-i18n-title="act.close">✕</button>
       </div>
       <pre id="shell-log-content" class="term-body shell-log-content"></pre>
+    </div>
+  </div>
+
+  <!-- 模态：程序编辑 -->
+  <div id="edit-modal" class="modal" hidden>
+    <div class="modal-box wide">
+      <div class="modal-head">
+        <span id="edit-modal-title" data-i18n="edit.title">编辑程序</span>
+        <span class="spacer"></span>
+        <button id="edit-modal-close" class="modal-close" data-i18n-title="act.close">✕</button>
+      </div>
+      <div class="edit-scroll">
+        <label class="edit-label" data-i18n="edit.id">ID</label>
+        <input id="edit-id" type="text" autocomplete="off" autocorrect="off" spellcheck="false" />
+        <label class="edit-label" data-i18n="edit.name">名称</label>
+        <input id="edit-name" type="text" autocomplete="off" autocorrect="off" spellcheck="false" />
+        <label class="edit-label" data-i18n="edit.binary">二进制名 / 路径</label>
+        <input id="edit-binary" type="text" autocomplete="off" autocorrect="off" spellcheck="false" data-i18n-placeholder="ui.empty_binary" />
+        <label class="edit-label" data-i18n="edit.repo">Git 仓库</label>
+        <input id="edit-repo" type="text" autocomplete="off" autocorrect="off" spellcheck="false" />
+        <label class="edit-label" data-i18n="edit.desc">描述</label>
+        <input id="edit-desc" type="text" autocomplete="off" autocorrect="off" spellcheck="false" />
+        <label class="edit-label" data-i18n="edit.args">启动参数 args</label>
+        <textarea id="edit-args" rows="3" class="edit-textarea" data-i18n-placeholder="ui.args_hint"></textarea>
+
+        <div class="edit-section-title"><span data-i18n="edit.env">环境变量</span><button id="edit-add-env" class="log-action" data-i18n="act.add_env">＋</button></div>
+        <div id="edit-env-body"></div>
+
+        <div class="edit-section-title"><span data-i18n="edit.fields">字段</span><button id="edit-add-field" class="log-action" data-i18n="act.add_field">＋</button></div>
+        <div id="edit-field-body"></div>
+
+        <div class="edit-section-title"><span data-i18n="edit.http_source">HTTP 直链源</span>
+          <label><input id="edit-http-enabled" type="checkbox" /> <span data-i18n="edit.http_enable">启用</span></label>
+        </div>
+        <div id="edit-http-body" hidden>
+          <label class="edit-label" data-i18n="edit.http_version_url">版本 URL</label>
+          <input id="edit-http-version-url" type="text" autocomplete="off" />
+          <label class="edit-label" data-i18n="edit.http_json_path">JSON 路径</label>
+          <input id="edit-http-json-path" type="text" autocomplete="off" />
+          <label class="edit-label" data-i18n="edit.http_regex">版本正则</label>
+          <input id="edit-http-regex" type="text" autocomplete="off" />
+          <label class="edit-label" data-i18n="edit.http_sha256_url">sha256 URL</label>
+          <input id="edit-http-sha256" type="text" autocomplete="off" />
+          <label class="edit-label" data-i18n="edit.http_urls">直链下载 URL</label>
+          <textarea id="edit-http-urls" rows="2" class="edit-textarea"></textarea>
+        </div>
+
+        <div class="edit-footer">
+          <button id="edit-modal-cancel" data-i18n="act.cancel">取消</button>
+          <button id="edit-modal-save" class="edit-save" data-i18n="act.save">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态：导入本地模板 -->
+  <div id="import-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span data-i18n="lib.import">导入本地模板</span>
+        <span class="spacer"></span>
+        <button id="import-modal-close" class="modal-close" data-i18n-title="act.close">✕</button>
+      </div>
+      <div class="edit-scroll">
+        <div id="import-drop" class="import-drop">
+          <input id="import-file" type="file" accept=".json,application/json" />
+          <span data-i18n="ui.import_choose">选择模板 JSON 文件</span>
+        </div>
+        <label class="import-overwrite">
+          <input id="import-overwrite" type="checkbox" />
+          <span data-i18n="ui.import_overwrite">覆盖已存在的同名程序</span>
+        </label>
+        <div class="edit-footer">
+          <button id="import-modal-cancel" data-i18n="act.cancel">取消</button>
+          <button id="import-modal-ok" class="edit-save" data-i18n="act.import">导入</button>
+        </div>
+      </div>
     </div>
   </div>
 

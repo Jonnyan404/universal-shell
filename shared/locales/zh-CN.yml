@@ -55,6 +55,11 @@ edit.env_value_ph: 值（如 croc-{code}）
 edit.env_label_ph: 说明（可选）
 edit.env_ro_title: 环境变量（派生只读）
 edit.field_placeholder_ph: 占位提示（placeholder，仅 string）
+edit.field_label: 标签
+edit.field_kind: 类型（string/boolean/file/directory/autostart）
+edit.fields: 字段
+ui.empty_binary: 留空则用 ID
+ui.args_hint: 每行一个参数；支持 {key} 占位
 edit.http_source: HTTP 直链源（留空走 GitHub）
 edit.http_enable: 启用 HTTP 源（source.kind=http）
 edit.http_version_url: '版本 URL（version_url）'
@@ -112,6 +117,9 @@ st.never: 从未
 st.just: 刚刚
 st.local_ver: '本地版本: %{ver}'
 ui.not_imported: 未导入任何程序
+ui.confirm_delete: '确定删除「%{name}」？此操作不可撤销。'
+ui.import_overwrite: 覆盖已存在的同名程序
+ui.import_choose: 选择模板 JSON 文件（.json）
 act.start: 启动
 act.stop: 停止
 act.restart: 重启
@@ -219,6 +227,7 @@ toast.unhidden: '已取消隐藏「%{name}」'
 toast.deleted: '已删除「%{name}」'
 toast.added: '已新增「%{name}」'
 toast.duplicated: '已复制为「%{name}」'
+toast.imported: '已导入「%{name}」'
 toast.shell_autostart_fail: '壳开机自启设置失败: %{err}'
 toast.manifest_fail: '清单拉取失败: %{err}'
 toast.import_fail: '导入模板「%{id}」失败: %{err}'
@@ -307,6 +316,7 @@ op.disable: 关闭
 op.hide: 隐藏
 op.show: 显示
 op.import_local: 从本地文件
+op.import_web: Web 管理
 op.start: 启动程序「%{name}」
 op.stop: 停止程序「%{name}」
 op.restart: 重启程序「%{name}」

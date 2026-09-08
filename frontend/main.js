@@ -106,6 +106,7 @@ function renderSidebar(preferId) {
 async function switchCurrent(id) {
   current = programs.find((p) => p.id === id) || null;
   if (!current) return;
+  values = {};
   document.querySelector("#manage-view").hidden = false;
   renderHeader();
   renderForm();
@@ -259,6 +260,34 @@ function renderActions() {
     }
   };
   actions.appendChild(restart);
+
+  const edit = document.createElement("button");
+  edit.className = "icon-btn";
+  edit.title = t("act.edit");
+  edit.textContent = "✎";
+  edit.onclick = () => openEditModal(current);
+  actions.appendChild(edit);
+
+  const dup = document.createElement("button");
+  dup.className = "icon-btn";
+  dup.title = t("menu.copy");
+  dup.textContent = "⧉";
+  dup.onclick = duplicateCurrent;
+  actions.appendChild(dup);
+
+  const hide = document.createElement("button");
+  hide.className = "icon-btn";
+  hide.title = t(current.hidden ? "act.unhide" : "act.hide");
+  hide.textContent = current.hidden ? "👁" : "🙈";
+  hide.onclick = toggleHidden;
+  actions.appendChild(hide);
+
+  const del = document.createElement("button");
+  del.className = "icon-btn";
+  del.title = t("act.delete");
+  del.textContent = "🗑";
+  del.onclick = deleteCurrent;
+  actions.appendChild(del);
 }
 
 // ---------- 状态 ----------
@@ -380,6 +409,289 @@ async function refreshAllStatuses() {
   }
 }
 
+// ---------- 程序管理：新建/编辑/复制/删除/显隐 ----------
+let editing = null; // { isNew, id, ... } 编辑缓冲
+
+function openEditModal(p) {
+  editing = p
+    ? {
+        isNew: false,
+        id: p.id,
+        name: p.name,
+        binary: p.binary,
+        repo: p.repo,
+        description: p.description,
+        args: [...(p.args || [])],
+        env: (p.env || []).map((e) => ({ key: e.key, value: e.value, label: e.label })),
+        fields: (p.fields || []).map((f) => ({
+          key: f.key,
+          kind: f.kind,
+          label: f.label,
+          default: f.default,
+          placeholder: f.placeholder || "",
+          required: !!f.required,
+        })),
+        http_enabled: !!p.http_enabled,
+        http_version_url: p.http_version_url || "",
+        http_version_json_path: p.http_version_json_path || "",
+        http_version_regex: p.http_version_regex || "",
+        http_sha256_url: p.http_sha256_url || "",
+        http_urls: [...(p.http_urls || [])],
+      }
+    : {
+        isNew: true,
+        id: "",
+        name: "",
+        binary: "",
+        repo: "",
+        description: "",
+        args: [],
+        env: [],
+        fields: [],
+        http_enabled: false,
+        http_version_url: "",
+        http_version_json_path: "",
+        http_version_regex: "",
+        http_sha256_url: "",
+        http_urls: [],
+      };
+  document.querySelector("#edit-modal-title").textContent = p
+    ? t("edit.title")
+    : t("menu.new");
+  document.querySelector("#edit-id").disabled = !editing.isNew;
+  document.querySelector("#edit-id").value = editing.id;
+  document.querySelector("#edit-name").value = editing.name;
+  document.querySelector("#edit-binary").value = editing.binary;
+  document.querySelector("#edit-repo").value = editing.repo;
+  document.querySelector("#edit-desc").value = editing.description;
+  document.querySelector("#edit-args").value = editing.args.join("\n");
+  document.querySelector("#edit-http-enabled").checked = editing.http_enabled;
+  document.querySelector("#edit-http-version-url").value = editing.http_version_url;
+  document.querySelector("#edit-http-json-path").value = editing.http_version_json_path;
+  document.querySelector("#edit-http-regex").value = editing.http_version_regex;
+  document.querySelector("#edit-http-sha256").value = editing.http_sha256_url;
+  document.querySelector("#edit-http-urls").value = editing.http_urls.join("\n");
+  renderEditHttp();
+  renderEnvRows();
+  renderFieldRows();
+  document.querySelector("#edit-modal").hidden = false;
+}
+
+function renderEditHttp() {
+  document.querySelector("#edit-http-body").hidden = !document.querySelector("#edit-http-enabled").checked;
+}
+document.querySelector("#edit-http-enabled").addEventListener("change", renderEditHttp);
+
+function renderEnvRows() {
+  const body = document.querySelector("#edit-env-body");
+  body.innerHTML = "";
+  editing.env.forEach((e, i) => {
+    const row = document.createElement("div");
+    row.className = "edit-row env";
+    const k = document.createElement("input");
+    k.placeholder = "KEY";
+    k.value = e.key;
+    k.oninput = () => (editing.env[i].key = k.value);
+    const v = document.createElement("input");
+    v.placeholder = t("edit.env_value_ph");
+    v.value = e.value;
+    v.oninput = () => (editing.env[i].value = v.value);
+    const l = document.createElement("input");
+    l.placeholder = t("edit.env_label_ph");
+    l.value = e.label;
+    l.oninput = () => (editing.env[i].label = l.value);
+    const del = document.createElement("button");
+    del.className = "log-action";
+    del.textContent = "×";
+    del.onclick = () => {
+      editing.env.splice(i, 1);
+      renderEnvRows();
+    };
+    row.append(k, v, l, del);
+    body.appendChild(row);
+  });
+}
+
+function renderFieldRows() {
+  const body = document.querySelector("#edit-field-body");
+  body.innerHTML = "";
+  editing.fields.forEach((f, i) => {
+    const row = document.createElement("div");
+    row.className = "edit-row";
+    const k = document.createElement("input");
+    k.placeholder = t("lib.field_key");
+    k.value = f.key;
+    k.oninput = () => (editing.fields[i].key = k.value);
+    const lab = document.createElement("input");
+    lab.placeholder = t("edit.field_label");
+    lab.value = f.label;
+    lab.oninput = () => (editing.fields[i].label = lab.value);
+    const kind = document.createElement("select");
+    for (const kd of ["string", "boolean", "file", "directory", "autostart"]) {
+      const o = document.createElement("option");
+      o.value = kd;
+      o.textContent = kd;
+      kind.appendChild(o);
+    }
+    kind.value = f.kind;
+    kind.onchange = () => {
+      editing.fields[i].kind = kind.value;
+      renderFieldRows();
+    };
+    const def = document.createElement("input");
+    def.placeholder = t("lib.def_val");
+    def.value = f.default;
+    def.oninput = () => (editing.fields[i].default = def.value);
+    const ph = document.createElement("input");
+    ph.placeholder = t("edit.field_placeholder_ph");
+    ph.value = f.placeholder;
+    ph.oninput = () => (editing.fields[i].placeholder = ph.value);
+    ph.title = t("edit.field_placeholder_ph");
+    const req = document.createElement("span");
+    req.className = "req";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = f.required;
+    cb.title = t("lib.required");
+    cb.onchange = () => (editing.fields[i].required = cb.checked);
+    req.appendChild(cb);
+    const del = document.createElement("button");
+    del.className = "log-action";
+    del.textContent = "×";
+    del.onclick = () => {
+      editing.fields.splice(i, 1);
+      renderFieldRows();
+    };
+    row.append(k, lab, kind, def, ph, req, del);
+    body.appendChild(row);
+  });
+}
+
+async function saveEdit() {
+  const payload = {
+    id: document.querySelector("#edit-id").value.trim(),
+    name: document.querySelector("#edit-name").value.trim(),
+    binary: document.querySelector("#edit-binary").value.trim(),
+    repo: document.querySelector("#edit-repo").value.trim(),
+    description: document.querySelector("#edit-desc").value.trim(),
+    args: document
+      .querySelector("#edit-args")
+      .value.split("\n")
+      .map((a) => a.trim())
+      .filter(Boolean),
+    env: editing.env.filter((e) => e.key.trim()),
+    fields: editing.fields.filter((f) => f.key.trim()),
+    http_enabled: document.querySelector("#edit-http-enabled").checked,
+    http_version_url: document.querySelector("#edit-http-version-url").value.trim(),
+    http_version_json_path: document.querySelector("#edit-http-json-path").value.trim(),
+    http_version_regex: document.querySelector("#edit-http-regex").value.trim(),
+    http_sha256_url: document.querySelector("#edit-http-sha256").value.trim(),
+    http_urls: document
+      .querySelector("#edit-http-urls")
+      .value.split("\n")
+      .map((a) => a.trim())
+      .filter(Boolean),
+  };
+  if (!payload.id) {
+    showNotice(t("err.empty_id"), true);
+    return;
+  }
+  try {
+    await invoke(editing.isNew ? "add_program" : "edit_program", { payload });
+    document.querySelector("#edit-modal").hidden = true;
+    showNotice(t("toast.saved"));
+    await reloadPrograms();
+    switchCurrent(payload.id);
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+async function reloadPrograms() {
+  programs = await invoke("get_programs");
+  renderSidebar();
+}
+
+async function duplicateCurrent() {
+  if (!current) return;
+  try {
+    const copy = await invoke("duplicate_program", { programId: current.id });
+    showNotice(t("toast.duplicated", { name: copy.name }));
+    await reloadPrograms();
+    switchCurrent(copy.id);
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+async function deleteCurrent() {
+  if (!current) return;
+  if (!confirm(t("ui.confirm_delete", { name: current.name }))) return;
+  try {
+    await invoke("delete_program", { programId: current.id });
+    showNotice(t("toast.deleted", { name: current.name }));
+    await reloadPrograms();
+    const next = programs[0];
+    if (next) switchCurrent(next.id);
+    else document.querySelector("#manage-view").hidden = true;
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+async function toggleHidden() {
+  if (!current) return;
+  try {
+    await invoke("set_program_hidden", { programId: current.id, hidden: !current.hidden });
+    showNotice(t(!current.hidden ? "toast.hidden" : "toast.unhidden", { name: current.name }));
+    await reloadPrograms();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+// ---------- 导入本地模板 ----------
+let importFileHandle = null;
+
+function openImportModal() {
+  document.querySelector("#import-file").value = "";
+  importFileHandle = null;
+  document.querySelector("#import-file").classList.remove("attached");
+  document.querySelector("#import-drop").hidden = false;
+  document.querySelector("#import-overwrite").checked = false;
+  document.querySelector("#import-modal").hidden = false;
+}
+
+document.querySelector("#import-btn").onclick = openImportModal;
+document.querySelector("#import-file").addEventListener("change", () => {
+  importFileHandle = document.querySelector("#import-file").files[0] || null;
+  document.querySelector("#import-drop").hidden = !!importFileHandle;
+  document.querySelector("#import-file").classList.toggle("attached", !!importFileHandle);
+});
+document.querySelector("#import-drop").onclick = () => document.querySelector("#import-file").click();
+
+async function doImport() {
+  if (!importFileHandle) {
+    document.querySelector("#import-file").click();
+    return;
+  }
+  const text = await importFileHandle.text();
+  try {
+    const p = await invoke("import_template_json", {
+      templateJson: text,
+      overwrite: document.querySelector("#import-overwrite").checked,
+    });
+    document.querySelector("#import-modal").hidden = true;
+    showNotice(t("toast.imported", { name: p.name }));
+    await reloadPrograms();
+    switchCurrent(p.id);
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
+document.querySelector("#import-modal-ok").onclick = doImport;
+
 // ---------- 主题 / 语言 / 收窄 ----------
 function toggleTheme() {
   const root = document.documentElement;
@@ -419,6 +731,22 @@ document.querySelector("#manage-log-copy").onclick = () => {
   navigator.clipboard.writeText(el.manageLogContent.textContent).catch(() => {});
 };
 document.querySelector("#manage-log-refresh").onclick = refreshManageLog;
+
+// 程序管理按钮
+document.querySelector("#new-btn").onclick = () => openEditModal(null);
+document.querySelector("#edit-modal-close").onclick = () => (document.querySelector("#edit-modal").hidden = true);
+document.querySelector("#edit-modal-cancel").onclick = () => (document.querySelector("#edit-modal").hidden = true);
+document.querySelector("#edit-modal-save").onclick = saveEdit;
+document.querySelector("#edit-add-field").onclick = () => {
+  editing.fields.push({ key: "", kind: "string", label: "", default: "", placeholder: "", required: false });
+  renderFieldRows();
+};
+document.querySelector("#edit-add-env").onclick = () => {
+  editing.env.push({ key: "", value: "", label: "" });
+  renderEnvRows();
+};
+document.querySelector("#import-modal-close").onclick = () => (document.querySelector("#import-modal").hidden = true);
+document.querySelector("#import-modal-cancel").onclick = () => (document.querySelector("#import-modal").hidden = true);
 
 // ---------- 启动 ----------
 async function boot() {

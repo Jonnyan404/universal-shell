@@ -256,6 +256,233 @@ fn arg_values(args: &serde_json::Map<String, Value>) -> BTreeMap<String, String>
         .unwrap_or_default()
 }
 
+fn arg_payload<T: serde::de::DeserializeOwned>(args: &serde_json::Map<String, Value>) -> Result<T, String> {
+    let value = args
+        .get("payload")
+        .ok_or_else(|| "rpc: missing payload arg".to_string())?
+        .clone();
+    serde_json::from_value(value).map_err(|e| format!("rpc: bad payload: {e}"))
+}
+
+// -------- 程序编辑载荷（镜像 app-tauri 的 EditProgramPayload/edit/env 结构） --------
+
+#[derive(Deserialize)]
+struct EditField {
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    default: String,
+    #[serde(default)]
+    required: bool,
+    #[serde(default)]
+    placeholder: String,
+}
+
+#[derive(Deserialize)]
+struct EditEnv {
+    #[serde(default)]
+    key: String,
+    #[serde(default)]
+    value: String,
+    #[serde(default)]
+    label: String,
+}
+
+#[derive(Deserialize)]
+struct EditProgramPayload {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    repo: String,
+    #[serde(default)]
+    binary: String,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    fields: Vec<EditField>,
+    #[serde(default)]
+    env: Vec<EditEnv>,
+    #[serde(default)]
+    http_enabled: bool,
+    #[serde(default)]
+    http_version_url: String,
+    #[serde(default)]
+    http_version_json_path: String,
+    #[serde(default)]
+    http_version_regex: String,
+    #[serde(default)]
+    http_sha256_url: String,
+    #[serde(default)]
+    http_urls: Vec<String>,
+}
+
+/// 由编辑载荷合成新 Program；未编辑项（资产规则/架构映射/工作目录等）沿用 base。
+fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
+    use shared::config::FieldKind;
+    let fields = e
+        .fields
+        .iter()
+        .map(|f| {
+            let kind = match f.kind.as_str() {
+                "file" => FieldKind::File {
+                    label: f.label.clone(),
+                    default: f.default.clone(),
+                    filter: String::new(),
+                },
+                "directory" => FieldKind::Directory {
+                    label: f.label.clone(),
+                    default: f.default.clone(),
+                },
+                "boolean" => FieldKind::Boolean {
+                    label: f.label.clone(),
+                    default: f.default == "true",
+                },
+                "autostart" => FieldKind::AutoStart {
+                    label: f.label.clone(),
+                    default: f.default == "true",
+                },
+                _ => FieldKind::String {
+                    label: f.label.clone(),
+                    default: f.default.clone(),
+                    placeholder: f.placeholder.clone(),
+                },
+            };
+            Field {
+                key: f.key.clone(),
+                kind,
+                required: f.required,
+            }
+        })
+        .collect();
+    let mut assets = base.assets.clone();
+    if e.http_enabled {
+        let urls: Vec<String> = e
+            .http_urls
+            .iter()
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty())
+            .collect();
+        if !urls.is_empty() {
+            let os = shared::config::os_key();
+            match assets.get_mut(os) {
+                Some(rule) => rule.urls = urls.clone(),
+                None => {
+                    let mut def = shared::config::default_os_assets();
+                    if let Some(r) = def.get_mut(os) {
+                        r.urls = urls.clone();
+                    }
+                    assets.extend(def);
+                }
+            }
+        }
+    }
+    let source = if e.http_enabled {
+        Some(shared::config::SourceSpec {
+            kind: "http".to_string(),
+            version_url: e.http_version_url.clone(),
+            version_json_path: e.http_version_json_path.clone(),
+            version_regex: e.http_version_regex.clone(),
+            sha256_url: e.http_sha256_url.clone(),
+        })
+    } else {
+        None
+    };
+    Program {
+        id: e.id.clone(),
+        name: e.name.clone(),
+        description: e.description.clone(),
+        category: base.category.clone(),
+        repo: e.repo.clone(),
+        source,
+        binary: if e.binary.is_empty() {
+            e.id.clone()
+        } else {
+            e.binary.clone()
+        },
+        assets,
+        arch_map: base.arch_map.clone(),
+        os_map: base.os_map.clone(),
+        fields,
+        args: e.args.clone(),
+        env: e
+            .env
+            .iter()
+            .filter(|ev| !ev.key.trim().is_empty())
+            .map(|ev| shared::config::EnvVar {
+                key: ev.key.trim().to_string(),
+                value: ev.value.clone(),
+                label: ev.label.trim().to_string(),
+            })
+            .collect(),
+        working_dir: base.working_dir.clone(),
+        template_source: base.template_source.clone(),
+        imported_at: base.imported_at,
+        check_sha256: base.check_sha256.clone(),
+        hidden: base.hidden,
+    }
+}
+
+/// 空白 base（新建程序）：仅 id/binary 预填，其余为空。
+fn blank_program(id: &str) -> Program {
+    Program {
+        id: id.to_string(),
+        name: String::new(),
+        description: String::new(),
+        category: String::new(),
+        repo: String::new(),
+        source: None,
+        binary: id.to_string(),
+        assets: BTreeMap::new(),
+        arch_map: BTreeMap::new(),
+        os_map: BTreeMap::new(),
+        fields: Vec::new(),
+        args: Vec::new(),
+        env: Vec::new(),
+        working_dir: String::new(),
+        template_source: None,
+        imported_at: None,
+        check_sha256: None,
+        hidden: false,
+    }
+}
+
+/// 本地导入公共落盘：解析好 Program 后按 overwrite 覆盖或追加进受管列表。
+fn commit_program(
+    mgr: &mut ShellManager,
+    program: &mut Program,
+    overwrite: bool,
+    config_path: &PathBuf,
+    import_desc: &str,
+) -> Result<ProgramView, String> {
+    if program.binary.is_empty() {
+        program.binary = program.id.clone();
+    }
+    if let Some(idx) = mgr.programs.iter().position(|p| p.id == program.id) {
+        if !overwrite {
+            return Err(t!("err.program_exists", id = &program.id).to_string());
+        }
+        mgr.programs[idx] = program.clone();
+        let view = to_view(program);
+        mgr.save_config(config_path).map_err(|e| format!("{e:#}"))?;
+        mgr.log_op(&t!("op.import_overwrite", desc = import_desc, id = &program.id));
+        return Ok(view);
+    }
+    let view = to_view(program);
+    let name = program.name.clone();
+    mgr.programs.push(program.clone());
+    mgr.save_config(config_path).map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&t!("op.import", desc = import_desc, name = &name));
+    Ok(view)
+}
+
 pub async fn dispatch(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) -> RpcResponse {
     let result = handle(state, cmd, args);
     match result {
@@ -530,6 +757,93 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             open_in_file_manager(dir)
                 .map_err(|e| e.to_string())?;
             Ok(json!({}))
+        }
+
+        // ---------- 程序定义编辑（新增/修改/复制/删除/显隐） ----------
+        "edit_program" => {
+            let payload: EditProgramPayload = arg_payload(args)?;
+            let mut mgr = state.manager.lock().unwrap();
+            let base = mgr
+                .all_programs()
+                .into_iter()
+                .find(|p| p.id == payload.id)
+                .ok_or_else(|| program_not_found(&payload.id))?;
+            let updated = build_program_from_edit(&payload, &base);
+            mgr.update_program(&payload.id, &updated, &state.config_path)
+                .map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!("op.edit_template", name = &base.name));
+            Ok(serde_json::to_value(to_view(&updated)).map_err(|e| format!("rpc: view: {e}"))?)
+        }
+        "add_program" => {
+            let payload: EditProgramPayload = arg_payload(args)?;
+            if payload.id.trim().is_empty() {
+                return Err(t!("err.empty_id").to_string());
+            }
+            let blank = blank_program(&payload.id);
+            let created = build_program_from_edit(&payload, &blank);
+            let mut mgr = state.manager.lock().unwrap();
+            mgr.add_program(&created, &state.config_path)
+                .map_err(|e| format!("{e:#}"))?;
+            mgr.save_field_values(&created, &BTreeMap::new());
+            mgr.log_op(&t!("op.add_template", name = &created.name));
+            Ok(serde_json::to_value(to_view(&created)).map_err(|e| format!("rpc: view: {e}"))?)
+        }
+        "duplicate_program" => {
+            let program_id = arg_str(args, "programId");
+            let mut mgr = state.manager.lock().unwrap();
+            let copy = mgr
+                .duplicate_program(&program_id, &state.config_path)
+                .map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!("op.duplicate", name = &copy.name));
+            Ok(serde_json::to_value(to_view(&copy)).map_err(|e| format!("rpc: view: {e}"))?)
+        }
+        "delete_program" => {
+            let program_id = arg_str(args, "programId");
+            let mut mgr = state.manager.lock().unwrap();
+            let name = mgr
+                .programs
+                .iter()
+                .find(|p| p.id == program_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| program_id.clone());
+            mgr.delete_program(&program_id, &state.config_path)
+                .map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!("op.delete", name = &name));
+            Ok(json!({}))
+        }
+        "set_program_hidden" => {
+            let program_id = arg_str(args, "programId");
+            let hidden = arg_bool(args, "hidden");
+            let mut mgr = state.manager.lock().unwrap();
+            let name = mgr
+                .programs
+                .iter()
+                .find(|p| p.id == program_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| program_id.clone());
+            mgr.set_hidden(&program_id, hidden, &state.config_path)
+                .map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!(
+                "op.toggle_visibility",
+                showhide = t!(if hidden { "op.hide" } else { "op.show" }),
+                name = &name
+            ));
+            Ok(json!({}))
+        }
+        "import_template_json" => {
+            let text = arg_str(args, "templateJson");
+            let overwrite = arg_bool(args, "overwrite");
+            let mut program: Program = serde_json::from_str(&text)
+                .map_err(|e| t!("err.parse_template_fail", err = e.to_string()).to_string())?;
+            let mut mgr = state.manager.lock().unwrap();
+            let view = commit_program(
+                &mut mgr,
+                &mut program,
+                overwrite,
+                &state.config_path,
+                &t!("op.import_web"),
+            )?;
+            Ok(serde_json::to_value(view).map_err(|e| format!("rpc: view: {e}"))?)
         }
 
         other => Err(format!("rpc: unknown command {other}")),

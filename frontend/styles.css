@@ -121,6 +121,8 @@ nav#program-tabs.room-list { flex: 1; overflow-y: auto; margin: 4px -6px; paddin
 .sidebar-settings:hover { background: var(--sidebar-active); border-color: var(--sidebar-active-border); color: var(--sidebar-head); }
 .sidebar-foot { font-size: 10px; color: var(--sidebar-sub); padding: 8px 6px 0; }
 .app-btn-label { white-space: nowrap; }
+.manage-tools { display: flex; gap: 4px; margin-bottom: 6px; }
+.manage-tools .sidebar-settings { flex: 1; justify-content: center; font-size: 11px; margin-bottom: 0; }
 
 /* 收窄模式：保留名称的窄栏 */
 html[data-sidebar='narrow'] .sidebar { width: 84px; min-width: 84px; padding: 14px 6px; }
@@ -431,6 +433,29 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 .tmpl-diff-summary { font-weight: 600; }
 .tmpl-diff-note { color: var(--muted); font-size: 12px; }
+
+/* 程序编辑 / 导入弹窗 */
+.edit-scroll { flex: 1; overflow: auto; padding: 14px 16px; }
+.edit-label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+.edit-scroll input[type='text'], .edit-scroll textarea {
+  width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--panel-2); color: var(--text); font-size: 13px;
+  font-family: inherit; margin-bottom: 2px;
+}
+.edit-scroll textarea { resize: vertical; }
+.edit-textarea { font-family: monospace; }
+.edit-section-title { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--text); margin: 14px 0 6px; }
+.edit-row { display: grid; grid-template-columns: 1fr 1fr 110px 90px 24px; gap: 6px; margin-bottom: 6px; align-items: center; }
+.edit-row input, .edit-row select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: var(--text); font-size: 12px; }
+.edit-row .req { display: flex; align-items: center; justify-content: center; }
+.edit-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.edit-save { background: var(--accent); border-color: var(--accent); color: #fff; }
+.edit-save:hover { filter: brightness(1.08); }
+.import-drop { border: 1px dashed var(--border); border-radius: 8px; padding: 18px; text-align: center; color: var(--muted); font-size: 13px; cursor: pointer; }
+.import-drop:hover { border-color: var(--accent); color: var(--text); }
+#import-file { display: none; }
+#import-file.attached { display: block; margin: 0 auto 4px; }
+.import-overwrite { display: flex; align-items: center; gap: 6px; margin: 12px 0 0; font-size: 12px; }
 .tmpl-diff-code {
   flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 6px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
