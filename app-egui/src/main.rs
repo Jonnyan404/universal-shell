@@ -306,7 +306,7 @@ impl ShellApp {
     }
 
     fn new(manager: Arc<Mutex<ShellManager>>, config_path: PathBuf) -> Self {
-        let mut mgr = manager
+        let mgr = manager
             .lock()
             .expect("shell manager lock poisoned");
         let (tx, rx) = mpsc::channel();

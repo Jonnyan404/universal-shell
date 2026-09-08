@@ -2162,6 +2162,7 @@ function applyTheme(theme) {
   try {
     localStorage.setItem("us-theme", theme);
   } catch {}
+  invoke("set_theme", { theme }).catch(() => {});
 }
 
 function toggleTheme() {
@@ -2547,10 +2548,12 @@ async function boot() {
     await loadLocale();
   } catch {}
   applyStaticI18n();
-  // 主题：优先用上次选择，未选择过才跟随系统
+  // 主题：服务端持久化 > 本地缓存 > 系统偏好
   let savedTheme = null;
+  try { savedTheme = localStorage.getItem("us-theme"); } catch {}
   try {
-    savedTheme = localStorage.getItem("us-theme");
+    const { theme } = await invoke("get_theme");
+    if (theme && theme !== "auto") savedTheme = theme;
   } catch {}
   const dark = savedTheme ? savedTheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
   applyTheme(dark ? "dark" : "light");
@@ -2593,6 +2596,7 @@ async function boot() {
 boot().catch((e) => {
   showNotice(String(e), true);
 });
+
 
 
 

@@ -18,7 +18,7 @@ rust-i18n = "4"
 axum = { version = "0.7", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros", "sync"] }
 rand = "0.8"
-rfd = "0.14"
+rfd = "0.17"
 
 [build-dependencies]
 serde_json = { workspace = true }

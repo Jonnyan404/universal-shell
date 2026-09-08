@@ -568,6 +568,9 @@ pub struct ShellConfig {
     /// 界面语言：`auto`（跟随系统）/ `zh-CN` / `en`
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub locale: String,
+    /// 界面主题：`auto`（跟随系统）/ `light` / `dark`
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub theme: String,
     /// Web 管理界面监听设置（空 = 默认回环 + 随机端口）
     #[serde(default, skip_serializing_if = "WebSettings::is_default")]
     pub web: WebSettings,

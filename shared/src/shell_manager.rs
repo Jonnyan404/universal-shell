@@ -125,6 +125,8 @@ pub struct ShellManager {
     pub proxy: crate::config::ProxySettings,
     /// 界面语言：`auto`（跟随系统）/ `zh-CN` / `en`
     pub locale: String,
+    /// 界面主题：`auto`（跟随系统）/ `light` / `dark`
+    pub theme: String,
     /// Web 管理界面监听设置（bind/port；均为默认值时 = 回环 + 随机端口）
     pub web: crate::config::WebSettings,
 }
@@ -152,6 +154,7 @@ impl ShellManager {
             program_autostart_map: program_autostart,
             proxy: crate::config::ProxySettings::default(),
             locale: "auto".to_string(),
+            theme: "auto".to_string(),
             web: crate::config::WebSettings::default(),
         })
     }
@@ -201,6 +204,7 @@ impl ShellManager {
         );
         self.proxy = cfg.proxy;
         self.locale = if cfg.locale.is_empty() { "auto".to_string() } else { cfg.locale };
+        self.theme = if cfg.theme.is_empty() { "auto".to_string() } else { cfg.theme };
         self.web = cfg.web;
         info!("{}", t!("log.config.loaded", count = self.programs.len()));
         Ok(())
@@ -214,6 +218,7 @@ impl ShellManager {
             registry_pubkeys: self.registry_pubkeys.clone(),
             proxy: self.proxy.clone(),
             locale: self.locale.clone(),
+            theme: self.theme.clone(),
             web: self.web.clone(),
         };
         let json = serde_json::to_string_pretty(&cfg).context(t!("err.serialize_config"))?;

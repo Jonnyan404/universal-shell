@@ -703,6 +703,21 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 "available": shared::locale::LOCALES,
             }))
         }
+        "get_theme" => {
+            let mgr = state.manager.lock().unwrap();
+            Ok(json!({ "theme": mgr.theme }))
+        }
+        "set_theme" => {
+            let theme = arg_str(args, "theme");
+            let manual = match theme.as_str() {
+                "light" | "dark" => theme,
+                _ => "auto".to_string(),
+            };
+            let mut mgr = state.manager.lock().unwrap();
+            mgr.theme = manual.clone();
+            mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
+            Ok(json!({ "theme": manual }))
+        }
         "get_shell_version" => Ok(json!(shared::version::build_version())),
 
         // ---------- 程序视图 / 值 ----------
