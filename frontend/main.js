@@ -23,6 +23,7 @@ let shellUpdate = null; // {current, latest_tag, release_url}
 let shellChecking = false;
 
 const el = {
+  statusbar: document.querySelector("#statusbar"),
   tabs: document.querySelector("#program-tabs"),
   progTitle: document.querySelector("#prog-title"),
   progSub: document.querySelector("#prog-sub"),
@@ -258,16 +259,15 @@ function switchView(v) {
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) dlBtn.hidden = v !== "manage";
   if (v === "manage") {
+    el.statusbar.hidden = false;
     if (current) {
       el.progTitle.textContent = current.name;
       el.progSub.innerHTML = "";
     }
     el.progDesc.hidden = true;
   } else {
-    el.progTitle.textContent = v === "batch" ? t("batch.title") : v === "log" ? t("ui.log") : t("lib.title");
-    el.progSub.innerHTML = "";
-    el.progDesc.hidden = true;
-    el.chips.innerHTML = "";
+    // 批量/模板库/日志中心不再显示顶部标题栏（程序名状态条只在管理页需要）
+    el.statusbar.hidden = true;
     if (v === "batch") refreshBatchLocal();
     else if (v === "library") {
       if (!manifest) ensureLibraryFromCache();
@@ -1457,18 +1457,19 @@ function fmtDate(secs) {
 }
 
 // ---------- 日志 ----------
+// F-3 管理页小日志窗：整段重渲时直接滚到最新一屏
+// （日志按会话追加且只展示尾部 64KB，不滚到底会在中间开始，看不到最新输出）
 function renderLogBody(container, text) {
   container.innerHTML = "";
   for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
-    const div = document.createElement("div");
     const isErr = line.startsWith("\u001f");
     const clean = isErr ? line.slice(1) : line;
+    const div = document.createElement("div");
     div.className = isErr ? "log-err" : "";
     div.textContent = clean;
     container.appendChild(div);
   }
-  const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 60;
-  if (atBottom) container.scrollTop = container.scrollHeight;
+  container.scrollTop = container.scrollHeight;
 }
 
 // F-3/F11：增量日志尾随。按程序记录上次 EOF 偏移；文件被截断时 reset 整体重渲。
@@ -1590,10 +1591,22 @@ function renderLogContent() {
   const q = logCenter.search.trim().toLowerCase();
   const container = el.logContent;
   const wasAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 80;
+  // 阅读中不跟随：整段重建后 DOM 滚动位置会被清零。
+  // 记录当前视口顶部所在行的索引，重建后按行号恢复位置（新行继续追加下方），
+  // 避免「跟随开启时滚轮上翻，每 2s 轮询被弹回顶部/底部」的跳来跳去。
+  let anchorIndex = -1;
+  if (!wasAtBottom && container.children.length) {
+    const top = container.scrollTop;
+    for (let i = 0; i < container.children.length; i++) {
+      if (container.children[i].offsetTop + container.children[i].offsetHeight > top) {
+        anchorIndex = i;
+        break;
+      }
+    }
+  }
   container.innerHTML = "";
   let matched = 0;
   const text = logCenter.text || "";
-  const follow = container.scrollTop + container.clientHeight >= container.scrollHeight - 80;
   const frag = document.createDocumentFragment();
   for (const rawLine of text.replace(/\r\n?/g, "\n").split("\n")) {
     const isErr = rawLine.startsWith("\u001f");
@@ -1612,7 +1625,14 @@ function renderLogContent() {
     frag.appendChild(empty);
   }
   container.appendChild(frag);
-  if (logCenter.follow && wasAtBottom) container.scrollTop = container.scrollHeight;
+  if (logCenter.follow && wasAtBottom) {
+    // 跟随模式 + 本来就在底部：固定钉在最新一行
+    container.scrollTop = container.scrollHeight;
+    return;
+  }
+  if (anchorIndex >= 0 && container.children[anchorIndex]) {
+    container.scrollTop = container.children[anchorIndex].offsetTop;
+  }
 }
 
 // ---------- 周期轮询：全部程序状态（对齐桌面端最近修复的全局刷新） ----------
