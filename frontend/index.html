@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Universal Shell</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <button id="theme-btn" class="theme-btn"></button>
+        <button id="lang-btn" class="lang-btn" data-i18n-title="ui.lang">文</button>
+      </div>
+      <nav id="program-tabs" class="room-list"></nav>
+      <div class="sidebar-foot">
+        <button id="shell-log-link" class="sidebar-settings" data-i18n-title="ui.shell_log">🗒 <span class="app-btn-label" data-i18n="ui.shell_log_short">壳日志</span></button>
+      </div>
+    </aside>
+    <div class="sidebar-edge"><button id="collapse-btn" class="edge" data-i18n-title="ui.collapse">«</button></div>
+
+    <main class="main">
+      <div id="statusbar" class="statusbar">
+        <span class="room-title" id="prog-title"></span>
+        <span class="room-sub" id="prog-sub"></span>
+        <span class="spacer"></span>
+        <div id="status-chips" class="pills"></div>
+        <div class="status-desc" id="prog-desc" hidden></div>
+      </div>
+
+      <!-- 程序管理 -->
+      <section id="manage-view" class="view manage-view">
+        <div class="manage-body">
+          <form id="field-form"></form>
+          <div id="env-section" class="env-section" hidden>
+            <div class="env-title"><span data-i18n="edit.env">环境变量（派生只读）</span></div>
+            <div id="env-body"></div>
+          </div>
+          <div id="actions"></div>
+        </div>
+        <div id="manage-log" class="manage-log">
+          <div class="manage-log-actions">
+            <button id="manage-log-copy" class="log-action" data-i18n-title="act.copy">⧉</button>
+            <button id="manage-log-refresh" class="log-action" data-i18n-title="act.refresh">↻</button>
+          </div>
+          <pre id="manage-log-content" class="term-body"></pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 模态：壳操作日志 -->
+  <div id="shell-log-modal" class="modal" hidden>
+    <div class="modal-box shell-log-box">
+      <div class="modal-head">
+        <span data-i18n="shell_log.title">壳操作日志</span>
+        <span class="spacer"></span>
+        <button id="shell-log-refresh" class="log-action" data-i18n-title="act.refresh">⟳</button>
+        <button id="shell-log-clear" class="log-action" data-i18n-title="act.clear">×</button>
+        <button id="shell-log-modal-close" class="modal-close" data-i18n-title="act.close">✕</button>
+      </div>
+      <pre id="shell-log-content" class="term-body shell-log-content"></pre>
+    </div>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <script src="api.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+[package]
+name = "web-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Universal shell local web management server (embedded, not shipped standalone)"
+
+[dependencies]
+shared = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+anyhow = "1.0"
+dirs = "6.0"
+sys-locale = "0.3"
+rust-i18n = "4"
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros", "sync"] }
+
+[build-dependencies]
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+
+[dev-dependencies]
+env_logger = { workspace = true }
