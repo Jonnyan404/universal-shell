@@ -118,6 +118,7 @@ jobs:
           else
             cargo build --release -p app-egui
           fi
+        shell: bash
 
       # ---- cli：无窗口 headless 服务端 us-web（树莓派/NAS/无桌面环境），随各平台打包 ----
       - name: Build CLI (us-web)
