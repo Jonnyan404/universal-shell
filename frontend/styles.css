@@ -210,8 +210,10 @@ button {
 button:hover { border-color: var(--accent); }
 button:disabled { opacity: 0.6; cursor: default; }
 
-#actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 10px; margin-top: 20px; }
-#actions button:first-child { background: var(--accent); border-color: var(--accent); color: #fff; }
+#actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; margin-top: 20px; }
+#actions .act-group { display: inline-flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+#actions .act-sep { width: 1px; height: 26px; flex: 0 0 auto; background: var(--border); border-radius: 2px; margin: 0 2px; }
+#actions .act-group:first-child button:first-child { background: var(--accent); border-color: var(--accent); color: #fff; }
 #actions #stop-btn { background: var(--danger); border-color: var(--danger); color: #fff; }
 #actions #restart-btn { background: #f59e0b; border-color: #f59e0b; color: #fff; }
 #actions button:disabled { background: var(--muted); border-color: var(--border); color: #fff; opacity: 0.6; }
@@ -678,7 +680,7 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   html[data-sidebar='narrow'] .sidebar-foot { margin-left: auto; }
 
   .main { height: auto; min-height: calc(100vh - 52px); }
-  .statusbar { padding: 8px 12px; }
+  .statusbar { padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); }
   .manage-body { padding: 12px; }
   .manage-log { height: 40vh; }
   .field-row { flex-wrap: wrap; }
@@ -692,10 +694,49 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 
   /* 弹窗底下抽屉式，扩大操作区 */
   .modal { align-items: flex-end; }
-  .modal-box { width: 100vw; max-height: 92vh; border-radius: 12px 12px 0 0; }
+  .modal-box { width: 100vw; max-height: 92vh; border-radius: 12px 12px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
   .edit-row label { flex-basis: auto; text-align: left; min-width: 88px; }
   .edit-scroll { padding: 12px; }
   .sett-token input { min-width: 0; }
 
   button, .op-btn, .log-action, .sidebar-settings { touch-action: manipulation; }
+
+  /* 通用：内容视图统一减小内边距，一行排不下的行允许换行 */
+  .view { padding: 12px; }
+  .field-row, .term-bar, .log-toolbar, #lib-source-bar, #registry-bar,
+  .sources-add, .source-row, .sett-token, .sett-proxy-line, .lib-top { flex-wrap: wrap; }
+
+  /* iOS：输入框字号 ≥16px，避免聚焦时页面被强制放大 */
+  .field-row input[type="text"], #field-form input,
+  .edit-scroll input:not([type="checkbox"]), .edit-scroll textarea,
+  #registry-bar input, #lib-search input, .log-search,
+  #lib-source-bar select, .sources-add input, .source-row input,
+  .sett-proxy input, .edit-field-row input, .edit-field-row select { font-size: 16px; }
+
+  /* 程序管理：页面自然滚动，日志抽屉固定 40vh，禁用拖拽条 */
+  .manage-view { height: auto; overflow: visible; }
+  .manage-body { height: auto; overflow: visible; }
+  .manage-log-resize { display: none; }
+  .manage-log-head { flex-wrap: wrap; }
+
+  /* 日志中心：显式高度，避免 flex 在自动高容器里塌成 0 */
+  #log-view, .log-panel { height: 68vh; min-height: 300px; }
+  .log-search { flex: 1 1 120px; min-width: 120px; }
+
+  /* 操作区：按钮触控目标加大，图标按钮 38px */
+  #actions { gap: 8px; }
+  #actions .act-group { gap: 8px; }
+  #actions .icon-btn { width: 38px; height: 38px; font-size: 17px; }
+  .batch-ops .icon-btn { width: 34px; height: 34px; }
+  .dl-btn { padding: 8px 14px; font-size: 14px; }
+  .prog-item { padding: 8px 10px; }
+
+  /* 编辑字段五列网格：窄屏改两列流式 */
+  .edit-row { grid-template-columns: 1fr 1fr; }
+  .edit-row .req, #edit-field-body .edit-row .log-action { justify-self: start; }
+
+  /* 全屏卡片贴边、通知贴近顶部 */
+  .lib-card, .sources-edit { padding: 10px 12px; }
+  #toast-container { top: 8px; right: 10px; left: 10px; max-width: none; }
+  .modal-box.wide { width: 100vw; }
 }

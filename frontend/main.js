@@ -394,6 +394,10 @@ function renderEnvDisplay() {
 function renderActions() {
   const actions = el.actions;
   actions.innerHTML = "";
+  // 按钮组整体居中；启停/重启 与 图标组 之间用分隔条隔开
+  const group1 = document.createElement("span");
+  group1.className = "act-group";
+
   const start = document.createElement("button");
   start.id = "start-btn";
   start.textContent = "▶ " + t("act.start");
@@ -407,7 +411,7 @@ function renderActions() {
       showNotice(String(e), true);
     }
   };
-  actions.appendChild(start);
+  group1.appendChild(start);
 
   const stop = document.createElement("button");
   stop.id = "stop-btn";
@@ -423,7 +427,7 @@ function renderActions() {
       showNotice(String(e), true);
     }
   };
-  actions.appendChild(stop);
+  group1.appendChild(stop);
 
   const restart = document.createElement("button");
   restart.id = "restart-btn";
@@ -439,7 +443,8 @@ function renderActions() {
       showNotice(String(e), true);
     }
   };
-  actions.appendChild(restart);
+  group1.appendChild(restart);
+  actions.appendChild(group1);
 
   // 下载/更新按钮已迁入状态栏（对齐 Tauri），这里只接上绑定
   const dl = document.querySelector("#dl-btn");
@@ -449,9 +454,12 @@ function renderActions() {
     dl.onclick = () => installProgram(current.id, dl);
   }
 
-  // 右侧图标组整体靠右：只保留 打开目录/复制地址/打开网站（对齐 Tauri）。
-  // 编辑/复制/隐藏/删除 已在侧栏右键与批量页提供，这里不重复堆图标。
-  const icons = [];
+  // 图标组（打开目录/复制地址/打开网站）：仅在存在时插入分隔条
+  const group2 = document.createElement("span");
+  group2.className = "act-group act-icons";
+  const pushIcon = (b) => {
+    group2.appendChild(b);
+  };
   if (current.repo) {
     const appDir = document.createElement("button");
     appDir.className = "icon-btn";
@@ -464,7 +472,7 @@ function renderActions() {
         showNotice(String(e), true);
       }
     };
-    icons.push(appDir);
+    pushIcon(appDir);
   }
   const url = webUrl(current);
   if (url) {
@@ -480,16 +488,21 @@ function renderActions() {
         showNotice(t("toast.copy_fail"), true);
       }
     };
-    icons.push(copy);
+    pushIcon(copy);
     const open = document.createElement("button");
     open.className = "icon-btn";
     open.title = t("act.open_site");
     open.textContent = "↗";
     open.onclick = () => openExternal(url);
-    icons.push(open);
+    pushIcon(open);
   }
-  if (icons.length) icons[0].style.marginLeft = "auto";
-  for (const b of icons) actions.appendChild(b);
+  if (group2.children.length) {
+    const sep = document.createElement("span");
+    sep.className = "act-sep";
+    sep.setAttribute("aria-hidden", "true");
+    actions.appendChild(sep);
+    actions.appendChild(group2);
+  }
 }
 
 // ---------- 状态 ----------
