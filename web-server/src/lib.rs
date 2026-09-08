@@ -66,7 +66,7 @@ pub fn start(
     bind: &str,
     port: u16,
 ) -> anyhow::Result<WebServerHandle> {
-    let state = Arc::new(RpcState { manager, config_path });
+    let state = Arc::new(RpcState::new(manager, config_path));
     start_with_state(state, bind, port)
 }
 
@@ -190,27 +190,41 @@ async fn capabilities(State(state): State<Arc<RpcState>>) -> axum::Json<serde_js
     }))
 }
 
-/// 预留的 WebSocket 事件通道（F-3 事件推送；当前空实现，仅握手保活）。
+/// WebSocket 事件通道：订阅 RpcState.events 广播并转发；兼作 25s 保活。
+/// 客户端主动断开或事件通道关闭即结束。
 async fn ws_handler(
-    State(_state): State<Arc<RpcState>>,
+    State(state): State<Arc<RpcState>>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
     ws.on_upgrade(move |mut socket: WebSocket| async move {
-        // 简单保活：收到任何消息回一个 hello 快照；客户端断开即结束
+        let mut rx = state.events.subscribe();
+        let mut ping = tokio::time::interval(std::time::Duration::from_secs(25));
         loop {
             tokio::select! {
                 res = socket.recv() => {
                     match res {
+                        Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
+                        // 收到客户端消息回一个 hello 快照（客户端没消息时也能保持连接）
                         Some(Ok(Message::Text(_))) => {
                             if socket.send(Message::Text(r#"{"type":"hello","msg":"ws-ok"}"#.into())).await.is_err() {
                                 break;
                             }
                         }
-                        Some(Ok(Message::Close(_))) | Some(Err(_)) | None => break,
                         Some(Ok(_)) => {}
                     }
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(25)) => {
+                msg = rx.recv() => {
+                    match msg {
+                        Ok(text) => {
+                            if socket.send(Message::Text(text.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        // 缓冲区溢出或发送端已关闭：结束该连接
+                        Err(_) => break,
+                    }
+                }
+                _ = ping.tick() => {
                     if socket.send(Message::Ping(vec![])).await.is_err() {
                         break;
                     }

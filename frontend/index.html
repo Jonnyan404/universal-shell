@@ -12,9 +12,13 @@
       <div class="sidebar-head">
         <button id="theme-btn" class="theme-btn"></button>
         <button id="lang-btn" class="lang-btn" data-i18n-title="ui.lang">文</button>
+        <button id="settings-btn" class="settings-btn" data-i18n-title="ui.settings">⚙</button>
+        <button id="github-btn" class="settings-btn" data-i18n-title="ui.github"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></button>
       </div>
       <nav id="program-tabs" class="room-list"></nav>
       <div class="sidebar-foot">
+        <button id="batch-link" class="sidebar-settings" data-i18n-title="ui.batch">☰ <span class="app-btn-label" data-i18n="ui.batch">批量管理</span></button>
+        <button id="library-link" class="sidebar-settings" data-i18n-title="ui.library">▤ <span class="app-btn-label" data-i18n="ui.library">模板库</span></button>
         <div id="manage-tools" class="manage-tools">
           <button id="new-btn" class="sidebar-settings" data-i18n="menu.new">＋ 新建</button>
           <button id="import-btn" class="sidebar-settings" data-i18n="act.import">⇪ 导入</button>
@@ -49,6 +53,57 @@
             <button id="manage-log-refresh" class="log-action" data-i18n-title="act.refresh">↻</button>
           </div>
           <pre id="manage-log-content" class="term-body"></pre>
+        </div>
+      </section>
+
+      <!-- 批量管理 -->
+      <section id="batch-view" class="view" hidden>
+        <div class="panel">
+          <div class="batch-toolbar">
+            <span class="batch-title" data-i18n="batch.title">批量管理</span>
+            <span class="spacer"></span>
+            <div class="batch-actions">
+              <div class="batch-btns">
+                <button id="batch-refresh" data-i18n="batch.refresh">刷新状态</button>
+                <button id="batch-check-updates" data-i18n="batch.check">检查更新</button>
+                <button id="batch-stop-all" data-i18n="batch.stop_all">停止所有</button>
+              </div>
+              <div id="batch-checked-at" class="batch-checked-at"></div>
+            </div>
+          </div>
+          <table class="batch-table">
+            <thead>
+              <tr>
+                <th data-i18n="th.program">程序</th>
+                <th data-i18n="th.local_ver">本地版本</th>
+                <th data-i18n="th.latest_ver">最新版本</th>
+                <th data-i18n="th.status">状态</th>
+                <th data-i18n="th.autostart">开机启动</th>
+                <th data-i18n="th.hidden">隐藏</th>
+              </tr>
+            </thead>
+            <tbody id="batch-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 模板库 -->
+      <section id="library-view" class="view" hidden>
+        <div class="panel">
+          <div class="batch-toolbar">
+            <span class="batch-title" data-i18n="lib.title">模板库</span>
+            <span class="spacer"></span>
+            <button id="lib-cache-toggle" data-i18n="lib.local">本地模板</button>
+            <button id="lib-import-local" data-i18n="lib.import">导入本地模板</button>
+            <button id="lib-manage-sources" data-i18n="lib.sources">管理源</button>
+          </div>
+          <div id="lib-source-bar"></div>
+          <div id="lib-fetch-info"></div>
+          <div id="lib-status"></div>
+          <div id="lib-cache-drawer" hidden></div>
+          <div id="lib-search"></div>
+          <div id="lib-list"></div>
+          <div id="lib-pager"></div>
         </div>
       </section>
     </main>
@@ -141,6 +196,86 @@
           <button id="import-modal-cancel" data-i18n="act.cancel">取消</button>
           <button id="import-modal-ok" class="edit-save" data-i18n="act.import">导入</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态：全局设置 -->
+  <div id="settings-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span data-i18n="sett.title">全局设置</span>
+        <button id="settings-modal-close" class="modal-close" data-i18n-title="act.close">×</button>
+      </div>
+      <form id="settings-form" class="edit-form">
+        <div class="edit-row">
+          <label data-i18n="sett.accelerate">加速地址</label>
+          <input id="sett-accelerate" data-i18n-placeholder="sett.acc_placeholder" placeholder="如 https://gh-proxy.com/（GitHub API/下载前缀）" />
+        </div>
+        <div class="edit-row">
+          <label data-i18n="sett.proxy">通用代理</label>
+          <div class="sett-proxy">
+            <div class="sett-proxy-line">
+              <select id="sett-proxy-type">
+                <option value="http">HTTP</option>
+                <option value="socks5">SOCKS5</option>
+              </select>
+              <input id="sett-proxy-host" data-i18n-placeholder="sett.proxy_placeholder" placeholder="如 127.0.0.1:7890（地址:端口）" />
+            </div>
+            <div class="sett-proxy-line">
+              <input id="sett-proxy-user" data-i18n-placeholder="sett.proxy_user" placeholder="用户名（可选）" />
+              <input id="sett-proxy-pass" type="password" data-i18n-placeholder="sett.proxy_pass" placeholder="密码（可选）" />
+            </div>
+          </div>
+        </div>
+        <div class="edit-row">
+          <label data-i18n="sett.shell_auto">壳开机自启</label>
+          <span class="sett-check"><input type="checkbox" id="sett-shell-auto" /> <span data-i18n="sett.shell_auto_label">开机时自动启动本壳（并拉起开启了自启的程序）</span></span>
+        </div>
+        <div class="edit-row">
+          <label data-i18n="upd.check">检查更新</label>
+          <span class="sett-check"><span id="sett-shell-version"></span> <button type="button" id="sett-check-update" data-i18n="upd.check">检查更新</button> <a id="sett-update-link" href="#" target="_blank" rel="noopener" hidden>⎇ <span id="sett-update-text"></span></a></span>
+        </div>
+        <div class="edit-actions">
+          <button type="submit" id="sett-save" data-i18n="act.save">保存</button>
+          <button type="button" id="sett-cancel" data-i18n="act.cancel">取消</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 模态：模板源管理 -->
+  <div id="sources-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span data-i18n="sources.title">模板源管理</span>
+        <button id="sources-modal-close" class="modal-close" data-i18n-title="act.close">×</button>
+      </div>
+      <div class="sources-edit">
+        <div id="sources-list" class="sources-list"></div>
+        <div class="sources-add">
+          <input id="sources-new" data-i18n-placeholder="sources.placeholder" placeholder="https://…/templates/" />
+          <button id="sources-add-btn" data-i18n="act.add">添加</button>
+        </div>
+      </div>
+      <div class="edit-actions">
+        <button id="sources-save" data-i18n="act.save">保存</button>
+        <button id="sources-cancel" data-i18n="act.cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模态：模板更新差异详情 -->
+  <div id="template-diff-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span data-i18n="tmpl_diff.title">模板更新详情</span>
+        <button id="template-diff-modal-close" class="modal-close" data-i18n-title="act.close">×</button>
+      </div>
+      <div id="template-diff-content" class="template-diff-content"></div>
+      <div class="edit-actions">
+        <button id="template-diff-apply" data-i18n="act.update">更新</button>
+        <button id="template-diff-cancel" data-i18n="act.cancel">取消</button>
       </div>
     </div>
   </div>

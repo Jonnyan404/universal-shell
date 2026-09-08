@@ -13,10 +13,19 @@ use shared::ShellManager;
 
 use rust_i18n::t;
 
-/// 共享状态：宿主进程(egui / tauri)把同一份 manager 交进来
+/// 共享状态：宿主进程(egui / tauri)把同一份 manager 交进来。
+/// `events` 是 WebSocket 事件总线（下载进度等后台任务向浏览器广播，F-3 事件推送复用）。
 pub struct RpcState {
     pub manager: Arc<Mutex<ShellManager>>,
     pub config_path: PathBuf,
+    pub events: tokio::sync::broadcast::Sender<String>,
+}
+
+impl RpcState {
+    pub fn new(manager: Arc<Mutex<ShellManager>>, config_path: PathBuf) -> Self {
+        let (tx, _rx) = tokio::sync::broadcast::channel(128);
+        Self { manager, config_path, events: tx }
+    }
 }
 
 #[derive(Deserialize)]
@@ -114,6 +123,35 @@ struct LogsView {
 }
 
 impl StatusView {
+    fn now_unix() -> u64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
+    /// 远端已刷新的完整状态（批量管理用）：直接带最新版本与发布时间
+    fn from_status(s: &shared::ProgramStatus, bin_path: &PathBuf, autostart: bool) -> Self {
+        let up_to_date = s.installed
+            && s.local_version != "-"
+            && match &s.latest_version {
+                Some(lv) => !shared::version::is_newer(lv, &s.local_version),
+                None => true,
+            };
+        Self {
+            installed: s.installed,
+            running: s.running,
+            autostart,
+            local_version: s.local_version.clone(),
+            latest_version: s.latest_version.clone(),
+            latest_published: s.latest_published.clone(),
+            latest_checked_at: s.latest_version.as_ref().map(|_| Self::now_unix()),
+            up_to_date,
+            bin_path: bin_path.display().to_string(),
+        }
+    }
+
     /// 本地即时渲染阶段：未知最新版本；有版本检查缓存则回填
     fn from_local(
         s: &shared::ProgramStatus,
@@ -221,6 +259,56 @@ fn system_hint() -> String {
 
 fn program_not_found(id: &str) -> String {
     t!("err.program_not_found", id = id).to_string()
+}
+
+/// 用当前网络设置(加速前缀 + 通用代理)构建 GitHub 客户端
+fn proxied_github(proxy: &shared::ProxySettings) -> shared::GitHub {
+    let mut gh = shared::GitHub::default();
+    gh.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+    gh
+}
+
+fn proxied_http(proxy: &shared::ProxySettings) -> shared::source_http::HttpSource {
+    let mut hs = shared::source_http::HttpSource::default();
+    hs.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+    hs
+}
+
+/// 构造绑定某源的 RegistryClient（模板校验/pubkey/代理）
+fn registry_client(
+    mgr: &ShellManager,
+    registry_url: &str,
+) -> shared::RegistryClient {
+    shared::RegistryClient::with_network(
+        registry_url,
+        mgr.data_dir.join("cache/registry"),
+        mgr.registry_pubkeys.clone(),
+        Some(&mgr.proxy.accelerate_prefix),
+        Some(&mgr.proxy.http_proxy),
+    )
+}
+
+#[derive(Serialize)]
+struct MergedManifestView {
+    templates: Vec<(String, shared::TemplateIndex, String)>, // (id, index, base)
+    sources: Vec<(String, bool, u64)>,                      // (base, offline, fetched_at)
+    conflicts: Vec<(String, usize)>,                        // id -> 源数量
+}
+
+fn merged_manifest_view(merged: &shared::MergedSource) -> MergedManifestView {
+    MergedManifestView {
+        templates: merged
+            .by_id
+            .iter()
+            .map(|(id, (base, idx))| (id.clone(), idx.clone(), base.clone()))
+            .collect(),
+        sources: merged.sources.clone(),
+        conflicts: merged
+            .conflicts
+            .iter()
+            .map(|(id, bases)| (id.clone(), bases.len()))
+            .collect(),
+    }
 }
 
 /// 从 args 里取字符串参数（missing/null 返回默认）
@@ -484,10 +572,24 @@ fn commit_program(
 }
 
 pub async fn dispatch(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) -> RpcResponse {
-    let result = handle(state, cmd, args);
-    match result {
-        Ok(v) => RpcResponse { ok: true, data: Some(v), error: None },
-        Err(e) => RpcResponse { ok: false, data: None, error: Some(e) },
+    let state = RpcState {
+        manager: state.manager.clone(),
+        config_path: state.config_path.clone(),
+        events: state.events.clone(),
+    };
+    let cmd = cmd.to_string();
+    let args = args.clone();
+    // 同步逻辑（可能含网络/锁竞争）放 blocking 池，避免占住 tokio worker 导致其它请求饿死
+    match tokio::task::spawn_blocking(move || handle(&state, &cmd, &args)).await {
+        Ok(result) => match result {
+            Ok(v) => RpcResponse { ok: true, data: Some(v), error: None },
+            Err(e) => RpcResponse { ok: false, data: None, error: Some(e) },
+        },
+        Err(_) => RpcResponse {
+            ok: false,
+            data: None,
+            error: Some("rpc: handler panicked".to_string()),
+        },
     }
 }
 
@@ -844,6 +946,324 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 &t!("op.import_web"),
             )?;
             Ok(serde_json::to_value(view).map_err(|e| format!("rpc: view: {e}"))?)
+        }
+
+        // ---------- 批量管理：远端最新版本 ----------
+        "batch_status" => {
+            let (layout, locals) = {
+                let mut mgr = state.manager.lock().unwrap();
+                (
+                    mgr.proxy.clone(),
+                    mgr.all_programs()
+                        .into_iter()
+                        .map(|p| {
+                            let bin = mgr.bin_path(&p);
+                            let s = mgr.status_local(&p);
+                            let auto = mgr.program_autostart(&p.id);
+                            (p, bin, s, auto)
+                        })
+                        .collect::<Vec<_>>(),
+                )
+            };
+            // 锁外并行：按 source 分发查最新版本
+            let latest: Vec<Option<(String, String)>> = std::thread::scope(|s| {
+                let handles: Vec<_> = locals
+                    .iter()
+                    .map(|(p, _, _, _)| {
+                        let p = p.clone();
+                        let layout = layout.clone();
+                        s.spawn(move || {
+                            let gh = proxied_github(&layout);
+                            let hs = proxied_http(&layout);
+                            shared::shell_manager::latest_remote(&p, &gh, &hs)
+                        })
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap_or(None)).collect()
+            });
+            let mut locals = locals;
+            for ((_, _, s, _), lv) in locals.iter_mut().zip(latest) {
+                if let Some((v, pb)) = lv {
+                    s.latest_version = Some(v);
+                    s.latest_published = pb;
+                }
+            }
+            if locals.iter().any(|(_, _, s, _)| s.latest_version.is_some()) {
+                let mgr = state.manager.lock().unwrap();
+                let mut vc = mgr.load_version_check();
+                for (p, _, s, _) in locals.iter() {
+                    if let Some(v) = &s.latest_version {
+                        vc.insert(p.repo.clone(), (v.clone(), StatusView::now_unix()));
+                    }
+                }
+                mgr.save_version_check(&vc);
+            }
+            let views: Vec<ProgramStatusView> = locals
+                .into_iter()
+                .map(|(p, bin, s, auto)| ProgramStatusView {
+                    id: p.id.clone(),
+                    name: p.name.clone(),
+                    repo: p.repo.clone(),
+                    hidden: p.hidden,
+                    status: StatusView::from_status(&s, &bin, auto),
+                })
+                .collect();
+            Ok(serde_json::to_value(views).map_err(|e| format!("rpc: view: {e}"))?)
+        }
+
+        // ---------- 下载安装（后台进度经 WS 事件总线广播） ----------
+        "install" => {
+            let program_id = arg_str(args, "programId");
+            let (data_dir, program, events) = {
+                let mgr = state.manager.lock().unwrap();
+                let p = mgr
+                    .all_programs()
+                    .into_iter()
+                    .find(|p| p.id == program_id)
+                    .ok_or_else(|| program_not_found(&program_id))?;
+                (mgr.data_dir.clone(), p, state.events.clone())
+            };
+            std::thread::spawn(move || {
+                use shared::progress::{DownloadProgress, DownloadStage};
+                let pid = program.id.clone();
+                let stage_name = |st: &DownloadStage| match st {
+                    DownloadStage::Downloading => "downloading",
+                    DownloadStage::Verifying => "verifying",
+                    DownloadStage::Extracting => "extracting",
+                };
+                let send = |stage: &str,
+                            received: u64,
+                            total: u64,
+                                done: bool,
+                                error: Option<&str>,
+                                version: Option<&str>| {
+                    let _ = events.send(json!({
+                        "type": "install-progress",
+                        "programId": pid,
+                        "stage": stage,
+                        "received": received,
+                        "total": total,
+                        "done": done,
+                        "error": error,
+                        "version": version,
+                    }).to_string());
+                };
+                let on_progress = |pr: &DownloadProgress| {
+                    send(
+                        stage_name(&pr.stage),
+                        pr.received,
+                        pr.total,
+                        false,
+                        None,
+                        None,
+                    );
+                };
+                match shared::ShellManager::install_standalone_with_progress(&data_dir, &program, &on_progress) {
+                    Ok(version) => send("done", 0, 0, true, None, Some(&version)),
+                    Err(e) => {
+                        let err_text = format!("{e:#}");
+                        shared::ShellManager::log_op_for(
+                            &data_dir,
+                            &t!("op.download_fail", name = &program.name, err = &err_text),
+                        );
+                        send("error", 0, 0, false, Some(&err_text), None);
+                    }
+                }
+            });
+            Ok(json!({}))
+        }
+
+        // ---------- 壳更新检查 ----------
+        "check_shell_update" => {
+            let (accel, proxy) = {
+                let mgr = state.manager.lock().unwrap();
+                (mgr.proxy.accelerate_prefix.clone(), mgr.proxy.http_proxy.clone())
+            };
+            let current = shared::version::build_version().to_string();
+            match shared::check_shell_update(&current, &accel, &proxy).map_err(|e| format!("{e:#}")) {
+                Ok(Some(u)) => Ok(json!({
+                    "current": u.current,
+                    "latest_tag": Some(u.latest_tag),
+                    "release_url": Some(u.release_url),
+                })),
+                Ok(None) => Ok(json!({
+                    "current": current,
+                    "latest_tag": None::<String>,
+                    "release_url": None::<String>,
+                })),
+                Err(e) => Err(e),
+            }
+        }
+
+        // ---------- 模板库 ----------
+        "get_registries" => {
+            let mgr = state.manager.lock().unwrap();
+            Ok(json!(mgr.template_registries.clone()))
+        }
+        "set_registries" => {
+            let registries = args
+                .get("registries")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|s| {
+                            let s = s.trim().to_string();
+                            if s.ends_with('/') { s } else { format!("{s}/") }
+                        })
+                        .filter(|s| !s.is_empty() && s != "/")
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let mut mgr = state.manager.lock().unwrap();
+            mgr.template_registries = registries.clone();
+            mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!("op.update_sources", list = registries.join(", ")));
+            Ok(json!({}))
+        }
+        "get_manifest" => {
+            let registry_url = arg_str(args, "registryUrl");
+            let (mgr, client) = {
+                let mgr = state.manager.lock().unwrap();
+                let client = registry_client(&mgr, &registry_url);
+                (mgr, client)
+            };
+            drop(mgr);
+            let (offline, _fetched_at, manifest) = client
+                .load_manifest()
+                .map_err(|e| format!("{e:#}"))?;
+            Ok(json!({
+                "revision": manifest.revision,
+                "categories": manifest.categories,
+                "templates": manifest.templates,
+                "offline": offline,
+            }))
+        }
+        "get_merged_manifest" => {
+            let (cache, bases0, pubkeys, proxy) = {
+                let mgr = state.manager.lock().unwrap();
+                (
+                    mgr.data_dir.join("cache/registry"),
+                    mgr.template_registries.clone(),
+                    mgr.registry_pubkeys.clone(),
+                    mgr.proxy.clone(),
+                )
+            };
+            let mut bases = bases0;
+            let typed = arg_str(args, "registryUrl");
+            if !typed.is_empty() && !bases.contains(&typed) {
+                bases.push(typed);
+            }
+            if bases.is_empty() {
+                return Err(t!("err.registry_not_configured").to_string());
+            }
+            let merged = shared::load_merged_manifests(
+                &bases,
+                cache,
+                pubkeys,
+                Some(&proxy.accelerate_prefix),
+                Some(&proxy.http_proxy),
+                true,
+            );
+            Ok(serde_json::to_value(merged_manifest_view(&merged)).map_err(|e| format!("rpc: view: {e}"))?)
+        }
+        "get_merged_manifest_offline" => {
+            let (cache, bases, pubkeys) = {
+                let mgr = state.manager.lock().unwrap();
+                (
+                    mgr.data_dir.join("cache/registry"),
+                    mgr.template_registries.clone(),
+                    mgr.registry_pubkeys.clone(),
+                )
+            };
+            let merged = shared::load_merged_manifests_cached(&bases, cache, pubkeys);
+            if merged.by_id.is_empty() {
+                return Err(t!("err.no_cache_manifest").to_string());
+            }
+            Ok(serde_json::to_value(merged_manifest_view(&merged)).map_err(|e| format!("rpc: view: {e}"))?)
+        }
+        "template_status" => {
+            let registry_url = arg_str(args, "registryUrl");
+            let template_id = arg_str(args, "templateId");
+            let (mgr, client) = {
+                let mgr = state.manager.lock().unwrap();
+                let client = registry_client(&mgr, &registry_url);
+                (mgr, client)
+            };
+            let (_offline, program) = client
+                .load_template(&template_id)
+                .map_err(|e| format!("{e:#}"))?;
+            let status = match mgr.all_programs().into_iter().find(|p| p.id == program.id) {
+                None => "new".to_string(),
+                Some(cur) => {
+                    let diff = shared::ShellManager::template_diff(&cur, &program);
+                    if diff.is_empty() { "current".to_string() } else { "update".to_string() }
+                }
+            };
+            Ok(json!(status))
+        }
+        "template_diff" => {
+            let registry_url = arg_str(args, "registryUrl");
+            let template_id = arg_str(args, "templateId");
+            let (mgr, client) = {
+                let mgr = state.manager.lock().unwrap();
+                let client = registry_client(&mgr, &registry_url);
+                (mgr, client)
+            };
+            let (_offline, program) = client
+                .load_template(&template_id)
+                .map_err(|e| format!("{e:#}"))?;
+            match mgr.all_programs().into_iter().find(|p| p.id == program.id) {
+                None => Err(t!("err.program_exists", id = template_id).to_string()),
+                Some(cur) => Ok(serde_json::to_value(shared::ShellManager::template_diff_view(&cur, &program))
+                    .map_err(|e| format!("rpc: view: {e}"))?),
+            }
+        }
+        "import_template" => {
+            let registry_url = arg_str(args, "registryUrl");
+            let template_id = arg_str(args, "templateId");
+            let overwrite = arg_bool(args, "overwrite");
+            let mut mgr = state.manager.lock().unwrap();
+            let client = registry_client(&mgr, &registry_url);
+            let (_offline, mut program) = client
+                .load_template(&template_id)
+                .map_err(|e| format!("{e:#}"))?;
+            if let Some(idx) = mgr.programs.iter().position(|p| p.id == program.id) {
+                if !overwrite {
+                    return Err(t!("err.program_exists", id = &program.id).to_string());
+                }
+                let cur = mgr.programs[idx].clone();
+                let mut next = cur.clone();
+                let values = mgr.load_field_values(&cur);
+                let merged = shared::ShellManager::apply_template_update(&mut next, &program, &values);
+                mgr.save_field_values(&next, &merged);
+                mgr.programs[idx] = next.clone();
+                let view = to_view(&next);
+                mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
+                mgr.log_op(&t!("op.import_overwrite", desc = t!("op.import_local"), id = &program.id));
+                return Ok(serde_json::to_value(view).map_err(|e| format!("rpc: view: {e}"))?);
+            }
+            if program.binary.is_empty() {
+                program.binary = program.id.clone();
+            }
+            let view = to_view(&program);
+            let id = program.id.clone();
+            mgr.programs.push(program);
+            mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!("op.import", desc = t!("op.import_local"), name = &id));
+            Ok(serde_json::to_value(view).map_err(|e| format!("rpc: view: {e}"))?)
+        }
+        "export_template_json" => {
+            let program_id = arg_str(args, "programId");
+            let mgr = state.manager.lock().unwrap();
+            let p = mgr
+                .all_programs()
+                .into_iter()
+                .find(|p| p.id == program_id)
+                .ok_or_else(|| program_not_found(&program_id))?;
+            let json = serde_json::to_string_pretty(&p).map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!("op.export", name = &p.name));
+            Ok(json!(json))
         }
 
         other => Err(format!("rpc: unknown command {other}")),
