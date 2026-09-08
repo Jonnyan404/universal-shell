@@ -64,10 +64,10 @@
 
 | # | 任务 | 验收标准 | 状态 |
 |---|---|---|---|
-| F1 | 新增 `web-server/` workspace crate（依赖 shared）：axum + WebSocket + 静态资源服务；状态用 `Arc<Mutex<ShellManager>>`；`/api/*` 命令镜像 tauri 既有命令（起步：列程序/本地状态/启停/读日志） | 独立 lib 可起服务，egui 与 tauri 皆可依赖 | ☐ |
-| F2 | SPA 单一起源 `frontend/`：收纳 app-tauri 的 HTML/CSS/JS；渲染逻辑复用现有 main.js，调用层统一为 fetch/WebSocket（`api.js`），**零 `window.__TAURI__` invoke 依赖** | 同一份前端在浏览器与 Tauri 窗口中行为一致 | ☐ |
-| F3 | egui 内嵌：侧栏/设置「Web 管理」开关（**默认关闭**）；开启→随机高位空闲端口起服务→显示 URL +「在浏览器打开」；`self.manager` 改造为 `Arc<Mutex<ShellManager>>` 共享 | 开关可启停服务；本机浏览器可打开管理页 | ☐ |
-| F4 | tauri 内嵌：启动即起服务（绑定 127.0.0.1），窗口加载改为主机 localhost=同一 SPA；托盘加「在浏览器打开」；原生能力（reveal/文件对话框）走后移的服务端端点（`/api/native/*`），不做 invoke fallback | 桌面窗口与浏览器访问同一前端、同一服务 | ☐ |
+| F1 | 新增 `web-server/` workspace crate（依赖 shared）：axum + WebSocket + 静态资源服务；状态用 `Arc<Mutex<ShellManager>>`；`/api/*` 命令镜像 tauri 既有命令（起步：列程序/本地状态/启停/读日志） | 独立 lib 可起服务，egui 与 tauri 皆可依赖 | ☑ |
+| F2 | SPA 单一起源 `frontend/`：收纳 app-tauri 的 HTML/CSS/JS；渲染逻辑复用现有 main.js，调用层统一为 fetch/WebSocket（`api.js`），**零 `window.__TAURI__` invoke 依赖** | 同一份前端在浏览器与 Tauri 窗口中行为一致 | ☑ |
+| F3 | egui 内嵌：侧栏/设置「Web 管理」开关（**默认关闭**）；开启→随机高位空闲端口起服务→显示 URL +「在浏览器打开」；`self.manager` 改造为 `Arc<Mutex<ShellManager>>` 共享 | 开关可启停服务；本机浏览器可打开管理页 | ☑ |
+| F4 | tauri 内嵌：启动即起服务（绑定 127.0.0.1），窗口加载改为主机 localhost=同一 SPA；托盘加「在浏览器打开」；原生能力（reveal/文件对话框）走后移的服务端端点（`/api/native/*`），不做 invoke fallback | 桌面窗口与浏览器访问同一前端、同一服务 | ☑ |
 | F5 | 功能对齐：浏览器可达完整程序管理（列表/启停/日志/编辑/导入；v1 沿用轮询 ≈ 现有 3s） | e2e 手测：浏览器启停一次程序、日志滚动正常 | ☐ |
 
 ### F-2 安全与远程
