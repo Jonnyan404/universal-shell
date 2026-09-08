@@ -259,11 +259,13 @@ jobs:
             --config "{\"version\":\"$VERSION\"}")
           mkdir -p dist/bundle
           # 仅保留最终安装包，丢开 tauri 的中间/展开文件；
-          # 统一改名为 universal-shell-tauri-<原名>，与 egui/cli 前缀保持一致
+          # 统一改名为 universal-shell-tauri-<原名>，与 egui/cli 前缀保持一致。
+          # tauri 原名已带 "universal-shell_" 前缀（universal-shell_0.1.8_arch.xxx），
+          # 去掉该前缀再拼，避免出现 universal-shell-tauri-universal-shell_ 的重复。
           find target/release/bundle -type f \
             \( -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
                -o -name '*.msi' -o -name '*.exe' \) \
-            -exec sh -c 'cp "$1" "dist/bundle/universal-shell-tauri-$(basename "$1")"' _ {} \;
+            -exec sh -c 'b=$(basename "$1"); b=${b#universal-shell_}; cp "$1" "dist/bundle/universal-shell-tauri-$b"' _ {} \;
         shell: bash
 
       - name: SHA256
