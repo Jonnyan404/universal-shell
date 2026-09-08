@@ -290,6 +290,8 @@ async function switchCurrent(id) {
   renderForm();
   renderActions();
   await refreshStatusLocal();
+  const hint = document.querySelector("#manage-log-hint");
+  if (hint) hint.textContent = current.id;
   refreshManageLog();
 }
 
@@ -1988,6 +1990,59 @@ document.querySelector("#manage-log-copy").onclick = () => {
   navigator.clipboard.writeText(el.manageLogContent.textContent).catch(() => {});
 };
 document.querySelector("#manage-log-refresh").onclick = refreshManageLog;
+document.querySelector("#manage-log-open").onclick = () => {
+  logCenter.kind = "program";
+  logCenter.id = current?.id || "";
+  openLogCenter();
+};
+
+// 底部抽屉：展开/收起 + 上下拖动调节高度（最小 80px，不超过窗口 70%）
+function setupManageLogDrawer() {
+  const log = document.querySelector("#manage-log");
+  const handle = document.querySelector("#manage-log-resize");
+  const toggle = document.querySelector("#manage-log-toggle");
+  let drawerHeight = 120;
+  const applyHeight = () => {
+    const open = log.dataset.open === "1";
+    log.style.setProperty("--ml-height", drawerHeight + "px");
+    toggle.textContent = open ? "▾" : "▸";
+    toggle.title = t(open ? "log.collapse" : "log.expand");
+    if (open) requestAnimationFrame(() => { el.manageLogContent.scrollTop = el.manageLogContent.scrollHeight; });
+  };
+  toggle.onclick = () => {
+    log.dataset.open = log.dataset.open === "1" ? "0" : "1";
+    applyHeight();
+  };
+  if (handle) {
+    let dragging = false;
+    let startY = 0;
+    let startH = 0;
+    const onMove = (e) => {
+      if (!dragging || log.dataset.open !== "1") return;
+      const dh = e.clientY - startY;
+      const maxH = window.innerHeight * 0.7;
+      drawerHeight = Math.min(Math.max(startH - dh, 80), maxH);
+      applyHeight();
+    };
+    const onUp = () => {
+      dragging = false;
+      document.body.classList.remove("resizing-log");
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    handle.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      dragging = true;
+      startY = e.clientY;
+      startH = log.getBoundingClientRect().height;
+      document.body.classList.add("resizing-log");
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    });
+  }
+  applyHeight();
+}
+setupManageLogDrawer();
 
 // 程序管理按钮
 document.querySelector("#edit-modal-close").onclick = () => (document.querySelector("#edit-modal").hidden = true);

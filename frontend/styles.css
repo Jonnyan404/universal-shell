@@ -253,33 +253,40 @@ button:disabled { opacity: 0.6; cursor: default; }
 .op-log::-webkit-scrollbar { width: 6px; }
 .op-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 .manage-log {
-  position: relative; flex: 0 0 auto; height: 120px; display: flex; flex-direction: column;
+  position: relative; flex: 0 0 auto; height: var(--ml-height, 120px); display: flex; flex-direction: column;
   margin-top: 0; border-radius: 0; overflow: hidden;
   border-top: 1px solid var(--border); background: var(--panel);
+  transition: height 0.18s ease;
 }
+.manage-log[data-open="0"] { height: 34px; }
+.manage-log[data-open="0"] .term-body { display: none; }
 .manage-log[hidden] { display: none; }
 /* 拖动条：可上下调节日志高度，给参数区让位 */
 .manage-log-resize {
-  position: absolute; top: 0; left: 0; right: 0; height: 5px; z-index: 4;
+  position: absolute; top: 0; left: 0; right: 0; height: 6px; z-index: 4;
   cursor: ns-resize; background: transparent;
 }
 .manage-log-resize:hover { background: var(--accent); opacity: 0.6; }
 body.resizing-log { cursor: ns-resize; user-select: none; }
-/* 浮动按钮：悬浮于日志右上角，无标题栏 */
-.manage-log-actions {
-  position: absolute; top: 8px; right: 8px; z-index: 3;
-  display: inline-flex; gap: 6px; padding: 3px;
-  background: color-mix(in srgb, var(--panel-2) 82%, transparent);
-  border: 1px solid var(--border); border-radius: 8px;
-  opacity: 0.35; transition: opacity 0.15s;
+/* 抽屉标题栏 */
+.manage-log-head {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px; background: var(--panel-2); border-bottom: 1px solid var(--border);
 }
-.manage-log:hover .manage-log-actions,
-.manage-log.actions-visible .manage-log-actions { opacity: 1; }
-.manage-log-actions .log-action {
+.manage-log[data-open="0"] .manage-log-head { border-bottom: none; }
+.log-toggle {
+  font-size: 11px; line-height: 1; padding: 3px 6px; border-radius: 6px;
+  background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer;
+}
+.log-toggle:hover { color: var(--text); border-color: var(--accent); }
+.manage-log-title { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.manage-log-hint { font-size: 11px; color: var(--muted); opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.manage-log-head .spacer { flex: 1; }
+.manage-log-head .log-action {
   font-size: 12px; padding: 2px 8px; border-radius: 6px; background: transparent;
-  border: none; color: var(--muted); cursor: pointer; line-height: 1.2;
+  border: 1px solid transparent; color: var(--muted); cursor: pointer; line-height: 1.4;
 }
-.manage-log-actions .log-action:hover { color: var(--text); }
+.manage-log-head .log-action:hover { color: var(--text); border-color: var(--border); }
 .term-bar {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 14px; background: var(--panel-2); border-bottom: 1px solid var(--border);

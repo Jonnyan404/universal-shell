@@ -44,8 +44,14 @@
           </div>
           <div id="actions"></div>
         </div>
-        <div id="manage-log" class="manage-log">
-          <div class="manage-log-actions">
+        <div id="manage-log" class="manage-log" data-open="1">
+          <div id="manage-log-resize" class="manage-log-resize" title=""></div>
+          <div id="manage-log-head" class="manage-log-head">
+            <button id="manage-log-toggle" class="log-toggle" data-i18n-title="log.collapse">▾</button>
+            <span class="manage-log-title" data-i18n="manage.view_log">程序日志</span>
+            <span id="manage-log-hint" class="manage-log-hint"></span>
+            <span class="spacer"></span>
+            <button id="manage-log-open" class="log-action" data-i18n-title="log.center_open">📜</button>
             <button id="manage-log-copy" class="log-action" data-i18n-title="act.copy">⧉</button>
             <button id="manage-log-refresh" class="log-action" data-i18n-title="act.refresh">↻</button>
           </div>

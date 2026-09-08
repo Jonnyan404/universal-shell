@@ -276,10 +276,14 @@ lib.last_pull: 'Last pulled %{date}'
 lib.not_pulled: not pulled yet
 shell_log.empty: (No shell operation logs yet)
 log.clear: Clear
+log.collapse: Collapse log
 log.copy: Copy
+log.expand: Expand log
 log.follow: Follow
+log.center_open: Open in Log Center
 log.search_ph: 'Search…'
 log.shell_title: Shell operation log
+manage.view_log: Program log
 eg.no_program: 'No managed programs configured. Start with `universal-shell-egui <shell.json>` or import from the template library.'
 eg.search: 'Search:'
 eg.loaded_offline: 'Loaded (%{n} sources, with offline fallback)'

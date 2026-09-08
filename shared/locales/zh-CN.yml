@@ -276,10 +276,14 @@ lib.last_pull: '上次拉取 %{date}'
 lib.not_pulled: 尚未拉取
 shell_log.empty: (暂无壳操作日志)
 log.clear: 清空
+log.collapse: 收起日志
 log.copy: 复制
+log.expand: 展开日志
 log.follow: 跟随
+log.center_open: 在日志中心打开
 log.search_ph: 搜索…
 log.shell_title: 壳操作日志
+manage.view_log: 程序日志
 eg.no_program: '未配置任何受管程序。请以 `universal-shell-egui <shell.json>` 启动，或在「模板库」导入。'
 eg.search: '搜索:'
 eg.loaded_offline: '加载完成（%{n} 个源，含离线回退）'
