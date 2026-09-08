@@ -119,7 +119,10 @@ function renderSidebar(preferId) {
     name.appendChild(nm);
     const sub = document.createElement("span");
     sub.className = "sub";
-    sub.textContent = s.status.running ? "● " + t("st.running") : "○ " + t( s.status.installed ? "st.stopped" : "st.not_installed");
+    const repo = programs.find((p) => p.id === s.id)?.repo;
+    sub.textContent = s.status.running
+      ? "● " + t("st.running")
+      : "○ " + (s.status.installed ? t("st.stopped") : repo ? t("st.not_installed", { repo }) : t("st.not_installed_bare"));
     info.appendChild(name);
     info.appendChild(sub);
     it.appendChild(dot);
@@ -510,7 +513,7 @@ function renderChips(st) {
   if (st.installed) {
     mk(`v${st.local_version}`, "ok");
   } else {
-    mk(t("st.not_installed"));
+    mk(t("st.not_installed_bare"));
   }
   if (st.running) mk("● " + t("st.running"), "running");
   if (st.autostart) mk("⏻ " + t("st.autostart"), "warn");
