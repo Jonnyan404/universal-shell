@@ -699,6 +699,30 @@ async function refreshBatchLocal() {
   }
 }
 
+// 周期全量刷新本地状态（无网络、轻量）：外部 kill/崩溃后，
+// 任意程序的侧栏红绿点与当前页按钮都能及时恢复，不必切 tab 触发。
+async function refreshAllStatuses() {
+  let all;
+  try {
+    all = await invoke("batch_status_local");
+  } catch {
+    return;
+  }
+  const changed = all.some((s) => {
+    const prev = statuses.find((x) => x.id === s.id);
+    return !prev || prev.status?.running !== s.status?.running;
+  });
+  statuses = all;
+  if (changed) {
+    renderSidebar();
+    if (view === "batch") renderBatch();
+  }
+  if (view === "manage" && current) {
+    const st = all.find((s) => s.id === current.id)?.status;
+    if (st) renderStatus(st);
+  }
+}
+
 // 手动“检查更新”：完整联网比对最新版本
 async function checkUpdates() {
   const btn = document.querySelector("#batch-check-updates");
@@ -2620,16 +2644,11 @@ window.addEventListener("DOMContentLoaded", async () => {
     if (manifest) renderLibrary();
   });
   el.libSearch.appendChild(libSearchInput);
-  // 不自动联网检查版本：仅管理页本地状态周期性刷新(轻量、无网络)；批量页只在进入/手动刷新/操作后刷新
+  // 不自动联网检查版本：周期刷新本地状态(轻量、无网络)。3s 全量状态 + 管理页日志跟随：
+  // 任意外部 kill/崩溃都能及时恢复侧栏红绿点与按钮（原 15s 间隔已并入此处）；
+  // 运行日志不依赖运行态——一次性程序秒退后 3s 内补上最后输出。
   setInterval(() => {
-    if (view === "manage" && current) refreshStatusLocal();
-  }, 15000);
-  // 运行日志跟随刷新 + 状态轮询：不依赖运行态——一次性程序秒退后 3s 内补上最后输出
-  // （原 gate st?.running 会让已停止的一次性程序日志永远停在空，只有切 tab 才刷）。
-  // 同时顺带刷状态：进程一旦退出/崩溃，及时恢复「启动」按钮（原来只靠 15s 轮询，明显偏慢）。
-  setInterval(() => {
-    if (view !== "manage" || !current) return;
-    refreshStatusLocal();
-    refreshManageLog();
+    if (view === "manage" && current) refreshManageLog();
+    refreshAllStatuses();
   }, 3000);
 });
