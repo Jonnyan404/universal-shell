@@ -229,14 +229,13 @@ button:disabled { opacity: 0.6; cursor: default; }
 .batch-ops .ops-start { color: #34c759; }
 .batch-ops .ops-restart { color: #ff9f0a; }
 .batch-ops .ops-stop { color: #ff453a; }
-.batch-ops .ops-log { color: #0a84ff; }
-.batch-ops .ops-dir { color: #b8860b; }
+.batch-ops .ops-dir { color: #eab308; }
 .batch-ops .ops-edit { color: #7c5cff; }
 .batch-ops .ops-del { color: #ff453a; }
 .batch-ops .ops-dl { color: #30d158; }
 .batch-ops .ops-ok { color: #34c759; }
 .batch-ops .ops-start:hover, .batch-ops .ops-restart:hover, .batch-ops .ops-stop:hover,
-.batch-ops .ops-log:hover, .batch-ops .ops-dir:hover, .batch-ops .ops-edit:hover,
+.batch-ops .ops-dir:hover, .batch-ops .ops-edit:hover,
 .batch-ops .ops-del:hover, .batch-ops .ops-dl:hover, .batch-ops .ops-ok:hover {
   color: var(--text); border-color: var(--accent);
 }
@@ -697,6 +696,7 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
     cursor: pointer; touch-action: manipulation;
   }
   .mob-card:active { background: var(--panel-2); }
+  .mob-card { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .mob-card-ico {
     width: 42px; height: 42px; flex: 0 0 auto; border-radius: 12px;
     display: flex; align-items: center; justify-content: center;
@@ -795,7 +795,9 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   #lib-source-bar select { font-size: 16px; }
   .log-toolbar .op-btn { min-height: 38px; min-width: 44px; font-size: 14px; }
   .log-toolbar .log-search { width: 100%; font-size: 16px; }
-  .log-tabs .log-src { padding: 9px 14px; font-size: 13px; }
   #log-view .log-toolbar { flex-wrap: wrap; }
   #log-view .log-toolbar .log-search { flex: 1 1 100%; }
+  /* 移动端日志中心只保留 搜索/复制/跟随（G3） */
+  #log-view .log-tabs { display: none; }
+  #log-view .log-clear-src { display: none !important; }
 }

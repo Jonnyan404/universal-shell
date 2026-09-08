@@ -117,6 +117,7 @@ async function openExternal(url) {
 function renderSidebar(preferId) {
   el.tabs.innerHTML = "";
   statuses.forEach((s) => {
+    if (s.hidden) return;
     const it = document.createElement("div");
     it.className = "prog-item" + (current && current.id === s.id ? " active" : "");
     it.dataset.id = s.id;
@@ -149,14 +150,12 @@ function renderSidebar(preferId) {
       e.preventDefault();
       e.stopPropagation();
       const p = programs.find((x) => x.id === s.id);
-      ctxMenuAt(e.clientX, e.clientY, [
-        { label: t("menu.copy"), onClick: () => duplicateProgram(p) },
-        { label: t("act.edit"), onClick: () => openEditModal(p) },
-        { label: p.hidden ? t("act.unhide") : t("act.hide"), onClick: () => toggleProgramHidden(p) },
-        { sep: true },
-        { label: t("act.delete"), danger: true, onClick: () => confirmAndDelete(p) },
-      ]);
+      ctxMenuAt(e.clientX, e.clientY, progItemMenu(p));
     };
+    attachCtxLongPress(it, (x, y) => {
+      const p = programs.find((x2) => x2.id === s.id);
+      ctxMenuAt(x, y, progItemMenu(p));
+    });
     el.tabs.appendChild(it);
   });
   if (preferId && programs.some((p) => p.id === preferId)) {
@@ -201,6 +200,67 @@ function hideCtxMenu() {
   menu.innerHTML = "";
 }
 
+// 侧栏/卡片条目右键菜单项（桌面右键与移动长按共用）
+function progItemMenu(p) {
+  return [
+    { label: t("menu.copy"), onClick: () => duplicateProgram(p) },
+    { label: t("act.edit"), onClick: () => openEditModal(p) },
+    { label: p.hidden ? t("act.unhide") : t("act.hide"), onClick: () => toggleProgramHidden(p) },
+    { sep: true },
+    { label: t("act.delete"), danger: true, onClick: () => confirmAndDelete(p) },
+  ];
+}
+
+// ---------- 移动端长按 = 右键菜单 ----------
+// 触摸设备无右键：按压 450ms 弹出等价菜单；长按后抑制随后的 click（避免误触切换）。
+let ctxLongPressTimer = null;
+let ctxLongPressSuppress = false;
+const TOUCH_ONLY = window.matchMedia("(hover: none)").matches;
+
+function clearCtxLongPress() {
+  if (ctxLongPressTimer) {
+    clearTimeout(ctxLongPressTimer);
+    ctxLongPressTimer = null;
+  }
+}
+
+function attachCtxLongPress(el, openAt) {
+  if (!TOUCH_ONLY) return;
+  let sx = 0;
+  let sy = 0;
+  el.addEventListener("pointerdown", (e) => {
+    if (e.pointerType !== "touch") return;
+    e.stopPropagation();
+    sx = e.clientX;
+    sy = e.clientY;
+    clearCtxLongPress();
+    ctxLongPressTimer = setTimeout(() => {
+      ctxLongPressTimer = null;
+      ctxLongPressSuppress = true;
+      openAt(sx, sy);
+      if (navigator.vibrate) navigator.vibrate(10);
+    }, 450);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (ctxLongPressTimer && (Math.abs(e.clientX - sx) > 10 || Math.abs(e.clientY - sy) > 10)) {
+      clearCtxLongPress();
+    }
+  });
+  el.addEventListener("pointerup", clearCtxLongPress);
+  el.addEventListener("pointercancel", clearCtxLongPress);
+  el.addEventListener("pointerleave", clearCtxLongPress);
+}
+
+// 长按触发后拦截随后的 click：避免进入详情/切换程序
+document.addEventListener("click", (e) => {
+  if (ctxLongPressSuppress) {
+    ctxLongPressSuppress = false;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+  }
+}, true);
+
 document.addEventListener("click", hideCtxMenu);
 window.addEventListener("resize", hideCtxMenu);
 
@@ -217,6 +277,11 @@ document.querySelector(".sidebar").addEventListener("contextmenu", (e) => {
       { label: t("menu.new"), onClick: () => openEditModal(null) },
     ]);
   }
+});
+attachCtxLongPress(document.querySelector(".sidebar"), (x, y) => {
+  const hit = document.elementFromPoint(x, y);
+  if (hit && hit.closest("button, .prog-item, #ctx-menu, .modal")) return;
+  ctxMenuAt(x, y, [{ label: t("menu.new"), onClick: () => openEditModal(null) }]);
 });
 
 async function duplicateProgram(p) {
@@ -886,10 +951,6 @@ function batchOpButtons(item) {
   ops.appendChild(batchIconBtn("▶", "act.start", "ops-start", () => batchAct(item, "start_program")));
   ops.appendChild(batchIconBtn("↻", "act.restart", "ops-restart", () => batchAct(item, "restart_program")));
   ops.appendChild(batchIconBtn("■", "act.stop", "ops-stop", () => batchAct(item, "stop_program")));
-  ops.appendChild(batchIconBtn("🗒", "act.log", "ops-log", async () => {
-    await switchCurrent(item.id);
-    refreshManageLog();
-  }));
   if (item.repo) ops.appendChild(batchIconBtn("📁", "act.open_app_dir", "ops-dir", async () => {
     try { await invoke("reveal_app_dir", { programId: item.id }); }
     catch (e) { showNotice(String(e), true); }
@@ -2133,6 +2194,7 @@ function renderMobCards() {
       switchCurrent(s.id);
       mobGotoDetail(p);
     };
+    attachCtxLongPress(card, (x, y) => ctxMenuAt(x, y, progItemMenu(p)));
     el.mobCards.appendChild(card);
   }
 }
