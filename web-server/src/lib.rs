@@ -239,7 +239,8 @@ async fn api_js() -> impl IntoResponse {
     static_body(SPA_API_JS.as_bytes(), "text/javascript")
 }
 async fn locale(PathParam(lang): PathParam<String>) -> Response {
-    match lang.as_str() {
+    let lang = lang.strip_suffix(".json").unwrap_or(&lang);
+    match lang {
         "en" => static_body(LOCALE_EN.as_bytes(), "application/json; charset=utf-8"),
         _ => static_body(LOCALE_ZH.as_bytes(), "application/json; charset=utf-8"),
     }

@@ -945,6 +945,11 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 .map_err(|e| e.to_string())?;
             Ok(json!({}))
         }
+        "open_url" => {
+            let url = arg_str(args, "url");
+            open_external(&url).map_err(|e| e.to_string())?;
+            Ok(json!({}))
+        }
 
         // ---------- 程序定义编辑（新增/修改/复制/删除/显隐） ----------
         "edit_program" => {
@@ -1391,12 +1396,27 @@ fn open_in_file_manager(path: PathBuf) -> anyhow::Result<()> {
     std::process::Command::new("open").arg(&path).spawn().map(|_| ()).map_err(Into::into)
 }
 
+#[cfg(target_os = "macos")]
+fn open_external(url: &str) -> anyhow::Result<()> {
+    std::process::Command::new("open").arg(url).spawn().map(|_| ()).map_err(Into::into)
+}
+
 #[cfg(target_os = "linux")]
 fn open_in_file_manager(path: PathBuf) -> anyhow::Result<()> {
     std::process::Command::new("xdg-open").arg(&path).spawn().map(|_| ()).map_err(Into::into)
 }
 
+#[cfg(target_os = "linux")]
+fn open_external(url: &str) -> anyhow::Result<()> {
+    std::process::Command::new("xdg-open").arg(url).spawn().map(|_| ()).map_err(Into::into)
+}
+
 #[cfg(target_os = "windows")]
 fn open_in_file_manager(path: PathBuf) -> anyhow::Result<()> {
     std::process::Command::new("explorer").arg(&path).spawn().map(|_| ()).map_err(Into::into)
+}
+
+#[cfg(target_os = "windows")]
+fn open_external(url: &str) -> anyhow::Result<()> {
+    std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn().map(|_| ()).map_err(Into::into)
 }
