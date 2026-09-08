@@ -29,6 +29,10 @@ const SPA_INDEX: &str = include_str!("../../frontend/index.html");
 const SPA_STYLES: &str = include_str!("../../frontend/styles.css");
 const SPA_MAIN_JS: &str = include_str!("../../frontend/main.js");
 const SPA_API_JS: &str = include_str!("../../frontend/api.js");
+const SPA_MANIFEST: &str = include_str!("../../frontend/manifest.json");
+const SPA_SW_JS: &str = include_str!("../../frontend/sw.js");
+const ICON_192: &[u8] = include_bytes!("../../frontend/icons/icon-192.png");
+const ICON_512: &[u8] = include_bytes!("../../frontend/icons/icon-512.png");
 const LOCALE_ZH: &str = include_str!("../../frontend/locales/zh-CN.json");
 const LOCALE_EN: &str = include_str!("../../frontend/locales/en.json");
 
@@ -186,6 +190,10 @@ pub fn start_with_state(
                     .route("/styles.css", get(styles))
                     .route("/main.js", get(main_js))
                     .route("/api.js", get(api_js))
+                    .route("/manifest.json", get(manifest))
+                    .route("/sw.js", get(sw_js))
+                    .route("/icons/icon-192.png", get(icon_192))
+                    .route("/icons/icon-512.png", get(icon_512))
                     .route("/locales/:lang", get(locale))
                     .route("/api/rpc", post(rpc_handler))
                     .route("/api/capabilities", get(capabilities))
@@ -237,6 +245,18 @@ async fn main_js() -> impl IntoResponse {
 }
 async fn api_js() -> impl IntoResponse {
     static_body(SPA_API_JS.as_bytes(), "text/javascript")
+}
+async fn manifest() -> impl IntoResponse {
+    static_body(SPA_MANIFEST.as_bytes(), "application/manifest+json")
+}
+async fn sw_js() -> impl IntoResponse {
+    static_body(SPA_SW_JS.as_bytes(), "text/javascript")
+}
+async fn icon_192() -> impl IntoResponse {
+    static_body(ICON_192, "image/png")
+}
+async fn icon_512() -> impl IntoResponse {
+    static_body(ICON_512, "image/png")
 }
 async fn locale(PathParam(lang): PathParam<String>) -> Response {
     let lang = lang.strip_suffix(".json").unwrap_or(&lang);

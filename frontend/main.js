@@ -2544,6 +2544,12 @@ document.querySelector("#template-diff-apply").onclick = applyTemplateUpdate;
 
 // ---------- 启动 ----------
 async function boot() {
+  // PWA：仅真浏览器注册 service worker（Tauri 内嵌 WebView 或旧浏览器安全跳过）
+  if ("serviceWorker" in navigator && !window.__TAURI__) {
+    try {
+      await navigator.serviceWorker.register("sw.js");
+    } catch {}
+  }
   try {
     await loadLocale();
   } catch {}
