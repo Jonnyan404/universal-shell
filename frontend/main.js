@@ -52,6 +52,11 @@ const el = {
   logSources: document.querySelector("#log-sources"),
   logContent: document.querySelector("#log-content"),
   logClearSrcBtn: document.querySelector("#log-clear-src"),
+  mobShell: document.querySelector("#mob-shell"),
+  mobCards: document.querySelector("#mob-cards"),
+  mobBackbar: document.querySelector("#mob-backbar"),
+  mobDetailTitle: document.querySelector("#mob-detail-title"),
+  mobTabbar: document.querySelector("#mob-tabbar"),
 };
 
 // ---------- 国际化 ----------
@@ -279,6 +284,7 @@ function switchView(v) {
   document.querySelectorAll(".sidebar-foot .sidebar-settings").forEach((b) => {
     b.classList.toggle("active", b.id === (v === "batch" ? "batch-link" : v === "library" ? "library-link" : v === "log" ? "log-center-link" : ""));
   });
+  if (isMobile()) mobSyncView(v);
 }
 
 async function switchCurrent(id) {
@@ -1663,6 +1669,7 @@ async function refreshAllStatuses() {
   statuses = all;
   if (changed || !statuses.length) {
     renderSidebar();
+    if (isMobile() && mobPage === "prog") renderMobCards();
     if (view === "log") renderLogSources();
     if (current) {
       const st = all.find((s) => s.id === current.id)?.status;
@@ -1958,7 +1965,9 @@ document.querySelector("#import-modal-ok").onclick = doLocalImport;
 function applyTheme(theme) {
   const root = document.documentElement;
   root.dataset.theme = theme;
-  document.querySelector("#theme-btn").textContent = theme === "dark" ? "☾" : "☀";
+  const icon = theme === "dark" ? "☾" : "☀";
+  document.querySelector("#theme-btn").textContent = icon;
+  document.querySelector("#mob-theme").textContent = icon;
   try {
     localStorage.setItem("us-theme", theme);
   } catch {}
@@ -1989,13 +1998,142 @@ async function toggleLang() {
   }
 }
 
-document.querySelector("#theme-btn").onclick = toggleTheme;
-document.querySelector("#lang-btn").onclick = toggleLang;
+// ---------- 移动端独立展示（方案 B：卡片流 + 二级页面） ----------
+function isMobile() {
+  return window.matchMedia("(max-width: 720px)").matches;
+}
+
+let mobPage = "prog"; // prog(卡片主页) / batch / lib / log
+
+function renderMobCards() {
+  el.mobCards.innerHTML = "";
+  if (!statuses.length) {
+    const empty = document.createElement("div");
+    empty.className = "mob-card mob-empty";
+    empty.textContent = t("ui.empty");
+    el.mobCards.appendChild(empty);
+    return;
+  }
+  const shown = statuses.filter((s) => !programs.find((p) => p.id === s.id)?.hidden);
+  for (const s of shown) {
+    const p = programs.find((x) => x.id === s.id);
+    const card = document.createElement("div");
+    card.className = "mob-card";
+    const ico = document.createElement("span");
+    ico.className = "mob-card-ico";
+    ico.textContent = (s.name || "?").slice(0, 1).toUpperCase();
+    const body = document.createElement("span");
+    body.className = "mob-card-body";
+    const nm = document.createElement("span");
+    nm.className = "mob-card-name";
+    nm.textContent = s.name;
+    const st = document.createElement("span");
+    st.className = "mob-card-sub";
+    st.textContent = s.status.running ? "● " + t("st.running") : "○ " + (s.status.installed ? t("st.stopped") : t("st.not_installed_bare"));
+    body.append(nm, st);
+    const dot = document.createElement("span");
+    dot.className = "mob-card-dot" + (s.status.running ? " on" : "");
+    card.append(ico, body, dot);
+    card.onclick = () => {
+      switchCurrent(s.id);
+      mobGotoDetail(p);
+    };
+    el.mobCards.appendChild(card);
+  }
+}
+
+function setMobTab(active) {
+  document.querySelectorAll("#mob-tabbar .mob-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.mtab === active);
+  });
+}
+
+function mobGotoDetail(p) {
+  el.mobShell.hidden = true;
+  el.mobBackbar.hidden = false;
+  el.mobDetailTitle.textContent = p?.name || "";
+  document.body.classList.add("mob-detail");
+  setMobTab("prog");
+}
+
+function mobShowHome() {
+  switchView("manage");
+  el.mobShell.hidden = false;
+  el.mobBackbar.hidden = true;
+  document.body.classList.remove("mob-detail");
+  setMobTab("prog");
+  el.manageView.hidden = true;
+  renderMobCards();
+}
+
+function mobSyncView(v) {
+  // switchView 的移动端协调层：管理二级页显示返回栏；其余视图直接显示
+  if (v === "manage" && document.body.classList.contains("mob-detail")) {
+    el.mobShell.hidden = true;
+    el.mobBackbar.hidden = false;
+    el.manageView.hidden = false;
+  } else {
+    el.mobShell.hidden = true;
+    el.mobBackbar.hidden = true;
+    el.manageView.hidden = v !== "manage";
+    document.body.classList.remove("mob-detail");
+  }
+}
+
+function mobSwitchPage(tab) {
+  mobPage = tab;
+  document.body.classList.remove("mob-detail");
+  if (tab === "prog") {
+    mobShowHome();
+  } else if (tab === "batch") {
+    switchView("batch");
+    setMobTab("batch");
+  } else if (tab === "lib") {
+    switchView("library");
+    setMobTab("lib");
+  } else if (tab === "log") {
+    switchView("log");
+    setMobTab("log");
+  }
+}
+
+function setupMobile() {
+  const mm = window.matchMedia("(max-width: 720px)");
+  const apply = () => {
+    const on = mm.matches;
+    document.body.classList.toggle("mob", on);
+    if (on) {
+      el.mobTabbar.hidden = false;
+      mobSwitchPage("prog");
+    } else {
+      el.mobShell.hidden = true;
+      el.mobTabbar.hidden = true;
+      el.mobBackbar.hidden = true;
+      document.body.classList.remove("mob-detail");
+    }
+  };
+  mm.addEventListener("change", apply);
+  apply();
+}
+
+document.querySelector("#mob-tabbar").addEventListener("click", (e) => {
+  const tab = e.target.closest(".mob-tab");
+  if (tab) mobSwitchPage(tab.dataset.mtab);
+});
+document.querySelector("#mob-back").onclick = () => mobShowHome();
+document.querySelector("#mob-theme").onclick = toggleTheme;
+document.querySelector("#mob-lang").onclick = toggleLang;
+document.querySelector("#mob-settings").onclick = openSettings;
+document.querySelector("#mob-github").onclick = () => openExternal("https://github.com/Jonnyan404/universal-shell");
+setupMobile();
+
 document.querySelector("#collapse-btn").onclick = () => {
   const root = document.documentElement;
   root.dataset.sidebar = root.dataset.sidebar === "narrow" ? "" : "narrow";
   document.querySelector("#collapse-btn").textContent = root.dataset.sidebar === "narrow" ? "»" : "«";
 };
+document.querySelector("#theme-btn").onclick = toggleTheme;
+document.querySelector("#lang-btn").onclick = toggleLang;
 document.querySelector("#log-center-link").onclick = () => openLogCenter();
 document.querySelector("#log-search").oninput = (e) => {
   logCenter.search = e.target.value;
@@ -2219,9 +2357,11 @@ async function boot() {
   programs = await invoke("get_programs");
   statuses = (await invoke("batch_status_local")) || [];
   renderSidebar();
+  if (isMobile()) renderMobCards();
   if (programs.length) {
     await switchCurrent(programs[0].id);
   }
+  if (isMobile()) mobShowHome();
 
   registries = await invoke("get_registries");
   registryUrl = registries[0] ?? "";

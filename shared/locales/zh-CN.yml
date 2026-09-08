@@ -33,6 +33,8 @@ ui.collapse: 收窄侧栏
 ui.expand: 展开侧栏
 ui.log: 日志中心
 ui.log_center: 日志中心
+ui.program: 程序
+ui.empty: 暂无程序
 lib.fullscreen: 全屏
 act.refresh: 刷新
 act.copy: 复制

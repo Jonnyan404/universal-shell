@@ -656,69 +656,94 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .ctx-menu .ctx-sep { height: 1px; margin: 4px 6px; background: var(--border); }
 .ctx-menu[hidden] { display: none; }
 
-/* ---------- 移动端响应式（F-3/F12）：手机浏览器可启停/查看 ---------- */
+/* ---------- 移动端独立展示（方案 B）：卡片流 + 底部 Tab + 二级页 ----------
+   桌面端默认隐藏这些层（通过 hidden 属性），窄屏才启用 */
+#mob-shell, #mob-backbar, #mob-tabbar { display: none; }
+#mob-shell[hidden], #mob-backbar[hidden], #mob-tabbar[hidden] { display: none; }
+
+/* ---------- 移动端响应式（F-12/G：手机浏览器独立展示方案） ---------- */
 @media (max-width: 720px) {
-  body { overflow: auto; }
-  .app { flex-direction: column; height: auto; min-height: 100vh; }
+  body { overflow-x: hidden; background: var(--bg); }
+  body.mob { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+  .app { flex-direction: column; height: 100vh; min-height: 0; }
 
-  /* 侧栏变顶部双行工具条：第一行图标+入口，第二行程序条横滚 */
-  .sidebar {
-    position: sticky; top: 0; z-index: 50;
-    width: 100%; min-width: 0; height: auto;
-    flex-direction: row; flex-wrap: wrap; align-items: center; row-gap: 6px; column-gap: 8px;
-    padding: 6px 10px;
-  }
-  .sidebar-head { flex-direction: row; padding: 0; gap: 5px; }
-  .theme-btn, .settings-btn, .lang-btn { width: 30px; height: 30px; }
-  #program-tabs, .program-list {
-    order: 3; flex: 1 1 100%; display: flex; overflow-x: auto; margin: 0; padding: 2px 0 0;
-  }
-  .prog-item { flex: none; padding: 6px 8px; margin-bottom: 0; }
-  .prog-item .sub, .prog-item .status-text { display: none; }
-  .sidebar-foot {
-    order: 2; flex: 1 1 auto; flex-direction: row; flex-wrap: wrap; align-items: center;
-    justify-content: flex-end; gap: 5px; margin-left: auto; padding: 0;
-  }
-  .manage-tools { gap: 4px; margin-bottom: 0; }
-  .sidebar-foot .sidebar-settings { padding: 8px 9px; line-height: 1; }
-  .sidebar-foot .app-btn-label { display: none; }
-  .sidebar-edge { display: none; }
-  /* 用户已收窄时同样强制顶部工具条布局 */
-  html[data-sidebar='narrow'] .sidebar,
-  html[data-sidebar='wide'] .sidebar {
-    width: 100%; min-width: 0; padding: 6px 10px; flex-direction: row; flex-wrap: wrap;
-  }
-  html[data-sidebar='narrow'] .sidebar-head { display: flex; flex-direction: row; padding: 0; gap: 5px; }
-  html[data-sidebar='narrow'] .prog-item { flex-direction: row; text-align: left; gap: 8px; }
-  html[data-sidebar='narrow'] .prog-item .info { display: flex; width: auto; text-align: inherit; }
-  html[data-sidebar='narrow'] .sidebar-foot { margin-left: auto; }
+  /* 桌面侧栏 / 收窄条 / 状态标题栏：移动端不再使用 */
+  .sidebar, .sidebar-edge, .statusbar { display: none !important; }
 
-  .main { height: auto; min-height: calc(100vh - 52px); }
-  .statusbar { padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); }
-  .manage-body { padding: 12px; }
-  .manage-log { height: 40vh; }
-  .field-row { flex-wrap: wrap; }
-  .field-label { width: 100%; text-align: left; }
+  /* 主区全屏铺开，桌面网格/表格保留但不撑破屏 */
+  .main { flex: 1; height: auto; min-width: 0; min-height: 0; overflow: hidden; }
+  .view { padding: 10px; }
+  .panel { padding: 12px; border-radius: 10px; }
 
-  .panel { padding: 12px; }
-  .batch-toolbar { flex-wrap: wrap; gap: 6px; }
-  .batch-btns { flex-wrap: wrap; gap: 6px; }
-  .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .batch-table { min-width: 620px; }
+  /* ----- 移动端：卡片流主页 ----- */
+  #mob-shell { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .mob-top {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 8px;
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  .mob-icobtn {
+    width: 40px; height: 40px; padding: 0; flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 17px; border-radius: 10px; border: 1px solid var(--border);
+    background: transparent; color: var(--text); cursor: pointer;
+  }
+  .mob-detail-title { font-size: 15px; font-weight: 600; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mob-cards { flex: 1 1 0; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 10px 12px; }
+  .mob-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 14px; margin-bottom: 10px; border-radius: 14px;
+    background: var(--panel); border: 1px solid var(--border);
+    cursor: pointer; touch-action: manipulation;
+  }
+  .mob-card:active { background: var(--panel-2); }
+  .mob-card-ico {
+    width: 42px; height: 42px; flex: 0 0 auto; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--sidebar-active); color: var(--accent);
+    font-size: 18px; font-weight: 700;
+  }
+  .mob-card-body { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .mob-card-name { font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mob-card-sub { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mob-card-dot { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 50%; background: var(--danger); }
+  .mob-card-dot.on { background: var(--ok); }
+  .mob-empty { justify-content: center; color: var(--muted); font-size: 13px; cursor: default; }
+
+  /* ----- 移动端：程序二级页（返回栏 + 复用 manage-view） ----- */
+  #mob-backbar { display: block; position: fixed; top: 0; left: 0; right: 0; z-index: 60; }
+  body.mob-detail #manage-view { display: flex; flex-direction: column; position: fixed; top: calc(52px + env(safe-area-inset-top, 0px)); left: 0; right: 0; bottom: 0; z-index: 50; padding: 0; }
+  body.mob-detail .manage-body { overflow-y: auto; }
+  body.mob-detail .manage-log { height: 38vh; }
+  body.mob-detail .manage-log-resize { display: none; }
+
+  /* ----- 移动端：底部 Tab 导航 ----- */
+  #mob-tabbar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--panel); border-top: 1px solid var(--border);
+  }
+  #mob-tabbar .mob-tab {
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 2px; border: none; background: transparent; color: var(--muted);
+    font-size: 11px; padding: 4px 0; cursor: pointer; touch-action: manipulation;
+  }
+  #mob-tabbar .mob-tab .mob-tab-ic { font-size: 19px; line-height: 1; }
+  #mob-tabbar .mob-tab.active { color: var(--accent); }
+  #mob-tabbar .mob-tab.active .mob-tab-ic { color: var(--accent); }
+
+  /* 批处理表格：面板内横向滚动查看，不撑破整页 */
+  #batch-view .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .batch-table { min-width: 560px; }
 
   /* 弹窗底下抽屉式，扩大操作区 */
   .modal { align-items: flex-end; }
   .modal-box { width: 100vw; max-height: 92vh; border-radius: 12px 12px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
-  .edit-row label { flex-basis: auto; text-align: left; min-width: 88px; }
+  .modal-box.wide { width: 100vw; }
   .edit-scroll { padding: 12px; }
-  .sett-token input { min-width: 0; }
 
-  button, .op-btn, .log-action, .sidebar-settings { touch-action: manipulation; }
-
-  /* 通用：内容视图统一减小内边距，一行排不下的行允许换行 */
-  .view { padding: 12px; }
-  .field-row, .term-bar, .log-toolbar, #lib-source-bar, #registry-bar,
-  .sources-add, .source-row, .sett-token, .sett-proxy-line, .lib-top { flex-wrap: wrap; }
+  button, .op-btn, .log-action { touch-action: manipulation; }
 
   /* iOS：输入框字号 ≥16px，避免聚焦时页面被强制放大 */
   .field-row input[type="text"], #field-form input,
@@ -727,31 +752,17 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   #lib-source-bar select, .sources-add input, .source-row input,
   .sett-proxy input, .edit-field-row input, .edit-field-row select { font-size: 16px; }
 
-  /* 程序管理：页面自然滚动，日志抽屉固定 40vh，禁用拖拽条 */
-  .manage-view { height: auto; overflow: visible; }
-  .manage-body { height: auto; overflow: visible; }
-  .manage-log-resize { display: none; }
-  .manage-log-head { flex-wrap: wrap; }
+  /* 通用：一行排不下的行允许换行 */
+  .field-row, .term-bar, .log-toolbar, #lib-source-bar, #registry-bar,
+  .sources-add, .source-row, .sett-token, .sett-proxy-line, .lib-top { flex-wrap: wrap; }
+  .field-label { width: 100%; text-align: left; }
 
-  /* 日志中心 / 模板库：显式高度，避免 flex 在自动高容器里塌成 0 */
-  #log-view, .log-panel, #library-view, #library-view .panel { height: 68vh; min-height: 300px; }
-  .log-search { flex: 1 1 120px; min-width: 120px; }
-
-  /* 操作区：按钮触控目标加大，图标按钮 38px；禁止撑出屏幕 */
+  /* 操作区：触控目标加大；禁止撑出屏幕 */
   #actions { gap: 8px; width: 100%; max-width: 100%; display: flex; flex-wrap: wrap; justify-content: center; }
   #actions .act-group { gap: 8px; }
   #actions .icon-btn { width: 38px; height: 38px; font-size: 17px; flex: 0 0 auto; }
   .manage-view, .manage-body, .view { min-width: 0; max-width: 100%; }
-  .batch-ops .icon-btn { width: 34px; height: 34px; }
   .dl-btn { padding: 8px 14px; font-size: 14px; }
-  .prog-item { padding: 8px 10px; }
 
-  /* 编辑字段五列网格：窄屏改两列流式 */
-  .edit-row { grid-template-columns: 1fr 1fr; }
-  .edit-row .req, #edit-field-body .edit-row .log-action { justify-self: start; }
-
-  /* 全屏卡片贴边、通知贴近顶部 */
-  .lib-card, .sources-edit { padding: 10px 12px; }
   #toast-container { top: 8px; right: 10px; left: 10px; max-width: none; }
-  .modal-box.wide { width: 100vw; }
 }

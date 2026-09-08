@@ -33,6 +33,8 @@ ui.collapse: Collapse sidebar
 ui.expand: Expand sidebar
 ui.log: Log Center
 ui.log_center: Log Center
+ui.program: Programs
+ui.empty: No programs
 lib.fullscreen: Fullscreen
 act.refresh: Refresh
 act.copy: Copy
