@@ -2246,6 +2246,15 @@ function mobGotoDetail(p) {
   el.mobDetailTitle.textContent = p?.name || "";
   document.body.classList.add("mob-detail");
   setMobTab("prog");
+  const log = el.manageLog;
+  if (log.dataset.open === "1") {
+    log.dataset.open = "0";
+    const tg = document.querySelector("#manage-log-toggle");
+    if (tg) {
+      tg.textContent = "▸";
+      tg.title = t("log.expand");
+    }
+  }
 }
 
 function mobShowHome() {
@@ -2584,6 +2593,7 @@ async function boot() {
 boot().catch((e) => {
   showNotice(String(e), true);
 });
+
 
 
 
