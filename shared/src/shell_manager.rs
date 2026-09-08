@@ -245,9 +245,13 @@ impl ShellManager {
     }
 
     /// 更新 Web 监听设置（不持久化；调用方负责 save_config）。
-    pub fn set_web_settings(&mut self, bind: &str, port: u16) {
+    /// token 为 None 时保持不变，Some("") 表示清空（局域网无密码访问）。
+    pub fn set_web_settings(&mut self, bind: &str, port: u16, token: Option<&str>) {
         self.web.bind = bind.trim().to_string();
         self.web.port = port;
+        if let Some(t) = token {
+            self.web.token = t.trim().to_string();
+        }
     }
 
     /// 程序专属数据目录(下载的二进制、版本、字段值、整包解压都归于此，与其它应用隔离)。

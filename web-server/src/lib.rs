@@ -6,6 +6,7 @@
 pub mod rpc;
 
 pub use rpc::enable_native_pick;
+pub use rpc::generate_token;
 
 rust_i18n::i18n!("../shared/locales");
 

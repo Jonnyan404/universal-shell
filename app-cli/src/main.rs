@@ -5,10 +5,13 @@
 //! cargo run -p app-cli --release
 //! us-web --config /path/shell.json
 //! us-web --bind 0.0.0.0 --port 45990
+//! us-web --bind 0.0.0.0 --port 45990 --token MyPassword123
 //! ```
 //!
 //! 默认读取配置里的 bind/port（端口 0 = 自动高位随机）；命令行参数优先。
-//! 非 loopback 绑定会打印 `?token=` 访问链接（F6 鉴权）。
+//! --bind 非 loopback（如 0.0.0.0）即开启局域网访问；
+//! --token 设置访问密码（自定义，持久化到 shell.json）；传空字符串 "" 则自动重设新随机密码。
+//! 不带 --token 时沿用配置里的令牌（首次启动自动随机生成）。
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,18 +27,22 @@ fn main() -> anyhow::Result<()> {
     let mut config_arg: Option<PathBuf> = None;
     let mut bind_arg: Option<String> = None;
     let mut port_arg: Option<u16> = None;
+    let mut token_arg: Option<String> = None;
     let mut cursor = std::env::args().skip(1);
     while let Some(a) = cursor.next() {
         match a.as_str() {
             "--config" | "-c" => config_arg = cursor.next().map(PathBuf::from),
             "--bind" => bind_arg = cursor.next(),
             "--port" | "-p" => port_arg = cursor.next().and_then(|s| s.parse().ok()),
+            "--token" => token_arg = cursor.next(),
             "--help" | "-h" => {
                 println!(
                     "us-web — Universal Shell headless server\n\
                      \n\
-                     Usage: us-web [--config <path>] [--bind <ip>] [--port <n>]\n\
+                     Usage: us-web [--config <path>] [--bind <ip>] [--port <n>] [--token <password>]\n\
                      \n\
+                     --bind 0.0.0.0 开启局域网访问（默认回环 127.0.0.1）\n\
+                     --token 设置访问密码并持久化；空串 \"\" 自动重设新随机密码\n\
                      Defaults come from shell.json `web` settings\n\
                      (loopback bind, auto port). Ctrl-C to stop."
                 );
@@ -58,6 +65,20 @@ fn main() -> anyhow::Result<()> {
     }
     log::info!("data_dir={}", data_dir.display());
     log::info!("config={}", config_path.display());
+
+    // 自定义密码：--token 有则设置并持久化（空串 = 自动重设新随机密码；覆盖命令行与配置）
+    if let Some(token) = token_arg.clone() {
+        let bind_keep = manager.web_settings().bind.clone();
+        let port_keep = manager.web_settings().port;
+        let effective = if token.trim().is_empty() {
+            web_server::generate_token()
+        } else {
+            token.trim().to_string()
+        };
+        manager.set_web_settings(&bind_keep, port_keep, Some(&effective));
+        manager.save_config(&config_path).expect("save config");
+        log::info!("web token updated: {}", if effective.is_empty() { "(cleared)" } else { "set" });
+    }
 
     let (bind, port) = {
         let w = manager.web_settings();

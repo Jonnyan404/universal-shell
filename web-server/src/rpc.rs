@@ -1055,8 +1055,14 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         "set_web_settings" => {
             let bind = arg_str(args, "bind");
             let port = args.get("port").and_then(|v| v.as_u64()).unwrap_or(0).min(65535) as u16;
+            // 自定义密码：args.token 提供则覆盖；空串表示自动生成新随机令牌；
+            // 缺省则保持原值
+            let token = match args.get("token") {
+                Some(v) => v.as_str().map(|s| if s.trim().is_empty() { generate_token() } else { s.trim().to_string() }),
+                None => None,
+            };
             let mut mgr = state.manager.lock().unwrap();
-            mgr.set_web_settings(&bind, port);
+            mgr.set_web_settings(&bind, port, token.as_deref());
             mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
             let bind_show = if bind.is_empty() { "127.0.0.1".to_string() } else { bind };
             mgr.log_op(&t!("op.web_update", bind = bind_show, port = port.to_string()));
@@ -1073,6 +1079,20 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 dialog = dialog.set_directory(cwd);
             }
             let picked = dialog.pick_file();
+            let path = picked.map(|p| p.to_string_lossy().to_string());
+            Ok(json!({ "supported": true, "path": path }))
+        }
+
+        // 原生目录选择：供 file/directory 类型字段选择工作目录/数据目录
+        "pick_directory" => {
+            if !NATIVE_PICK.load(Ordering::Relaxed) {
+                return Ok(json!({ "supported": false }));
+            }
+            let mut dialog = rfd::FileDialog::new().set_title(t!("dlg.pick_directory").into_owned());
+            if let Ok(cwd) = std::env::current_dir() {
+                dialog = dialog.set_directory(cwd);
+            }
+            let picked = dialog.pick_folder();
             let path = picked.map(|p| p.to_string_lossy().to_string());
             Ok(json!({ "supported": true, "path": path }))
         }

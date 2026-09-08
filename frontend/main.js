@@ -443,6 +443,26 @@ function renderForm() {
         scheduleAutosave();
       });
       row.appendChild(input);
+      // 文件/目录类型：显示「浏览」按钮，走宿主机原生选择器（本机窗口可用）
+      if ((f.kind === "file" || f.kind === "directory") && globalThis.haveNativePick) {
+        const br = document.createElement("button");
+        br.type = "button";
+        br.className = "op-btn";
+        br.textContent = t("act.browse");
+        br.onclick = async () => {
+          try {
+            const r = await invoke(f.kind === "file" ? "pick_file" : "pick_directory");
+            if (r.supported && r.path) {
+              values[f.key] = r.path;
+              input.value = r.path;
+              scheduleAutosave();
+            }
+          } catch (e) {
+            showNotice(String(e), true);
+          }
+        };
+        row.appendChild(br);
+      }
     }
     el.form.appendChild(row);
   }
@@ -1580,6 +1600,7 @@ async function saveSettings() {
   const shellAuto = document.querySelector("#sett-shell-auto").checked;
   const webPort = Number(document.querySelector("#sett-web-port").value) || 0;
   const webBind = document.querySelector("#sett-lan").checked ? "0.0.0.0" : "";
+  const webToken = document.querySelector("#sett-token").value.trim();
   try {
     await invoke("set_proxy", { acceleratePrefix: acc, httpProxy: hp });
     try {
@@ -1588,7 +1609,7 @@ async function saveSettings() {
       showNotice(t("toast.shell_autostart_fail", { err: e }), true);
     }
     try {
-      await invoke("set_web_settings", { bind: webBind, port: webPort });
+      await invoke("set_web_settings", { bind: webBind, port: webPort, token: webToken });
     } catch (e) {
       showNotice(String(e), true);
     }
@@ -2022,7 +2043,31 @@ function renderFieldRows() {
       editing.fields.splice(i, 1);
       renderFieldRows();
     };
-    row.append(k, lab, kind, def, ph, req, del);
+    // 文件/目录类型：默认值旁提供「浏览」按钮
+    let browse = null;
+    if ((f.kind === "file" || f.kind === "directory") && globalThis.haveNativePick) {
+      browse = document.createElement("button");
+      browse.type = "button";
+      browse.className = "op-btn";
+      browse.textContent = t("act.browse");
+      browse.onclick = async () => {
+        try {
+          const r = await invoke(f.kind === "file" ? "pick_file" : "pick_directory");
+          if (r.supported && r.path) {
+            editing.fields[i].default = r.path;
+            def.value = r.path;
+          }
+        } catch (e) {
+          showNotice(String(e), true);
+        }
+      };
+    }
+    const wrap = document.createElement("div");
+    wrap.className = "edit-row-fields";
+    row.append(k, lab, kind, wrap);
+    wrap.append(def, ph, req);
+    if (browse) wrap.appendChild(browse);
+    wrap.appendChild(del);
     body.appendChild(row);
   });
 }
@@ -2440,6 +2485,9 @@ globalThis.canUpload = true;
   } catch {}
   browseBtn.hidden = !globalThis.haveNativePick;
   uploadBtn.hidden = !globalThis.canUpload;
+  // 能力异步到达后，重绘当前表单/字段行，让文件/目录字段补上「浏览」按钮
+  if (current) renderForm();
+  if (document.querySelector("#edit-field-body").childElementCount) renderFieldRows();
 })();
 browseBtn.onclick = async () => {
   try {
@@ -2525,6 +2573,14 @@ document.querySelector("#sett-token-copy").onclick = () => {
   inp.select();
   inp.setSelectionRange(0, 99999);
   navigator.clipboard.writeText(inp.value).then(() => showNotice(t("toast.copied"))).catch(() => {});
+};
+
+// 随机重设访问令牌：生成本地 24 字节随机串并填充输入框（保存时经 set_web_settings 持久化）
+document.querySelector("#sett-token-regen").onclick = () => {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  document.querySelector("#sett-token").value = hex;
 };
 
 // 模板库
