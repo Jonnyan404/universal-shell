@@ -31,7 +31,8 @@ ui.shell_log_short: Shell log
 ui.github: GitHub
 ui.collapse: Collapse sidebar
 ui.expand: Expand sidebar
-ui.log: Log
+ui.log: Log Center
+ui.log_center: Log Center
 lib.fullscreen: Fullscreen
 act.refresh: Refresh
 act.copy: Copy
@@ -274,6 +275,11 @@ lib.local_program: 'Local program'
 lib.last_pull: 'Last pulled %{date}'
 lib.not_pulled: not pulled yet
 shell_log.empty: (No shell operation logs yet)
+log.clear: Clear
+log.copy: Copy
+log.follow: Follow
+log.search_ph: 'Search…'
+log.shell_title: Shell operation log
 eg.no_program: 'No managed programs configured. Start with `universal-shell-egui <shell.json>` or import from the template library.'
 eg.search: 'Search:'
 eg.loaded_offline: 'Loaded (%{n} sources, with offline fallback)'

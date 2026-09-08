@@ -31,7 +31,8 @@ ui.shell_log_short: 壳日志
 ui.github: GitHub
 ui.collapse: 收窄侧栏
 ui.expand: 展开侧栏
-ui.log: 日志
+ui.log: 日志中心
+ui.log_center: 日志中心
 lib.fullscreen: 全屏
 act.refresh: 刷新
 act.copy: 复制
@@ -274,6 +275,11 @@ lib.local_program: '本地程序'
 lib.last_pull: '上次拉取 %{date}'
 lib.not_pulled: 尚未拉取
 shell_log.empty: (暂无壳操作日志)
+log.clear: 清空
+log.copy: 复制
+log.follow: 跟随
+log.search_ph: 搜索…
+log.shell_title: 壳操作日志
 eg.no_program: '未配置任何受管程序。请以 `universal-shell-egui <shell.json>` 启动，或在「模板库」导入。'
 eg.search: '搜索:'
 eg.loaded_offline: '加载完成（%{n} 个源，含离线回退）'

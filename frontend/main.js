@@ -47,6 +47,10 @@ const el = {
   libSearch: document.querySelector("#lib-search"),
   libList: document.querySelector("#lib-list"),
   libPager: document.querySelector("#lib-pager"),
+  logView: document.querySelector("#log-view"),
+  logSources: document.querySelector("#log-sources"),
+  logContent: document.querySelector("#log-content"),
+  logClearSrcBtn: document.querySelector("#log-clear-src"),
 };
 
 // ---------- 国际化 ----------
@@ -239,6 +243,7 @@ function switchView(v) {
   el.manageView.hidden = v !== "manage";
   el.batchView.hidden = v !== "batch";
   el.libraryView.hidden = v !== "library";
+  el.logView.hidden = v !== "log";
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) dlBtn.hidden = v !== "manage";
   if (v === "manage") {
@@ -248,17 +253,21 @@ function switchView(v) {
     }
     el.progDesc.hidden = true;
   } else {
-    el.progTitle.textContent = v === "batch" ? t("batch.title") : t("lib.title");
+    el.progTitle.textContent = v === "batch" ? t("batch.title") : v === "log" ? t("ui.log") : t("lib.title");
     el.progSub.innerHTML = "";
     el.progDesc.hidden = true;
     el.chips.innerHTML = "";
     if (v === "batch") refreshBatchLocal();
-    else {
+    else if (v === "library") {
       if (!manifest) ensureLibraryFromCache();
       else renderLibrary();
     }
   }
+  if (v !== "log") stopLogCenterTailing();
   renderSidebar();
+  document.querySelectorAll(".sidebar-foot .sidebar-settings").forEach((b) => {
+    b.classList.toggle("active", b.id === (v === "batch" ? "batch-link" : v === "library" ? "library-link" : v === "log" ? "log-center-link" : ""));
+  });
 }
 
 async function switchCurrent(id) {
@@ -1480,32 +1489,117 @@ async function refreshManageLog() {
   }
 }
 
-// ---------- 壳日志 ----------
-function openShellLog() {
-  const modal = document.querySelector("#shell-log-modal");
-  modal.hidden = false;
-  const content = document.querySelector("#shell-log-content");
-  const refresh = async () => {
+// ---------- 日志中心 ----------
+let logCenter = { kind: "shell", id: "", text: "", search: "", follow: true };
+let logCenterTimer = null;
+let logCenterOffsets = {};
+
+function switchLogCenterView() {
+  switchView("log");
+  const fb = document.querySelector("#log-follow");
+  fb.textContent = t("log.follow") + (logCenter.follow ? " ✓" : "");
+  renderLogSources();
+  loadLogSource(logCenter.kind, logCenter.id, true);
+  startLogCenterTailing();
+}
+
+function openLogCenter() {
+  switchLogCenterView();
+}
+
+function stopLogCenterTailing() {
+  if (logCenterTimer) {
+    clearInterval(logCenterTimer);
+    logCenterTimer = null;
+  }
+}
+
+function startLogCenterTailing() {
+  stopLogCenterTailing();
+  if (view !== "log" || !logCenter.follow) return;
+  logCenterTimer = setInterval(async () => {
     try {
-      const text = await invoke("get_shell_log");
-      renderLogBody(content, text);
-    } catch (e) {
-      showNotice(String(e), true);
-    }
+      await loadLogSource(logCenter.kind, logCenter.id, false);
+    } catch {}
+  }, 2000);
+}
+
+function renderLogSources() {
+  const box = el.logSources;
+  box.innerHTML = "";
+  const mk = (kind, id, label, running) => {
+    const b = document.createElement("button");
+    b.className = "log-src" + (logCenter.kind === kind && logCenter.id === id ? " active" : "");
+    const dot = document.createElement("span");
+    dot.className = "src-dot" + (running ? " on" : "");
+    b.appendChild(dot);
+    b.appendChild(document.createTextNode(label));
+    b.onclick = () => {
+      logCenter.kind = kind;
+      logCenter.id = id;
+      renderLogSources();
+      loadLogSource(kind, id, true);
+    };
+    box.appendChild(b);
   };
-  refresh();
-  modal.querySelector("#shell-log-refresh").onclick = refresh;
-  modal.querySelector("#shell-log-clear").onclick = async () => {
+  mk("shell", "", t("log.shell_title"), false);
+  for (const s of statuses) {
+    if (!s.status.installed) continue;
+    mk("program", s.id, s.name, !!s.status.running);
+  }
+}
+
+async function loadLogSource(kind, id, reset) {
+  let text = "";
+  if (kind === "shell") {
+    text = await invoke("get_shell_log");
+    if (reset || !logCenterOffsets.shell) logCenterOffsets.shell = 0;
+    logCenter.text = text;
+  } else {
     try {
-      await invoke("clear_shell_log");
-      content.innerHTML = "";
-    } catch (e) {
-      showNotice(String(e), true);
+      const args = { programId: id };
+      if (!reset && logCenterOffsets[id] != null) args.offset = logCenterOffsets[id];
+      const res = await invoke("get_logs", args);
+      if (reset || res.reset) logCenter.text = res.text;
+      else logCenter.text += res.text;
+      logCenterOffsets[id] = res.offset;
+    } catch {
+      if (reset) logCenter.text = t("shell_log.empty");
     }
-  };
-  modal.querySelector("#shell-log-modal-close").onclick = () => {
-    modal.hidden = true;
-  };
+  }
+  logCenter.kind = kind;
+  logCenter.id = id;
+  el.logClearSrcBtn.hidden = kind !== "shell";
+  renderLogContent();
+}
+
+function renderLogContent() {
+  const q = logCenter.search.trim().toLowerCase();
+  const container = el.logContent;
+  const wasAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 80;
+  container.innerHTML = "";
+  let matched = 0;
+  const text = logCenter.text || "";
+  const follow = container.scrollTop + container.clientHeight >= container.scrollHeight - 80;
+  const frag = document.createDocumentFragment();
+  for (const rawLine of text.replace(/\r\n?/g, "\n").split("\n")) {
+    const isErr = rawLine.startsWith("\u001f");
+    const line = isErr ? rawLine.slice(1) : rawLine;
+    if (q && !line.toLowerCase().includes(q)) continue;
+    matched++;
+    const div = document.createElement("div");
+    div.className = isErr ? "log-err" : "";
+    div.textContent = line;
+    frag.appendChild(div);
+  }
+  if (!q && !matched) {
+    const empty = document.createElement("div");
+    empty.className = "log-muted";
+    empty.textContent = t("shell_log.empty");
+    frag.appendChild(empty);
+  }
+  container.appendChild(frag);
+  if (logCenter.follow && wasAtBottom) container.scrollTop = container.scrollHeight;
 }
 
 // ---------- 周期轮询：全部程序状态（对齐桌面端最近修复的全局刷新） ----------
@@ -1523,6 +1617,7 @@ async function refreshAllStatuses() {
   statuses = all;
   if (changed || !statuses.length) {
     renderSidebar();
+    if (view === "log") renderLogSources();
     if (current) {
       const st = all.find((s) => s.id === current.id)?.status;
       if (st) applyStatus(st);
@@ -1849,7 +1944,35 @@ document.querySelector("#collapse-btn").onclick = () => {
   root.dataset.sidebar = root.dataset.sidebar === "narrow" ? "" : "narrow";
   document.querySelector("#collapse-btn").textContent = root.dataset.sidebar === "narrow" ? "»" : "«";
 };
-document.querySelector("#shell-log-link").onclick = openShellLog;
+document.querySelector("#log-center-link").onclick = () => openLogCenter();
+document.querySelector("#log-search").oninput = (e) => {
+  logCenter.search = e.target.value;
+  renderLogContent();
+};
+document.querySelector("#log-follow").onclick = () => {
+  logCenter.follow = !logCenter.follow;
+  const b = document.querySelector("#log-follow");
+  b.textContent = t("log.follow") + (logCenter.follow ? " ✓" : "");
+  if (logCenter.follow) startLogCenterTailing();
+  else stopLogCenterTailing();
+};
+document.querySelector("#log-copy").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(logCenter.text || "");
+    showNotice(t("toast.addr_copied"));
+  } catch {
+    showNotice(t("toast.copy_fail"), true);
+  }
+};
+document.querySelector("#log-clear-src").onclick = async () => {
+  try {
+    await invoke("clear_shell_log");
+    logCenter.text = "";
+    renderLogContent();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+};
 document.querySelector("#manage-log-copy").onclick = () => {
   navigator.clipboard.writeText(el.manageLogContent.textContent).catch(() => {});
 };

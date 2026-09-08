@@ -119,6 +119,7 @@ nav#program-tabs.room-list { flex: 1; overflow-y: auto; margin: 4px -6px; paddin
   color: var(--sidebar-fg); font-size: 12px; cursor: pointer; text-align: center;
 }
 .sidebar-settings:hover { background: var(--sidebar-active); border-color: var(--sidebar-active-border); color: var(--sidebar-head); }
+.sidebar-settings.active { background: var(--sidebar-active); border-color: var(--sidebar-active-border); color: var(--sidebar-head); }
 .sidebar-foot { font-size: 10px; color: var(--sidebar-sub); padding: 8px 6px 0; }
 .app-btn-label { white-space: nowrap; }
 .manage-tools { display: flex; gap: 4px; margin-bottom: 6px; }
@@ -305,6 +306,28 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .term-modal .log-refresh { font-size: 12px; padding: 3px 10px; border-radius: 6px; margin-left: 0; }
 .term-modal .term-body { font-size: 13px; }
 
+/* ---------- 日志中心 ---------- */
+#log-view { display: flex; flex-direction: column; min-height: 0; padding: 12px; overflow: hidden; }
+.log-panel { flex: 1 1 0; display: flex; flex-direction: column; min-height: 0; padding: 12px; }
+.log-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex: 0 0 auto; }
+.log-tabs { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.log-tabs .log-src {
+  display: inline-flex; align-items: center; padding: 5px 10px; border-radius: 8px; font-size: 12px;
+  background: var(--panel-2); border: 1px solid transparent; color: var(--muted);
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.log-tabs .log-src:hover { color: var(--text); border-color: var(--border); }
+.log-tabs .log-src.active { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.log-tabs .log-src .src-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--muted); }
+.log-tabs .log-src .src-dot.on { background: var(--ok); }
+.log-search {
+  width: 220px; padding: 5px 10px; border-radius: 6px;
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  font-size: 12px;
+}
+.log-content { flex: 1 1 0; min-height: 0; }
+.log-muted { color: var(--muted); font-style: italic; }
+
 /* ---------- 批量管理 ---------- */
 .panel {
   background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
@@ -473,20 +496,9 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .tmpl-diff-code details summary::before { content: '▸ '; }
 .tmpl-diff-code details[open] summary::before { content: '▾ '; }
 
-/* 壳操作日志弹窗 */
-.shell-log-box { width: min(880px, 96vw); height: min(70vh, 560px); }
-.shell-log-hint { font-weight: 400; color: var(--muted); font-size: 12px; }
-.shell-log-head-actions { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; }
-.shell-log-confirm { display: inline-block; }
-.shell-log-content {
-  flex: 1; margin: 0; padding: 12px 16px; overflow: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
-  line-height: 1.6; color: var(--text); background: var(--bg); white-space: pre-wrap; word-break: break-word;
-}
-#shell-log-link { width: 100%; justify-content: flex-start; }
+#log-center-link { width: 100%; justify-content: flex-start; }
 .sidebar-foot { display: flex; flex-direction: column; gap: 4px; }
 
-.log-refresh { margin-left: auto; font-size: 13px; }
 .mono {
   flex: 1; overflow: auto; margin: 0; padding: 12px 16px; white-space: pre-wrap;
   word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

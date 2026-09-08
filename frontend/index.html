@@ -19,7 +19,7 @@
       <div class="sidebar-foot">
         <button id="batch-link" class="sidebar-settings" data-i18n-title="ui.batch">☰ <span class="app-btn-label" data-i18n="ui.batch">批量管理</span></button>
         <button id="library-link" class="sidebar-settings" data-i18n-title="ui.library">▤ <span class="app-btn-label" data-i18n="ui.library">模板库</span></button>
-        <button id="shell-log-link" class="sidebar-settings" data-i18n-title="ui.shell_log">🗒 <span class="app-btn-label" data-i18n="ui.shell_log_short">壳日志</span></button>
+        <button id="log-center-link" class="sidebar-settings" data-i18n-title="ui.log_center">📜 <span class="app-btn-label" data-i18n="ui.log_center">日志中心</span></button>
       </div>
     </aside>
     <div class="sidebar-edge"><button id="collapse-btn" class="edge" data-i18n-title="ui.collapse">«</button></div>
@@ -101,21 +101,22 @@
           <div id="lib-pager"></div>
         </div>
       </section>
-    </main>
-  </div>
 
-  <!-- 模态：壳操作日志 -->
-  <div id="shell-log-modal" class="modal" hidden>
-    <div class="modal-box shell-log-box">
-      <div class="modal-head">
-        <span data-i18n="shell_log.title">壳操作日志</span>
-        <span class="spacer"></span>
-        <button id="shell-log-refresh" class="log-action" data-i18n-title="act.refresh">⟳</button>
-        <button id="shell-log-clear" class="log-action" data-i18n-title="act.clear">×</button>
-        <button id="shell-log-modal-close" class="modal-close" data-i18n-title="act.close">✕</button>
-      </div>
-      <pre id="shell-log-content" class="term-body shell-log-content"></pre>
-    </div>
+      <!-- 日志中心 -->
+      <section id="log-view" class="view log-view" hidden>
+        <div class="panel log-panel">
+          <div class="log-toolbar">
+            <div id="log-sources" class="log-tabs"></div>
+            <span class="spacer"></span>
+            <input id="log-search" type="search" class="log-search" data-i18n-placeholder="log.search_ph" placeholder="搜索…" />
+            <button id="log-follow" class="op-btn" data-i18n="log.follow">跟随</button>
+            <button id="log-copy" class="op-btn" data-i18n="log.copy">复制</button>
+            <button id="log-clear-src" class="op-btn op-danger" hidden data-i18n="log.clear">清空</button>
+          </div>
+          <pre id="log-content" class="term-body log-content"></pre>
+        </div>
+      </section>
+    </main>
   </div>
 
   <!-- 模态：程序编辑 -->
