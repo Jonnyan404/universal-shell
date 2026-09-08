@@ -653,6 +653,11 @@ impl ShellManager {
         self.runner.is_running(id)
     }
 
+    /// 清扫已退出的子进程并返回 id 列表（F-3/F10：事件推送前端，供 watcher 定时调用）。
+    pub fn sweep_exited_programs(&mut self) -> Vec<String> {
+        self.runner.sweep_exited()
+    }
+
     /// 该程序是否在运行：壳持有子进程句柄，或系统上仍有该程序的进程
     /// （壳上次退出后残留、仍在后台运行）。避免只查句柄而漏判孤儿进程。
     /// 注意：含 pgrep/tasklist 派生，禁止在 UI 渲染路径逐帧调用。
@@ -729,14 +734,19 @@ impl ShellManager {
             PathBuf::from(&program.working_dir)
         };
         self.runner
-            .start_async(&program.id, &bin, &args, &env, &wd, &self.log_dir())
+            .start_async(&program.id, &bin, &args, &env, &wd, &self.log_dir())?;
+        crate::events::emit(crate::events::Event::ProgramStarted(program.id.clone()));
+        Ok(())
     }
 
     pub fn stop(&mut self, id: &str) -> anyhow::Result<()> {
         // 优先停掉壳持有的子进程句柄；若壳无句柄（如上次退出后该程序仍在后台
         // 运行），则按可执行文件路径杀掉残留进程，确保能真正停掉、可再重启。
         match self.runner.stop(id) {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                crate::events::emit(crate::events::Event::ProgramStopped(id.to_string()));
+                return Ok(());
+            }
             Err(e1) => {
                 let bin = self
                     .all_programs()
@@ -746,6 +756,7 @@ impl ShellManager {
                 if let Some(bin) = bin {
                     if self.runner.kill_orphan_by_path(&bin) {
                         log::info!("{}", t!("log.stale_killed", id = id));
+                        crate::events::emit(crate::events::Event::ProgramStopped(id.to_string()));
                         return Ok(());
                     }
                 }

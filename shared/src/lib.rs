@@ -7,6 +7,7 @@ pub mod builtin;
 pub mod checksum;
 pub mod config;
 pub mod diff;
+pub mod events;
 pub mod extract;
 pub mod github;
 pub mod locale;

@@ -512,6 +512,11 @@ function connectWS() {
     try {
       const m = JSON.parse(e.data);
       if (m && m.type === "install-progress") handleInstallProgress(m);
+      else if (m && m.type === "status-change") {
+        // F-3/F10：进程状态由服务端推送（无需轮询）；只刷新本地状态，不发网络请求
+        refreshAllStatuses();
+        if (current) refreshManageLog();
+      }
     } catch {}
   };
   ws.onclose = () => setTimeout(connectWS, 2000);
@@ -1785,7 +1790,8 @@ async function boot() {
   checkShellUpdate(false);
   connectWS();
 
-  setInterval(refreshAllStatuses, 3000);
+  // F-3/F10：运行状态改由 WS 事件推送；此处仅作 WS 断线兜底
+  setInterval(refreshAllStatuses, 15000);
   setInterval(() => {
     if (current) refreshManageLog();
   }, 3000);

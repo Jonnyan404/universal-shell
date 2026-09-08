@@ -121,6 +121,59 @@ pub fn start_with_state(
                 let addr: SocketAddr = listener.local_addr().map_err(anyhow::Error::from).expect("local_addr");
                 let _ = port_tx.send(Ok(addr.port()));
 
+                // F-3(F10)：状态事件 → WS 推送（替换浏览器轮询）。
+                //   - sweep 线程：定期清扫已退出的子进程（外部 kill / 崩溃），emit 到 shared 事件总线；
+                //   - 转发线程：订阅事件总线，翻译成 WS JSON 广播。
+                // 共用 stop 标志，服务停止即退出，避免每次开关启动时泄漏线程。
+                let sweep_stop = stop.clone();
+                let sweep_state = state.clone();
+                std::thread::Builder::new()
+                    .name("us-sweep".to_string())
+                    .spawn(move || {
+                        while !sweep_stop.load(Ordering::SeqCst) {
+                            let exited = {
+                                let mut mgr = sweep_state.manager.lock().unwrap();
+                                mgr.sweep_exited_programs()
+                            };
+                            for id in exited {
+                                shared::events::emit(shared::events::Event::ProgramStopped(id));
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                        }
+                    })
+                    .expect("spawn us-sweep");
+                let fwd_stop = stop.clone();
+                let fwd_state = state.clone();
+                std::thread::Builder::new()
+                    .name("us-events".to_string())
+                    .spawn(move || {
+                        let rx = shared::events::subscribe();
+                        loop {
+                            match rx.recv_timeout(std::time::Duration::from_millis(300)) {
+                                Ok(ev) => {
+                                    let (id, running) = match ev {
+                                        shared::events::Event::ProgramStarted(id) => (id, true),
+                                        shared::events::Event::ProgramStopped(id) => (id, false),
+                                    };
+                                    let msg = serde_json::json!({
+                                        "type": "status-change",
+                                        "programId": id,
+                                        "running": running,
+                                    })
+                                    .to_string();
+                                    let _ = fwd_state.events.send(msg);
+                                }
+                                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                                Err(mpsc::RecvTimeoutError::Timeout) => {
+                                    if fwd_stop.load(Ordering::SeqCst) {
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .expect("spawn us-events");
+
                 let app = Router::new()
                     .route("/", get(index))
                     .route("/styles.css", get(styles))

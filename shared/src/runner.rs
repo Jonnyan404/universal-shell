@@ -118,6 +118,19 @@ impl Runner {
         }
     }
 
+    /// 清扫已退出的子进程（外部 kill / 自然退出 / 崩溃），返回 id 列表并移除句柄。
+    /// F-3(F10)：事件推送的前端，web-server 后台 watcher 定时调用。
+    pub fn sweep_exited(&mut self) -> Vec<String> {
+        let ids: Vec<String> = self.children.keys().cloned().collect();
+        let mut exited = Vec::new();
+        for id in ids {
+            if !self.is_running(&id) {
+                exited.push(id);
+            }
+        }
+        exited
+    }
+
     /// 按可执行文件路径查找系统上匹配的进程 PID。
     /// 壳重启后子进程句柄丢失，用路径探测残留进程以恢复运行态。
     #[cfg(any(target_os = "macos", target_os = "linux"))]
