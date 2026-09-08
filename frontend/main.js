@@ -1039,9 +1039,7 @@ function renderBatchMobile() {
         showNotice(box.checked ? t("toast.hidden", { name: item.name }) : t("toast.unhidden", { name: item.name }));
         programs = await invoke("get_programs");
         if (item.id === current?.id && box.checked) current = null;
-        if (!current) current = programs.find((p) => !p.hidden) || null;
         await refreshBatchLocal();
-        if (current) await switchCurrent(current.id);
       } catch (e) {
         box.checked = !box.checked;
         showNotice(String(e), true);
@@ -2226,7 +2224,7 @@ function renderMobCards() {
     body.append(nm, st);
     const dot = document.createElement("span");
     dot.className = "mob-card-dot" + (s.status.running ? " on" : "");
-    card.append(ico, dot, body);
+    card.append(dot, ico, body);
     card.onclick = () => {
       switchCurrent(s.id);
       mobGotoDetail(p);
@@ -2586,5 +2584,6 @@ async function boot() {
 boot().catch((e) => {
   showNotice(String(e), true);
 });
+
 
 
