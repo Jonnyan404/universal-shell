@@ -39,6 +39,8 @@ const el = {
   batchView: document.querySelector("#batch-view"),
   libraryView: document.querySelector("#library-view"),
   batchBody: document.querySelector("#batch-body"),
+  batchTable: document.querySelector(".batch-table"),
+  batchCards: document.querySelector("#batch-cards"),
   batchCheckedAt: document.querySelector("#batch-checked-at"),
   libSourceBar: document.querySelector("#lib-source-bar"),
   libFetchInfo: document.querySelector("#lib-fetch-info"),
@@ -740,7 +742,6 @@ async function checkUpdates() {
 }
 
 function renderBatch() {
-  el.batchBody.innerHTML = "";
   const checkedAt = statuses.reduce((m, it) => {
     const t0 = it.status?.latest_checked_at;
     return t0 && t0 > m ? t0 : m;
@@ -748,6 +749,13 @@ function renderBatch() {
   el.batchCheckedAt.textContent = checkedAt
     ? t("check.last_checked", { ago: timeAgo(checkedAt) })
     : t("check.not_checked");
+
+  const mobile = isMobile();
+  el.batchTable.hidden = mobile;
+  el.batchCards.hidden = !mobile;
+  if (mobile) { renderBatchMobile(); return; }
+
+  el.batchBody.innerHTML = "";
   if (!statuses.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
@@ -822,59 +830,7 @@ function renderBatch() {
     tr.appendChild(tdHide);
     el.batchBody.appendChild(tr);
 
-    const ops = document.createElement("span");
-    ops.className = "batch-ops";
-    const hasRemote = !!(item.repo || statusSource(item.id));
-    const mkIcon = (ico, titleKey, cls, fn) => {
-      const b = document.createElement("button");
-      b.className = "icon-btn" + (cls ? " " + cls : "");
-      b.title = t(titleKey);
-      b.textContent = ico;
-      b.onclick = fn;
-      return b;
-    };
-    if (hasRemote) {
-      const isUpToDate = s.installed && s.up_to_date;
-      const dl = document.createElement("button");
-      dl.className = "icon-btn" + (isUpToDate ? " ops-ok" : " ops-dl");
-      dl.dataset.programId = item.id;
-      dl.dataset.installed = s.installed ? "1" : "0";
-      dl.title = isUpToDate ? t("st.latest") : s.installed ? t("dl.update") : t("dl.download");
-      dl.textContent = isUpToDate ? "✓" : "⇩";
-      dl.disabled = isUpToDate;
-      dl.onclick = () => installProgram(item.id, dl);
-      ops.appendChild(dl);
-    }
-    ops.appendChild(mkIcon("▶", "act.start", "ops-start", async () => {
-      try {
-        const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
-        await invoke("start_program", { programId: item.id, values: vals });
-        await refreshBatchLocal();
-      } catch (e) { showNotice(String(e), true); }
-    }));
-    ops.appendChild(mkIcon("↻", "act.restart", "ops-restart", async () => {
-      try {
-        const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
-        await invoke("restart_program", { programId: item.id, values: vals });
-        await refreshBatchLocal();
-      } catch (e) { showNotice(String(e), true); }
-    }));
-    ops.appendChild(mkIcon("■", "act.stop", "ops-stop", async () => {
-      try { await invoke("stop_program", { programId: item.id }); await refreshBatchLocal(); }
-      catch (e) { showNotice(String(e), true); }
-    }));
-    ops.appendChild(mkIcon("🗒", "act.log", "ops-log", async () => {
-      await switchCurrent(item.id);
-      refreshManageLog();
-    }));
-    if (item.repo) {
-      ops.appendChild(mkIcon("📁", "act.open_app_dir", "ops-dir", async () => {
-        try { await invoke("reveal_app_dir", { programId: item.id }); }
-        catch (e) { showNotice(String(e), true); }
-      }));
-    }
-    ops.appendChild(mkIcon("✎", "act.edit", "ops-edit", () => openEditModal(programs.find((x) => x.id === item.id))));
-    ops.appendChild(mkIcon("🗑", "act.delete", "ops-del", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
+    const ops = batchOpButtons(item);
     const opsRow = document.createElement("tr");
     opsRow.className = "batch-ops-row";
     const opsCell = document.createElement("td");
@@ -882,6 +838,146 @@ function renderBatch() {
     opsCell.appendChild(ops);
     opsRow.appendChild(opsCell);
     el.batchBody.appendChild(opsRow);
+  }
+}
+
+function hasRemoteSource(item) {
+  return !!(item.repo || statusSource(item.id));
+}
+
+function batchIconBtn(ico, titleKey, cls, fn) {
+  const b = document.createElement("button");
+  b.className = "icon-btn" + (cls ? " " + cls : "");
+  b.title = t(titleKey);
+  b.textContent = ico;
+  b.onclick = fn;
+  return b;
+}
+
+function batchDownloadBtn(item, s) {
+  const isUpToDate = s.installed && s.up_to_date;
+  const dl = document.createElement("button");
+  dl.className = "icon-btn" + (isUpToDate ? " ops-ok" : " ops-dl");
+  dl.dataset.programId = item.id;
+  dl.dataset.installed = s.installed ? "1" : "0";
+  dl.title = isUpToDate ? t("st.latest") : s.installed ? t("dl.update") : t("dl.download");
+  dl.textContent = isUpToDate ? "✓" : "⇩";
+  dl.disabled = isUpToDate;
+  dl.onclick = () => installProgram(item.id, dl);
+  return dl;
+}
+
+async function batchAct(item, rpc) {
+  try {
+    if (rpc !== "stop_program") {
+      const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
+      await invoke(rpc, { programId: item.id, values: vals });
+    } else {
+      await invoke(rpc, { programId: item.id });
+    }
+    await refreshBatchLocal();
+  } catch (e) { showNotice(String(e), true); }
+}
+
+function batchOpButtons(item) {
+  const s = item.status;
+  const ops = document.createElement("span");
+  ops.className = "batch-ops";
+  if (hasRemoteSource(item)) ops.appendChild(batchDownloadBtn(item, s));
+  ops.appendChild(batchIconBtn("▶", "act.start", "ops-start", () => batchAct(item, "start_program")));
+  ops.appendChild(batchIconBtn("↻", "act.restart", "ops-restart", () => batchAct(item, "restart_program")));
+  ops.appendChild(batchIconBtn("■", "act.stop", "ops-stop", () => batchAct(item, "stop_program")));
+  ops.appendChild(batchIconBtn("🗒", "act.log", "ops-log", async () => {
+    await switchCurrent(item.id);
+    refreshManageLog();
+  }));
+  if (item.repo) ops.appendChild(batchIconBtn("📁", "act.open_app_dir", "ops-dir", async () => {
+    try { await invoke("reveal_app_dir", { programId: item.id }); }
+    catch (e) { showNotice(String(e), true); }
+  }));
+  ops.appendChild(batchIconBtn("✎", "act.edit", "ops-edit", () => openEditModal(programs.find((x) => x.id === item.id))));
+  ops.appendChild(batchIconBtn("🗑", "act.delete", "ops-del", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
+  return ops;
+}
+
+// 移动端：批量管理改卡片列表流（G3）
+function renderBatchMobile() {
+  el.batchCards.innerHTML = "";
+  if (!statuses.length) {
+    const empty = document.createElement("div");
+    empty.className = "mb-card mb-empty";
+    empty.textContent = t("side.empty");
+    el.batchCards.appendChild(empty);
+    return;
+  }
+  for (const item of statuses) {
+    const s = item.status;
+    const card = document.createElement("div");
+    card.className = "mb-card";
+    const top = document.createElement("div");
+    top.className = "mb-card-top";
+    const name = document.createElement("span");
+    name.className = "mb-card-name";
+    name.textContent = item.name;
+    if (item.hidden) {
+      const tag = document.createElement("span");
+      tag.className = "batch-hidden";
+      tag.textContent = t("st.hidden");
+      name.appendChild(tag);
+    }
+    const st = document.createElement("span");
+    st.className = "mb-state" + (!s.installed ? " missing" : s.running ? " running" : " stopped");
+    st.textContent = !s.installed ? t("st.not_installed_bare") : s.running ? t("st.running") : t("st.stopped");
+    top.append(name, st);
+    const ver = document.createElement("div");
+    ver.className = "mb-card-vers";
+    const lv = document.createElement("span");
+    lv.textContent = `${t("th.local_ver")}: ${s.local_version || "—"}`;
+    const uv = document.createElement("span");
+    uv.textContent = `${t("th.latest_ver")}: ${s.latest_version ?? t("st.unknown")}`;
+    ver.append(lv, uv);
+    const toggles = document.createElement("div");
+    toggles.className = "mb-card-toggles";
+    const mkToggle = (label, checked, fn) => {
+      const lab = document.createElement("label");
+      lab.className = "mb-toggle";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = checked;
+      lab.append(box, document.createTextNode(label));
+      box.addEventListener("change", fn);
+      return lab;
+    };
+    toggles.appendChild(mkToggle(t("th.autostart"), s.autostart, async (ev) => {
+      const box = ev.target;
+      box.disabled = true;
+      try {
+        await invoke("set_autostart", { programId: item.id, enabled: box.checked });
+        showNotice(t("toast.autostart_updated", { name: item.name }));
+      } catch (e) {
+        box.checked = !box.checked;
+        showNotice(String(e), true);
+      } finally { box.disabled = false; }
+    }));
+    toggles.appendChild(mkToggle(t("th.hidden"), item.hidden, async (ev) => {
+      const box = ev.target;
+      box.disabled = true;
+      try {
+        await invoke("set_program_hidden", { programId: item.id, hidden: box.checked });
+        showNotice(box.checked ? t("toast.hidden", { name: item.name }) : t("toast.unhidden", { name: item.name }));
+        programs = await invoke("get_programs");
+        if (item.id === current?.id && box.checked) current = null;
+        if (!current) current = programs.find((p) => !p.hidden) || null;
+        await refreshBatchLocal();
+        if (current) await switchCurrent(current.id);
+      } catch (e) {
+        box.checked = !box.checked;
+        showNotice(String(e), true);
+      } finally { box.disabled = false; }
+    }));
+    const ops = batchOpButtons(item);
+    card.append(top, ver, toggles, ops);
+    el.batchCards.appendChild(card);
   }
 }
 

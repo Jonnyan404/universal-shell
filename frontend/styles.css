@@ -733,9 +733,27 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   #mob-tabbar .mob-tab.active { color: var(--accent); }
   #mob-tabbar .mob-tab.active .mob-tab-ic { color: var(--accent); }
 
-  /* 批处理表格：面板内横向滚动查看，不撑破整页 */
-  #batch-view .panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .batch-table { min-width: 560px; }
+  /* 批处理：移动端隐藏表格，改卡片列表流 */
+  .batch-table { display: none; }
+  #batch-cards { display: flex; flex-direction: column; gap: 10px; padding: 0 0 6px; }
+  .mb-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 12px 14px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .mb-card-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .mb-card-name { flex: 1 1 0; min-width: 0; font-size: 15px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mb-state { flex: 0 0 auto; font-size: 12px; font-weight: 600; }
+  .mb-state.running { color: var(--ok); }
+  .mb-state.stopped { color: var(--muted); }
+  .mb-state.missing { color: var(--muted); }
+  .mb-card-vers { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .mb-card-vers span { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
+  .mb-card-toggles { display: flex; gap: 14px; font-size: 13px; color: var(--text); }
+  .mb-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+  .mb-toggle input { width: 18px; height: 18px; }
+  .mb-card .batch-ops { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mb-card .batch-ops .icon-btn { width: 40px; height: 40px; font-size: 17px; flex: 0 0 auto; }
+  .mb-empty { justify-content: center; align-items: center; color: var(--muted); font-size: 13px; padding: 30px 10px; }
 
   /* 弹窗底下抽屉式，扩大操作区 */
   .modal { align-items: flex-end; }
@@ -765,4 +783,19 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   .dl-btn { padding: 8px 14px; font-size: 14px; }
 
   #toast-container { top: 8px; right: 10px; left: 10px; max-width: none; }
+
+  /* ----- 移动端：模板库卡片 / 日志中心工具栏触摸优化 ----- */
+  #batch-view .batch-toolbar { flex-wrap: wrap; }
+  #batch-view .batch-btns { flex-wrap: wrap; justify-content: center; }
+  #batch-view .batch-toolbar button { min-height: 38px; font-size: 14px; }
+  #library-view .lib-card { border-radius: 14px; margin-bottom: 10px; }
+  #library-view .lib-top { flex-wrap: wrap; }
+  #library-view .lib-top button { min-height: 38px; min-width: 72px; font-size: 14px; }
+  #library-view .batch-toolbar button { min-height: 38px; font-size: 14px; }
+  #lib-source-bar select { font-size: 16px; }
+  .log-toolbar .op-btn { min-height: 38px; min-width: 44px; font-size: 14px; }
+  .log-toolbar .log-search { width: 100%; font-size: 16px; }
+  .log-tabs .log-src { padding: 9px 14px; font-size: 13px; }
+  #log-view .log-toolbar { flex-wrap: wrap; }
+  #log-view .log-toolbar .log-search { flex: 1 1 100%; }
 }
