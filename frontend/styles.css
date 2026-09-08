@@ -226,19 +226,15 @@ button:disabled { opacity: 0.6; cursor: default; }
 }
 #actions .icon-btn:hover, .batch-ops .icon-btn:hover { color: var(--text); border-color: var(--accent); }
 /* 批量管理中心操作图标：按语义着色，一眼区分启停/重启/日志/下载 */
-.batch-ops .ops-start { color: #34c759; }
-.batch-ops .ops-restart { color: #ff9f0a; }
-.batch-ops .ops-stop { color: #ff453a; }
-.batch-ops .ops-dir { color: #eab308; }
-.batch-ops .ops-edit { color: #7c5cff; }
-.batch-ops .ops-del { color: #ff453a; }
-.batch-ops .ops-dl { color: #30d158; }
-.batch-ops .ops-ok { color: #34c759; }
-.batch-ops .ops-start:hover, .batch-ops .ops-restart:hover, .batch-ops .ops-stop:hover,
-.batch-ops .ops-dir:hover, .batch-ops .ops-edit:hover,
-.batch-ops .ops-del:hover, .batch-ops .ops-dl:hover, .batch-ops .ops-ok:hover {
-  color: var(--text); border-color: var(--accent);
-}
+#actions .ops-start, .batch-ops .ops-start { color: #34c759; }
+#actions .ops-restart, .batch-ops .ops-restart { color: #ff9f0a; }
+#actions .ops-stop, .batch-ops .ops-stop { color: #ff453a; }
+#actions .ops-dir, .batch-ops .ops-dir { color: #eab308; }
+#actions .ops-edit, .batch-ops .ops-edit { color: #7c5cff; }
+#actions .ops-del, .batch-ops .ops-del { color: #ff453a; }
+#actions .ops-dl, .batch-ops .ops-dl { color: #30d158; }
+#actions .ops-ok, .batch-ops .ops-ok { color: #34c759; }
+#actions .icon-btn:hover, .batch-ops .icon-btn:hover { color: var(--text); border-color: var(--accent); }
 
 #notice { margin: 10px 0; padding: 8px 12px; border-radius: 6px; }
 #notice.ok { color: var(--ok); }
@@ -347,6 +343,7 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 #library-view #lib-list { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 #library-view #lib-pager { flex: 0 0 auto; }
 .log-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex: 0 0 auto; }
+.log-source-select { display: none; }
 .log-tabs {
   display: flex; flex-wrap: nowrap; gap: 4px; min-width: 0;
   margin-bottom: 8px; flex: 0 0 auto; overflow-x: auto; overflow-y: hidden;
@@ -797,7 +794,12 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   .log-toolbar .log-search { width: 100%; font-size: 16px; }
   #log-view .log-toolbar { flex-wrap: wrap; }
   #log-view .log-toolbar .log-search { flex: 1 1 100%; }
-  /* 移动端日志中心只保留 搜索/复制/跟随（G3） */
+  /* 移动端日志中心只保留 搜索/复制/跟随；日志源用下拉选择切换 */
   #log-view .log-tabs { display: none; }
   #log-view .log-clear-src { display: none !important; }
+  #log-view .log-source-select {
+    display: block; width: 100%; margin-bottom: 8px; font-size: 16px;
+    padding: 9px 10px; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
 }

@@ -52,6 +52,7 @@ const el = {
   libPager: document.querySelector("#lib-pager"),
   logView: document.querySelector("#log-view"),
   logSources: document.querySelector("#log-sources"),
+  logSourceSelect: document.querySelector("#log-source-select"),
   logContent: document.querySelector("#log-content"),
   logClearSrcBtn: document.querySelector("#log-clear-src"),
   mobShell: document.querySelector("#mob-shell"),
@@ -534,7 +535,7 @@ function renderActions() {
   };
   if (current.repo) {
     const appDir = document.createElement("button");
-    appDir.className = "icon-btn";
+    appDir.className = "icon-btn ops-dir";
     appDir.title = t("act.open_app_dir");
     appDir.textContent = "📁";
     appDir.onclick = async () => {
@@ -568,6 +569,18 @@ function renderActions() {
     open.onclick = () => openExternal(url);
     pushIcon(open);
   }
+  const editBtn = document.createElement("button");
+  editBtn.className = "icon-btn ops-edit";
+  editBtn.title = t("act.edit");
+  editBtn.textContent = "✎";
+  editBtn.onclick = () => openEditModal(current);
+  pushIcon(editBtn);
+  const delBtn = document.createElement("button");
+  delBtn.className = "icon-btn ops-del";
+  delBtn.title = t("act.delete");
+  delBtn.textContent = "🗑";
+  delBtn.onclick = () => confirmAndDelete(current);
+  pushIcon(delBtn);
   if (group2.children.length) {
     const sep = document.createElement("span");
     sep.className = "act-sep";
@@ -879,10 +892,11 @@ function renderBatch() {
         await invoke("set_program_hidden", { programId: item.id, hidden: hide.checked });
         showNotice(hide.checked ? t("toast.hidden", { name: item.name }) : t("toast.unhidden", { name: item.name }));
         programs = await invoke("get_programs");
-        if (item.id === current?.id && hide.checked) current = null;
+        const hidCurrent = item.id === current?.id && hide.checked;
+        if (hidCurrent) current = null;
         if (!current) current = programs.find((p) => !p.hidden) || null;
         await refreshBatchLocal();
-        if (current) await switchCurrent(current.id);
+        if (hidCurrent && current) await switchCurrent(current.id);
       } catch (e) {
         hide.checked = !hide.checked;
         showNotice(String(e), true);
@@ -1716,6 +1730,19 @@ function startLogCenterTailing() {
 function renderLogSources() {
   const box = el.logSources;
   box.innerHTML = "";
+  const sel = el.logSourceSelect;
+  if (sel) {
+    sel.innerHTML = "";
+    sel.hidden = false;
+  }
+  const addOpt = (kind, id, label, running) => {
+    if (!sel) return;
+    const o = document.createElement("option");
+    o.value = kind + "\u0000" + id;
+    o.textContent = (running ? "● " : "○ ") + label;
+    if (logCenter.kind === kind && logCenter.id === id) o.selected = true;
+    sel.appendChild(o);
+  };
   const mk = (kind, id, label, running) => {
     const b = document.createElement("button");
     b.className = "log-src" + (logCenter.kind === kind && logCenter.id === id ? " active" : "");
@@ -1731,10 +1758,22 @@ function renderLogSources() {
     };
     box.appendChild(b);
   };
-  mk("shell", "", t("log.shell_title"), false);
-  for (const s of statuses) {
-    if (!s.status.installed) continue;
-    mk("program", s.id, s.name, !!s.status.running);
+  const sources = [
+    ["shell", "", t("log.shell_title"), false],
+    ...statuses.filter((s) => s.status.installed).map((s) => ["program", s.id, s.name, !!s.status.running]),
+  ];
+  for (const [kind, id, label, running] of sources) {
+    mk(kind, id, label, running);
+    addOpt(kind, id, label, running);
+  }
+  if (sel) {
+    sel.onchange = () => {
+      const [kind, id] = sel.value.split("\u0000");
+      logCenter.kind = kind;
+      logCenter.id = id;
+      renderLogSources();
+      loadLogSource(kind, id, true);
+    };
   }
 }
 
@@ -2249,7 +2288,7 @@ function mobSwitchPage(tab) {
     switchView("library");
     setMobTab("lib");
   } else if (tab === "log") {
-    switchView("log");
+    openLogCenter();
     setMobTab("log");
   }
 }
