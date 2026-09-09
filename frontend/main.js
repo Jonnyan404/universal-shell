@@ -921,7 +921,7 @@ function hasRemoteSource(item) {
 }
 
 const ICONS = {
-  start: '<path fill="#34c759" d="M4.5 3.2v17.6L19.5 12z"/>',
+  start: '<path fill="#4f8cff" d="M4.5 3.2v17.6L19.5 12z"/>',
   stop: '<rect fill="#ff453a" x="4" y="4" width="16" height="16" rx="2.5"/>',
   restart: '<path fill="#ff9f0a" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/>',
   dir: '<path fill="#eab308" d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>',
