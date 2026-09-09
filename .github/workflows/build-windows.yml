@@ -16,6 +16,22 @@ on:
           - all
           - x86_64
           - arm64
+      deploy:
+        description: '构建后部署到 release tag v<version> (确认已存在 release)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+      overwrite_assets:
+        description: '覆盖重名资产 (否则同名资产会跳过)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 permissions:
   contents: write
@@ -127,7 +143,8 @@ jobs:
             TGT="x86_64-pc-windows-msvc"
           fi
           mkdir -p "$CLI"
-          cp "target/$TGT/release/us-web.exe" "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}.exe"
+          # 资产名对齐 release.yml：带 windows- 平台前缀，保证 release 部署时可覆盖同名资产
+          cp "target/$TGT/release/us-web.exe" "$CLI/universal-shell-cli-$VERSION-windows-${{ matrix.label }}.exe"
         shell: bash
 
       - name: Package egui (Windows .exe + .msi)
@@ -184,3 +201,31 @@ jobs:
           name: universal-shell-windows-${{ matrix.label }}
           path: dist/
           retention-days: 7
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    # 手动触发且勾选了 deploy 时才部署到 release tag v<version>
+    if: github.event.inputs.deploy == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: universal-shell-windows-*
+          path: dist/
+          merge-multiple: true
+
+      - name: Upload assets to Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ github.event.inputs.version }}
+          # overwrite=true 时先删除同名旧资产再上传，实现"追加/覆盖"
+          overwrite: ${{ github.event.inputs.overwrite_assets != 'false' }}
+          files: |
+            dist/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
