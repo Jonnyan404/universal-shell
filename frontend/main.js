@@ -1692,6 +1692,8 @@ function renderLogBody(container, text) {
 
 // F-3/F11：增量日志尾随。按程序记录上次 EOF 偏移；文件被截断时 reset 整体重渲。
 const logOffsets = {};
+// 管理页日志窗口当前所属程序 id；切换程序时强制全量重渲避免残留旧程序内容
+let manageLogOwner = null;
 function appendLogText(container, delta) {
   for (const line of delta.replace(/\r\n?/g, "\n").split("\n")) {
     const isErr = line.startsWith("\u001f");
@@ -1707,15 +1709,17 @@ function appendLogText(container, delta) {
 
 async function refreshManageLog() {
   if (!current) return;
+  const box = el.manageLogContent;
+  const switchedProgram = manageLogOwner !== current.id;
   try {
-    const hasOffset = Object.prototype.hasOwnProperty.call(logOffsets, current.id);
+    const hasOffset = !switchedProgram && Object.prototype.hasOwnProperty.call(logOffsets, current.id);
     const args = { programId: current.id };
     if (hasOffset) args.offset = logOffsets[current.id];
     const res = await invoke("get_logs", args);
     logOffsets[current.id] = res.offset;
-    const box = el.manageLogContent;
     if (!hasOffset || res.reset) renderLogBody(box, res.text);
     else if (res.text) appendLogText(box, res.text);
+    manageLogOwner = current.id;
   } catch {
     /* 无日志文件或读取失败：保持现状 */
   }
