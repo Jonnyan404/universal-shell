@@ -33,8 +33,9 @@
     { "key": "server", "kind": "string", "label": "服务端地址", "default": "", "placeholder": "your-worker.workers.dev:443", "required": true },
     { "key": "listen", "kind": "string", "label": "本地监听地址", "default": "127.0.0.1:30000", "placeholder": "127.0.0.1:30000 / 0.0.0.0:30001" },
     { "key": "token", "kind": "string", "label": "身份令牌", "default": "", "placeholder": "与服务端一致的 token（可留空）" },
+    { "key": "ip", "kind": "string", "label": "优选IP/域名", "default": "", "placeholder": "仅允许单个IP/域名,例如 1.2.3.4 或 example.com" },
     { "key": "routing", "kind": "string", "label": "分流模式", "default": "global", "placeholder": "global / bypass_cn / none" },
-    { "key": "extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-ip 1.2.3.4 -dns dns.alidns.com/dns-query -ech cloudflare-ech.com" }
+    { "key": "extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-dns dns.alidns.com/dns-query -ech cloudflare-ech.com" }
   ],
-  "args": ["-f", "{server}", "-l", "{listen}", "-token", "{token}", "-routing", "{routing}", "{extra}"]
+  "args": ["-f", "{server}", "-l", "{listen}", "-ip", "{ip}", "-token", "{token}", "-routing", "{routing}", "{extra}"]
 }
