@@ -1,5 +1,5 @@
 {
-  "revision": "rev-1788917340",
+  "revision": "rev-1788919765",
   "categories": [
     "file-sharing",
     "sync",
@@ -57,6 +57,13 @@
       "category": "proxy",
       "description": "ech-tunnel — ECH 加密 WebSocket 安全隧道代理（TCP 转发 / SOCKS5-HTTP 代理），TLS 1.3 + ECH 隐藏 SNI。客户端网络监听地址默认 127.0.0.1。",
       "repo": "badafans/ech-tunnel"
+    },
+    {
+      "id": "ech-wk",
+      "name": "ECH Workers 客户端",
+      "category": "proxy",
+      "description": "ech-wk — ECH Workers 代理客户端（TLS 1.3 ECH + Cloudflare Workers），跨平台 SOCKS5/HTTP 代理，支持分流模式。客户端网络监听地址默认 127.0.0.1:30000。",
+      "repo": "byJoey/ech-wk"
     },
     {
       "id": "filebrowser",
