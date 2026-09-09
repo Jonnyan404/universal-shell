@@ -1385,13 +1385,9 @@ impl ShellApp {
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.settings_shell_auto, t!("sett.shell_auto_label"));
                 });
-                // 内嵌 Web 管理（F-3）：默认关，开启即本机起随机高位端口服务并打开浏览器
+                // 内嵌 Web 管理（F-3）：默认关，开启即本机起服务；不自动打开浏览器（用户先改好监听设置再点「在浏览器打开」）
                 ui.horizontal(|ui| {
-                    if ui.checkbox(&mut self.web_on, t!("sett.web")).changed() && self.web_on {
-                        if let Some(h) = &self.web_handle {
-                            let _ = h.open_in_browser();
-                        }
-                    }
+                    ui.checkbox(&mut self.web_on, t!("sett.web"));
                     if let Some(url) = &self.web_url {
                         ui.weak(t!("sett.web_on_addr", url = url).to_string());
                         if ui.small_button(t!("sett.web_open")).clicked() {
@@ -1511,7 +1507,8 @@ impl ShellApp {
         self.sync_web();
     }
 
-    /// 「内嵌 Web 管理」开关的启停落地：默认关；开 → 起服务（端口/绑定取设置，默认回环随机）并打开浏览器。
+    /// 「内嵌 Web 管理」开关的启停落地：默认关；开 → 起服务（端口/绑定取设置，默认回环随机），
+    /// 不自动打开浏览器（手动点「在浏览器打开」按钮跳转）。
     /// `web_restart` 由保存按钮置位：Web 监听设置变更且服务在跑时，先停旧服务再按新设置重启。
     fn sync_web(&mut self) {
         if self.web_on && self.web_restart {
@@ -1532,7 +1529,6 @@ impl ShellApp {
                     web_server::enable_native_pick();
                     let url = h.url.clone();
                     self.web_url = Some(url.clone());
-                    let _ = h.open_in_browser();
                     self.web_handle = Some(h);
                     self.show_toast(t!("toast.web_started", url = url).to_string());
                 }
