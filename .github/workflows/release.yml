@@ -260,12 +260,18 @@ jobs:
           mkdir -p dist/bundle
           # 仅保留最终安装包，丢开 tauri 的中间/展开文件；
           # 统一改名为 universal-shell-tauri-<原名>，与 egui/cli 前缀保持一致。
-          # tauri 原名已带 "universal-shell_" 前缀（universal-shell_0.1.8_arch.xxx），
-          # 去掉该前缀再拼，避免出现 universal-shell-tauri-universal-shell_ 的重复。
+          # tauri 原名带 productName "universal-shell" 前缀，但分隔符因包类型而异：
+          # AppImage/deb/dmg 是下划线（universal-shell_0.1.8_arch.xxx），
+          # rpm 是连字符（universal-shell-0.1.8-1.arch.rpm），两种都要剥掉，
+          # 否则 rpm 会拼成 universal-shell-tauri-universal-shell-… 重复前缀。
           find target/release/bundle -type f \
             \( -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
                -o -name '*.msi' -o -name '*.exe' \) \
-            -exec sh -c 'b=$(basename "$1"); b=${b#universal-shell_}; cp "$1" "dist/bundle/universal-shell-tauri-$b"' _ {} \;
+            -exec sh -c '
+              b=$(basename "$1"); b=${b#universal-shell_}
+              case "$b" in universal-shell-*) b=${b#universal-shell-};; esac
+              cp "$1" "dist/bundle/universal-shell-tauri-$b"
+            ' _ {} \;
         shell: bash
 
       - name: SHA256
