@@ -113,13 +113,23 @@ else
 fi
 
 echo "==> build tauri bundle"
-# tauri 仅在 Linux/macOS 打包（Windows 上无 cargo-tauri/NSIS 支持，跳过）；
-# 即便失败也保留已千辛万苦产出的 egui 安装包，仅记警告
+# tauri 三端都支持：Linux/macOS 原生出，Windows 用 nsis+msi（NSIS 自动下载、WiX 需已装）
+# 打包失败也保留已千辛万苦产出的 egui 安装包，仅记警告
 case "$OS" in
   darwin|linux)
     # 优先用已装的 cargo-tauri-cli；否则回退到 app-tauri 的 node_modules 里的 @tauri-apps/cli
     # 均用 --config 覆盖 conf 里的写死版本，保证安装包版本与本次 VERSION 一致（与 CI 行为对齐）
     if (cd app-tauri && cargo tauri build --config "{\"version\":\"$VERSION\"}") || (cd app-tauri && npx tauri build --config "{\"version\":\"$VERSION\"}") ; then
+      if [ -d target/release/bundle ]; then
+        cp -R target/release/bundle dist/bundle
+      fi
+    else
+      echo "!! tauri bundle 打包失败（egui 产物已生成，继续收尾）"
+    fi
+    ;;
+  mingw*|msys*|cygwin*)
+    # Windows 原生：nsis+msi（msi 依赖 WiX，已由前面 egui 步骤检查过 candle）
+    if (cd app-tauri && cargo tauri build --bundles nsis,msi --config "{\"version\":\"$VERSION\"}") || (cd app-tauri && npx tauri build --bundles nsis,msi --config "{\"version\":\"$VERSION\"}") ; then
       if [ -d target/release/bundle ]; then
         cp -R target/release/bundle dist/bundle
       fi
