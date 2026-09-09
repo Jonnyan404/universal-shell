@@ -27,8 +27,8 @@
     "aarch64": "arm64"
   },
   "fields": [
+    { "key": "forward", "kind": "string", "label": "服务端地址", "default": "", "placeholder": "服务器:8443/tunnel", "required": true },
     { "key": "listen", "kind": "string", "label": "本地监听地址", "default": "127.0.0.1:1080", "placeholder": "proxy://127.0.0.1:1080 / wss://0.0.0.0:8443/tunnel / tcp://127.0.0.1:8080/内网:端口", "required": true },
-    { "key": "forward", "kind": "string", "label": "服务端地址", "default": "", "placeholder": "客户端: 服务器:8443/tunnel", "required": true },
     { "key": "token", "kind": "string", "label": "身份令牌", "default": "", "placeholder": "与服务端一致的 token（可留空）" },
     { "key": "channels", "kind": "string", "label": "预连接通道数", "default": "3", "placeholder": "3" },
     { "key": "ip", "kind": "string", "label": "优选IP/域名", "default": "", "placeholder": "例如 1.1.1.1, 2.2.2.2" },
