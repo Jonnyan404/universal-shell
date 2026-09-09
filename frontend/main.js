@@ -1111,10 +1111,16 @@ async function refreshLibrary() {
     libPage = 0;
     clearTemplateStatusCache();
     renderLibrary();
+    const nOffline = (manifest.sources || []).filter(([, off]) => off).length;
+    const msg =
+      (manifest.sources || []).length === 0
+        ? t("lib.no_sources")
+        : t("lib.summary", { n: manifest.sources.length, offline: nOffline ? t("lib.summary_offline", { n: nOffline }) : "", m: manifest.templates.length });
+    showNotice(msg, nOffline > 0);
   } catch (e) {
     const msg = t("toast.manifest_fail", { err: e });
     el.libStatus.textContent = msg;
-    showNotice(String(e), true);
+    showNotice(msg, true);
   }
 }
 

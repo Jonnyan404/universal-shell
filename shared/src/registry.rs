@@ -180,6 +180,7 @@ impl RegistryClient {
                     return (true, cached_body.unwrap_or_default(), now);
                 }
                 if !status.is_success() {
+                    log::warn!("registry {} returned HTTP {status}", url);
                     if let Some(body) = cached_body {
                         return (true, body, now_unix());
                     }
@@ -205,8 +206,9 @@ impl RegistryClient {
                 let now = now_unix();
                 (false, body, now)
             }
-            Err(_e) => {
+            Err(e) => {
                 // 网络失败 → 回退缓存(可能为空)
+                log::warn!("registry fetch failed for {}: {e}", url);
                 let body = cached_body.unwrap_or_default();
                 let now = now_unix();
                 (true, body, now)

@@ -1312,6 +1312,12 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 Some(&proxy.http_proxy),
                 true,
             );
+            let offline_n = merged.sources.iter().filter(|(_, off, _)| *off).count();
+            let src_n = merged.sources.len();
+            let tpl_n = merged.template_count();
+            log::info!(
+                "refreshed template library: {src_n} sources, {offline_n} offline, {tpl_n} templates"
+            );
             Ok(serde_json::to_value(merged_manifest_view(&merged)).map_err(|e| format!("rpc: view: {e}"))?)
         }
         "get_merged_manifest_offline" => {
