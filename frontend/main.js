@@ -980,9 +980,15 @@ function batchOpButtons(item) {
   const ops = document.createElement("span");
   ops.className = "batch-ops";
   if (hasRemoteSource(item)) ops.appendChild(batchDownloadBtn(item, s));
-  ops.appendChild(batchIconBtn("start", "act.start", "ops-start", () => batchAct(item, "start_program")));
-  ops.appendChild(batchIconBtn("restart", "act.restart", "ops-restart", () => batchAct(item, "restart_program")));
-  ops.appendChild(batchIconBtn("stop", "act.stop", "ops-stop", () => batchAct(item, "stop_program")));
+  const startBtn = batchIconBtn("start", "act.start", "ops-start", () => batchAct(item, "start_program"));
+  startBtn.disabled = !!s.running;
+  ops.appendChild(startBtn);
+  const restartBtn = batchIconBtn("restart", "act.restart", "ops-restart", () => batchAct(item, "restart_program"));
+  restartBtn.disabled = !s.installed;
+  ops.appendChild(restartBtn);
+  const stopBtn = batchIconBtn("stop", "act.stop", "ops-stop", () => batchAct(item, "stop_program"));
+  stopBtn.disabled = !s.running;
+  ops.appendChild(stopBtn);
   if (item.repo) ops.appendChild(batchIconBtn("dir", "act.open_app_dir", "ops-dir", async () => {
     try { await invoke("reveal_app_dir", { programId: item.id }); }
     catch (e) { showNotice(String(e), true); }
@@ -1882,6 +1888,7 @@ async function refreshAllStatuses() {
   if (changed || !statuses.length) {
     renderSidebar();
     if (isMobile() && mobPage === "prog") renderMobCards();
+    if (view === "batch") renderBatch();
     if (view === "log") renderLogSources();
     if (current) {
       const st = all.find((s) => s.id === current.id)?.status;
