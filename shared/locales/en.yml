@@ -184,6 +184,11 @@ toast.stopped: Stopped
 toast.stop_fail: 'Stop failed: %{err}'
 toast.restarted: Restarted
 toast.restart_fail: 'Restart failed: %{err}'
+batch.started: '"%{name}" started'
+batch.stopped: '"%{name}" stopped'
+batch.restarted: '"%{name}" restarted'
+toast.refreshed: 'Status refreshed'
+toast.opened_dir: 'App directory opened'
 toast.uploaded: 'Uploaded "%{name}", save to apply'
 toast.copied: Copied
 toast.copy_fail: Copy failed

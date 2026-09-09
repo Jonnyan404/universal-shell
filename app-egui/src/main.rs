@@ -2732,6 +2732,7 @@ impl ShellApp {
                             self.log_op(t!("toast.start_fail", err = format!("{e:#}")).as_ref());
                         } else {
                             self.log_op(&t!("op.start", name = &p.name));
+                            self.show_toast(t!("batch.started", name = &p.name).to_string());
                         }
                     }
                     if ui.small_button(t!("act.restart")).clicked() {
@@ -2747,6 +2748,7 @@ impl ShellApp {
                         } else {
                             self.path_alive.insert(p.id.clone(), false);
                             self.log_op(&t!("op.stop", name = &p.name));
+                            self.show_toast(t!("batch.stopped", name = &p.name).to_string());
                         }
                     }
                     if ui.small_button(t!("act.log")).clicked() {

@@ -184,6 +184,11 @@ toast.stopped: 已停止
 toast.stop_fail: '停止失败: %{err}'
 toast.restarted: 已重启
 toast.restart_fail: '重启失败: %{err}'
+batch.started: '「%{name}」已启动'
+batch.stopped: '「%{name}」已停止'
+batch.restarted: '「%{name}」已重启'
+toast.refreshed: 状态已刷新
+toast.opened_dir: 已打开应用目录
 toast.uploaded: 已上传「%{name}」，保存可生效
 toast.copied: 已复制
 toast.copy_fail: 复制失败

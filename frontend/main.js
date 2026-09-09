@@ -964,6 +964,7 @@ function batchDownloadBtn(item, s) {
 }
 
 async function batchAct(item, rpc) {
+  const name = item.name || item.id;
   try {
     if (rpc !== "stop_program") {
       const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
@@ -972,6 +973,9 @@ async function batchAct(item, rpc) {
       await invoke(rpc, { programId: item.id });
     }
     await refreshBatchLocal();
+    // 批量操作以「程序名 + 动词」体现操作对象，避免多程序并发时看不出是谁
+    const okKey = rpc === "start_program" ? "batch.started" : rpc === "restart_program" ? "batch.restarted" : "batch.stopped";
+    showNotice(t(okKey, { name }));
   } catch (e) { showNotice(String(e), true); }
 }
 
@@ -990,7 +994,10 @@ function batchOpButtons(item) {
   stopBtn.disabled = !s.running;
   ops.appendChild(stopBtn);
   if (item.repo) ops.appendChild(batchIconBtn("dir", "act.open_app_dir", "ops-dir", async () => {
-    try { await invoke("reveal_app_dir", { programId: item.id }); }
+    try {
+      await invoke("reveal_app_dir", { programId: item.id });
+      showNotice(t("toast.opened_dir"));
+    }
     catch (e) { showNotice(String(e), true); }
   }));
   ops.appendChild(batchIconBtn("edit", "act.edit", "ops-edit", () => openEditModal(programs.find((x) => x.id === item.id))));
@@ -2520,7 +2527,14 @@ document.querySelector("#import-modal-cancel").onclick = () => (document.querySe
 // 批量 / 模板库 / 设置 入口
 document.querySelector("#batch-link").onclick = () => switchView("batch");
 document.querySelector("#library-link").onclick = () => switchView("library");
-document.querySelector("#batch-refresh").onclick = refreshBatchLocal;
+document.querySelector("#batch-refresh").onclick = async () => {
+  try {
+    await refreshBatchLocal();
+    showNotice(t("toast.refreshed"));
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+};
 document.querySelector("#batch-check-updates").onclick = checkUpdates;
 document.querySelector("#batch-stop-all").onclick = async () => {
   try {
