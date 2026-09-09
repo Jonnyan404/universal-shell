@@ -141,6 +141,26 @@ jobs:
             -o "../$EGUI/$APP-$VERSION-$TGT.msi")
         shell: bash
 
+      - name: Build tauri bundle
+        if: env.skip != '1'
+        env:
+          # 注入版本：App 内版本/自更新检查与本次一致
+          UNIVERSAL_SHELL_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          # nsis+msi：NSIS 由 tauri bundler 自动下载，msi 用 cargo-wix 已装好的 WiX
+          # （不加 --target：arm64 runner 原生即 aarch64-pc-windows-msvc，产物在 target/release/bundle）
+          (cd app-tauri && npx tauri build --bundles nsis,msi \
+            --config "{\"version\":\"$VERSION\"}")
+          mkdir -p dist/bundle
+          find target/release/bundle -type f \
+            \( -name '*.msi' -o -name '*.exe' \) \
+            -exec sh -c '
+              b=$(basename "$1"); b=${b#universal-shell_}
+              cp "$1" "dist/bundle/universal-shell-tauri-$b"
+            ' _ {} \;
+        shell: bash
+
       - name: SHA256
         if: env.skip != '1'
         run: |
