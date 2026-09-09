@@ -221,6 +221,10 @@ struct ShellApp {
     settings_proxy_pass: String,
     /// 设置面板：壳自身开机自启（对齐 Tauri sett-shell-auto）
     settings_shell_auto: bool,
+    /// 设置面板：内嵌 Web 管理监听设置（绑定 IP / 端口 / 自定义令牌）
+    settings_web_bind: String,
+    settings_web_port: String,
+    settings_web_token: String,
     /// 程序日志查看器是否打开
     show_log: bool,
     /// 壳操作日志弹窗是否打开
@@ -255,6 +259,8 @@ struct ShellApp {
     web_handle: Option<web_server::WebServerHandle>,
     /// 运行中的访问地址（给设置面板显示，服务停止后清空）
     web_url: Option<String>,
+    /// Web 监听设置已变更，需在窗体外重启在跑的服务（保存按钮置位）
+    web_restart: bool,
     /// 暗色主题
     dark_mode: bool,
     /// prefs 中已持久化的主题值（用于检测变化再写盘）
@@ -352,6 +358,10 @@ impl ShellApp {
         let (settings_proxy_type, settings_proxy_host, settings_proxy_user, settings_proxy_pass) =
             parse_proxy(&mgr.proxy.http_proxy);
         let settings_shell_auto = mgr.autostart.shell_is_enabled();
+        let web_s = mgr.web_settings();
+        let settings_web_bind = web_s.effective_bind().to_string();
+        let settings_web_port = web_s.port.to_string();
+        let settings_web_token = web_s.token.clone();
         let sources_rows = mgr.template_registries.clone();
         // shell.log 按会话划分：启动分隔线（重启不清档、可审计，手动点 🗑 清空）
         // 壳启动后自动拉起开启「自启动」的程序（方案 B：壳管理，对齐 Tauri）。
@@ -414,6 +424,9 @@ impl ShellApp {
             settings_proxy_user,
             settings_proxy_pass,
             settings_shell_auto,
+            settings_web_bind,
+            settings_web_port,
+            settings_web_token,
             show_log: false,
             show_shell_log: false,
             show_edit: false,
@@ -436,6 +449,7 @@ impl ShellApp {
             web_on: false,
             web_handle: None,
             web_url: None,
+            web_restart: false,
             dark_mode,
             prefs_saved_dark: dark_mode,
             prefs_saved_current: current_id,
@@ -1389,6 +1403,37 @@ impl ShellApp {
                         ui.weak(t!("sett.web_off").to_string());
                     }
                 });
+                // 内嵌 Web 监听：绑定 IP / 端口 / 访问令牌（保存后按需重启服务生效）
+                ui.horizontal(|ui| {
+                    ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.web_bind")));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings_web_bind)
+                            .hint_text("127.0.0.1")
+                            .desired_width(140.0),
+                    );
+                    ui.weak(t!("sett.web_bind_hint").to_string());
+                });
+                ui.horizontal(|ui| {
+                    ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.web_port")));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings_web_port)
+                            .hint_text("0")
+                            .desired_width(80.0),
+                    );
+                    ui.weak(t!("sett.web_port_hint").to_string());
+                });
+                ui.horizontal(|ui| {
+                    ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.web_token")));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.settings_web_token)
+                            .password(true)
+                            .hint_text(t!("sett.web_token_ph"))
+                            .desired_width(200.0),
+                    );
+                    if ui.small_button(t!("sett.web_token_regen")).clicked() {
+                        self.settings_web_token = web_server::generate_token();
+                    }
+                });
                 // 壳自身更新：当前版本 + 手动检查按钮
                 ui.horizontal(|ui| {
                     ui.add_sized([100.0, 0.0], egui::Label::new(t!("upd.check")));
@@ -1423,6 +1468,15 @@ impl ShellApp {
                                 self.settings_proxy_user.trim(),
                                 &self.settings_proxy_pass,
                             );
+                            // 内嵌 Web 监听设置：绑定 IP / 端口 / 令牌
+                            let web_bind = self.settings_web_bind.trim().to_string();
+                            let web_port = self.settings_web_port.trim().parse::<u16>().unwrap_or(0);
+                            let old_web = self.m().web_settings();
+                            let changed_web = old_web.effective_bind() != web_bind
+                                || old_web.port != web_port
+                                || old_web.token != self.settings_web_token.trim();
+                            let web_token = self.settings_web_token.trim().to_string();
+                            let was_running = self.web_on && self.web_handle.is_some();
                             self.m().proxy.accelerate_prefix = accel.clone();
                             self.m().proxy.http_proxy = proxy.clone();
                             self.m().github.apply_network(&accel, &proxy);
@@ -1431,6 +1485,11 @@ impl ShellApp {
                                 .m()
                                 .autostart
                                 .set_shell_enabled(shell_auto);
+                            self.m().set_web_settings(&web_bind, web_port, Some(&web_token));
+                            // 在跑的服务按新监听设置重启（仅当确实变更时）
+                            if changed_web && was_running {
+                                self.web_restart = true;
+                            }
                             let save_r = self.m().save_config(&self.config_path);
                             if let Err(e) = save_r {
                                 self.log_op(
@@ -1452,8 +1511,16 @@ impl ShellApp {
         self.sync_web();
     }
 
-    /// 「内嵌 Web 管理」开关的启停落地：默认关；开 → 起服务（端口/绑定取配置，默认回环随机）并打开浏览器。
+    /// 「内嵌 Web 管理」开关的启停落地：默认关；开 → 起服务（端口/绑定取设置，默认回环随机）并打开浏览器。
+    /// `web_restart` 由保存按钮置位：Web 监听设置变更且服务在跑时，先停旧服务再按新设置重启。
     fn sync_web(&mut self) {
+        if self.web_on && self.web_restart {
+            if let Some(mut h) = self.web_handle.take() {
+                h.stop();
+            }
+            self.web_url = None;
+            self.web_restart = false;
+        }
         if self.web_on && self.web_handle.is_none() {
             let (bind, port) = {
                 let mgr = self.manager.lock().unwrap();

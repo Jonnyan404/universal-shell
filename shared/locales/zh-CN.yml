@@ -79,6 +79,8 @@ sett.proxy_user: 用户名（可选）
 sett.proxy_pass: 密码（可选）
 sett.shell_auto: 壳开机自启
 sett.shell_auto_label: 开机时自动启动本壳（并拉起开启了自启的程序）
+sett.web_bind: 绑定 IP
+sett.web_bind_hint: 0.0.0.0=局域网；127.0.0.1=仅本机
 sett.web_port: Web 管理端口
 sett.web_port_hint: 0=随机；改动重启壳后生效
 sett.lan: 允许局域网访问

@@ -79,6 +79,8 @@ sett.proxy_user: Username (optional)
 sett.proxy_pass: Password (optional)
 sett.shell_auto: Shell autostart
 sett.shell_auto_label: 'Start this shell at login (and launch autostart programs)'
+sett.web_bind: Bind address
+sett.web_bind_hint: '0.0.0.0 = LAN; 127.0.0.1 = local only'
 sett.web_port: Web admin port
 sett.web_port_hint: '0 = auto; applies after shell restart'
 sett.lan: Allow LAN access
