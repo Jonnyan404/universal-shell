@@ -397,7 +397,6 @@ err.autostart.locate: '无法定位壳路径: %{e}'
 err.github.request: 请求 GitHub API 失败
 err.github.api_status: 'GitHub API 返回 %{status}: %{body}'
 err.github.parse: 解析 GitHub API 响应失败
-err.github.no_asset: '发行版中未找到资产 %{name}'
 err.github.download: 下载失败
 err.github.download_status: '下载返回 %{status}'
 err.github.create_dest: '无法创建 %{path}'

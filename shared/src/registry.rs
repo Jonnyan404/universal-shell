@@ -285,19 +285,6 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
-/// 把多个 registry 的清单按模板 id 去重(后者覆盖)，便于全局搜索。
-pub fn merge_indexes(
-    sources: Vec<(String, Manifest)>,
-) -> BTreeMap<String, (String, TemplateIndex)> {
-    let mut map = BTreeMap::new();
-    for (base, manifest) in sources {
-        for t in manifest.templates {
-            map.insert(t.id.clone(), (base.clone(), t));
-        }
-    }
-    map
-}
-
 /// 多注册表合并结果：模板 id -> (首选来源 base, 索引)，冲突与各源状态一并记录。
 #[derive(Debug, Clone, Default)]
 pub struct MergedSource {

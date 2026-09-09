@@ -68,16 +68,12 @@ impl<'de> Deserialize<'de> for AssetRule {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ExtractMode {
+    #[default]
     Single,
     Whole,
     Raw,
-}
-
-impl Default for ExtractMode {
-    fn default() -> Self {
-        ExtractMode::Single
-    }
 }
 
 fn default_format() -> String {
@@ -205,17 +201,6 @@ impl SourceSpec {
     pub fn is_http(&self) -> bool {
         self.kind == "http"
     }
-}
-
-/// 从模板导入到 ShellConfig 时打上的来源戳
-pub fn stamp_from_template(
-    program: &mut Program,
-    registry_url: &str,
-    template_id: &str,
-    now: u64,
-) {
-    program.template_source = Some(format!("{registry_url}#{template_id}"));
-    program.imported_at = Some(now);
 }
 
 /// 一个 UI 字段 = 定义的 kind + 运行时值

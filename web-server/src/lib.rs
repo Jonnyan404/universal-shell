@@ -444,7 +444,7 @@ async fn ws_handler(
                 msg = rx.recv() => {
                     match msg {
                         Ok(text) => {
-                            if socket.send(Message::Text(text.into())).await.is_err() {
+                            if socket.send(Message::Text(text)).await.is_err() {
                                 break;
                             }
                         }

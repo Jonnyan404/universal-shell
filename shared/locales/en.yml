@@ -397,7 +397,6 @@ err.autostart.locate: 'Cannot locate shell path: %{e}'
 err.github.request: GitHub API request failed
 err.github.api_status: 'GitHub API returned %{status}: %{body}'
 err.github.parse: Failed to parse GitHub API response
-err.github.no_asset: 'Asset %{name} not found in release'
 err.github.download: Download failed
 err.github.download_status: 'Download returned %{status}'
 err.github.create_dest: 'Cannot create %{path}'

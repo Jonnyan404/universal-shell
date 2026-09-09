@@ -51,9 +51,9 @@ fn main() {
     }
 }
 
-fn install_and_probe(data_dir: &std::path::PathBuf, p: &shared::Program) -> anyhow::Result<String> {
+fn install_and_probe(data_dir: &std::path::Path, p: &shared::Program) -> anyhow::Result<String> {
     let version = ShellManager::install_standalone(data_dir, p)?;
-    let mgr = ShellManager::new(data_dir.clone())?;
+    let mgr = ShellManager::new(data_dir.to_path_buf())?;
     let bin = mgr.bin_path(p);
     if !bin.exists() {
         anyhow::bail!("可执行入口不存在: {}", bin.display());

@@ -91,7 +91,7 @@ enum Msg {
     /// 模板库清单加载完成（多源合并结果）
     ManifestLoaded(Result<shared::MergedSource, String>),
     /// 模板拉取完成，携带解析后的 Program 与是否覆盖（供 UI 线程快照进本地配置）
-    TemplateFetched(String, bool, Result<shared::config::Program, String>),
+    TemplateFetched(String, bool, Box<Result<shared::config::Program, String>>),
     /// 模板与本地实例一致性检测完成：(缓存 key, "new"/"update"/"current")
     TemplateStatus(String, Result<String, String>),
     /// 覆盖导入确认弹窗里的远端差异拉取完成
@@ -478,13 +478,13 @@ impl ShellApp {
             while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
                 match event.id().as_ref() {
                     "tray_show" => {
-                        let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                        let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                        let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     }
                     "tray_quit" => {
                         quit.store(true, Ordering::SeqCst);
-                        let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     "tray_auto" => {
                         // 走消息通道回主线程切换，避免跨线程访问 ShellManager
@@ -501,9 +501,9 @@ impl ShellApp {
                     ..
                 } = event
                 {
-                    let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                    let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                    let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 }
             }
             std::thread::sleep(Duration::from_millis(50));
@@ -553,7 +553,7 @@ impl ShellApp {
         let pid = program.id.clone();
         std::thread::spawn(move || {
             let on_progress = |p: &shared::DownloadProgress| {
-                let _ = tx.send(Msg::InstallProgress(pid.clone(), p.clone()));
+                let _ = tx.send(Msg::InstallProgress(pid.clone(), *p));
             };
             let result = ShellManager::install_standalone_with_progress(&data_dir, &program, &on_progress);
             match result {
@@ -619,10 +619,10 @@ impl ShellApp {
             );
             match client.load_template(&id) {
                 Ok((_, program)) => {
-                    tx.send(Msg::TemplateFetched(id.clone(), overwrite, Ok(program))).ok();
+                    tx.send(Msg::TemplateFetched(id.clone(), overwrite, Box::new(Ok(program)))).ok();
                 }
                 Err(e) => {
-                    tx.send(Msg::TemplateFetched(id.clone(), overwrite, Err(format!("{e:#}")))).ok();
+                    tx.send(Msg::TemplateFetched(id.clone(), overwrite, Box::new(Err(format!("{e:#}"))))).ok();
                 }
             }
         });
@@ -732,12 +732,11 @@ impl ShellApp {
                                 .map(|p| p.name.clone())
                                 .unwrap_or(pid);
                             self.log_op(
-                                &t!(
+                                t!(
                                     "op.download_fail",
                                     name = name,
                                     err = err.unwrap_or_default()
-                                )
-                                .to_string(),
+                                ).as_ref(),
                             );
                         }
                     }
@@ -760,12 +759,12 @@ impl ShellApp {
                         }
                         Err(e) => {
                             self.merged = None;
-                            self.log_op(&t!("toast.manifest_fail", err = e).to_string());
+                            self.log_op(t!("toast.manifest_fail", err = e).as_ref());
                         }
                     }
                 }
                 Msg::TemplateFetched(id, overwrite, result) => {
-                    match result {
+                    match *result {
                         Ok(program) => {
                             // 快照到本地配置：追加/覆盖程序 + 写回 shell.json
                             if let Err(e) = self.commit_import(&program, overwrite) {
@@ -801,7 +800,7 @@ impl ShellApp {
                 }
                 Msg::ImportDiff(_id, result) => {
                     if let Err(e) = &result {
-                        self.log_op(&t!("toast.diff_fail", id = _id, err = e).to_string());
+                        self.log_op(t!("toast.diff_fail", id = _id, err = e).as_ref());
                     }
                     self.pending_import_diff = Some(result);
                 }
@@ -861,7 +860,7 @@ impl ShellApp {
                         }
                         Err(e) => {
                             if manual {
-                                self.log_op(&t!("upd.fail", err = e).to_string());
+                                self.log_op(t!("upd.fail", err = e).as_ref());
                             }
                         }
                     }
@@ -888,7 +887,7 @@ impl ShellApp {
                             );
                         }
                         Err(e) => {
-                            self.log_op(&t!("eg.autostart_fail", err = format!("{e:#}")).to_string());
+                            self.log_op(t!("eg.autostart_fail", err = format!("{e:#}")).as_ref());
                         }
                     }
                 }
@@ -1036,7 +1035,7 @@ impl ShellApp {
         let pid = p.id.clone();
         {
             // 缓存缺失（如复制/导入刚落地）时实时补读盘上字段值，避免显示空值
-            if self.values.get(&pid).is_none() {
+            if !self.values.contains_key(&pid) {
                 let defaults = self.m().load_field_values(&p);
                 self.values.insert(pid.clone(), defaults);
             }
@@ -1287,7 +1286,7 @@ impl ShellApp {
             let (secondary, pos) = ui
                 .ctx()
                 .input(|i| (i.pointer.secondary_clicked(), i.pointer.latest_pos()));
-            if secondary && pos.map_or(false, |p| panel_rect.contains(p)) {
+            if secondary && pos.is_some_and(|p| panel_rect.contains(p)) {
                 self.sidebar_ctx = Some(SidebarCtx::New);
                 self.sidebar_ctx_pos = pos;
             }
@@ -1435,13 +1434,11 @@ impl ShellApp {
                             let save_r = self.m().save_config(&self.config_path);
                             if let Err(e) = save_r {
                                 self.log_op(
-                                    &t!("toast.settings_fail", err = format!("{e:#}"))
-                                        .to_string(),
+                                    t!("toast.settings_fail", err = format!("{e:#}")).as_ref(),
                                 );
                             } else if let Err(e) = autostart_r {
                                 self.log_op(
-                                    &t!("toast.shell_autostart_fail", err = format!("{e:#}"))
-                                        .to_string(),
+                                    t!("toast.shell_autostart_fail", err = format!("{e:#}")).as_ref(),
                                 );
                             } else {
                                 self.show_toast(t!("toast.saved").to_string());
@@ -1475,7 +1472,7 @@ impl ShellApp {
                 Err(e) => {
                     self.web_on = false;
                     self.web_url = None;
-                    self.log_op(&t!("toast.web_start_fail", err = format!("{e:#}")).to_string());
+                    self.log_op(t!("toast.web_start_fail", err = format!("{e:#}")).as_ref());
                 }
             }
         }
@@ -1633,7 +1630,7 @@ impl ShellApp {
                         self.log_op(&t!("op.start", name = &p.name));
                     }
                     Err(e) => {
-                        self.log_op(&t!("toast.start_fail", err = format!("{e:#}")).to_string());
+                        self.log_op(t!("toast.start_fail", err = format!("{e:#}")).as_ref());
                     }
                 }
             }
@@ -1647,15 +1644,13 @@ impl ShellApp {
                         self.log_op(&t!("op.stop", name = &p.name));
                     }
                     Err(e) => {
-                        self.log_op(&t!("toast.stop_fail", err = format!("{e:#}")).to_string());
+                        self.log_op(t!("toast.stop_fail", err = format!("{e:#}")).as_ref());
                     }
                 }
             }
             let restart_btn = ui.add_enabled(running_now, egui::Button::new(format!("↻ {}", t!("act.restart"))));
-            if restart_btn.clicked() {
-                if self.restart_program(&p, &values_for_start) {
-                    self.log_op(&t!("op.restart", name = &p.name));
-                }
+            if restart_btn.clicked() && self.restart_program(&p, &values_for_start) {
+                self.log_op(&t!("op.restart", name = &p.name));
             }
             ui.separator();
             // 本地程序无壳内数据目录，不显示「打开程序目录」
@@ -1663,7 +1658,7 @@ impl ShellApp {
                 && ui.button("🗁").on_hover_text(t!("act.open_app_dir")).clicked()
             {
                 let app_dir = self.m().app_dir(&p);
-                let _ = std::process::Command::new(&open_cmd()).arg(&app_dir).spawn();
+                let _ = std::process::Command::new(open_cmd()).arg(&app_dir).spawn();
             }
             if url.is_some() {
                 if ui.button("📋").on_hover_text(t!("act.copy_addr")).clicked() {
@@ -1713,11 +1708,11 @@ impl ShellApp {
                 // 64KB tail 逐行拆 widget 每帧全量布局会上千个，切到运行中程序时卡顿数秒；
                 // 只渲染末尾 N 行（复制按钮仍给全量文本）
                 for line in tail_view_lines(&log) {
-                    if shared::config::is_err_line(&line) {
-                        let content = line.strip_prefix('\u{1f}').unwrap_or(&line);
+                    if shared::config::is_err_line(line) {
+                        let content = line.strip_prefix('\u{1f}').unwrap_or(line);
                         ui.colored_label(egui::Color32::from_rgb(220, 90, 90), content);
                     } else {
-                        ui.monospace(line.strip_prefix('\u{1f}').unwrap_or(&line));
+                        ui.monospace(line.strip_prefix('\u{1f}').unwrap_or(line));
                     }
                 }
             });
@@ -1754,7 +1749,7 @@ impl ShellApp {
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 for t in &toasts {
-                    let fade = ((t.expire - now).min(1.0).max(0.0)) as f32;
+                    let fade = (t.expire - now).clamp(0.0, 1.0) as f32;
                     ui.set_opacity(fade);
                     egui::Frame::window(ui.style()).show(ui, |ui| {
                         ui.label(&t.text);
@@ -1769,14 +1764,14 @@ impl ShellApp {
     fn restart_program(&mut self, p: &shared::config::Program, values: &BTreeMap<String, String>) -> bool {
         let stop_r = self.m().stop(&p.id);
         if let Err(e) = stop_r {
-            self.log_op(&t!("toast.restart_fail", err = format!("{e:#}")).to_string());
+            self.log_op(t!("toast.restart_fail", err = format!("{e:#}")).as_ref());
             return false;
         }
         self.path_alive.insert(p.id.clone(), false);
         self.m().save_field_values(p, values);
         let start_r = self.m().start(p, values);
         if let Err(e) = start_r {
-            self.log_op(&t!("toast.restart_fail", err = format!("{e:#}")).to_string());
+            self.log_op(t!("toast.restart_fail", err = format!("{e:#}")).as_ref());
             return false;
         }
         self.show_toast(t!("toast.restarted").to_string());
@@ -2165,14 +2160,14 @@ impl ShellApp {
         let text = match std::fs::read_to_string(&path) {
             Ok(t) => t,
             Err(e) => {
-                self.log_op(&t!("err.read_template_fail", err = e.to_string()).to_string());
+                self.log_op(t!("err.read_template_fail", err = e.to_string()).as_ref());
                 return;
             }
         };
         let mut program: shared::config::Program = match serde_json::from_str(&text) {
             Ok(p) => p,
             Err(e) => {
-                self.log_op(&t!("err.parse_template_fail", err = e.to_string()).to_string());
+                self.log_op(t!("err.parse_template_fail", err = e.to_string()).as_ref());
                 return;
             }
         };
@@ -2192,7 +2187,7 @@ impl ShellApp {
                     self.show_toast(t!("lib.imported_local").to_string());
                 }
                 Err(e) => {
-                    self.log_op(&t!("toast.local_import_fail", err = format!("{e:#}")).to_string());
+                    self.log_op(t!("toast.local_import_fail", err = format!("{e:#}")).as_ref());
                 }
             }
         }
@@ -2204,7 +2199,7 @@ impl ShellApp {
         let p = match found {
             Some(p) => p,
             None => {
-                self.log_op(&t!("toast.export_fail", err = t!("err.program_not_found", id = id)).to_string());
+                self.log_op(t!("toast.export_fail", err = t!("err.program_not_found", id = id)).as_ref());
                 return;
             }
         };
@@ -2217,11 +2212,11 @@ impl ShellApp {
                 Ok(json) => match std::fs::write(&path, json) {
                     Ok(()) => self.log_op(&t!("op.export", name = &p.name)),
                     Err(e) => {
-                        self.log_op(&t!("toast.export_fail", err = format!("{e:#}")).to_string());
+                        self.log_op(t!("toast.export_fail", err = format!("{e:#}")).as_ref());
                     }
                 },
                 Err(e) => {
-                    self.log_op(&t!("toast.export_fail", err = format!("{e:#}")).to_string());
+                    self.log_op(t!("toast.export_fail", err = format!("{e:#}")).as_ref());
                 }
             }
         }
@@ -2325,7 +2320,7 @@ impl ShellApp {
                                 });
                         }
                         Some(Err(e)) => {
-                            ui.weak(format!("{e}"));
+                            ui.weak(e.to_string());
                         }
                         None => {
                             ui.weak(t!("tmpl_diff.loading"));
@@ -2379,7 +2374,7 @@ impl ShellApp {
                         self.show_toast(t!("lib.imported_local").to_string());
                     }
                     Err(e) => {
-                        self.log_op(&t!("toast.local_import_fail", err = format!("{e:#}")).to_string());
+                        self.log_op(t!("toast.local_import_fail", err = format!("{e:#}")).as_ref());
                     }
                 }
             }
@@ -2420,7 +2415,7 @@ impl ShellApp {
         self.m().template_registries = cleaned.clone();
         let save_r = self.m().save_config(&self.config_path);
         if let Err(e) = save_r {
-            self.log_op(&t!("toast.sources_fail", err = format!("{e:#}")).to_string());
+            self.log_op(t!("toast.sources_fail", err = format!("{e:#}")).as_ref());
             return false;
         }
         self.m().log_op(&t!("op.update_sources", list = cleaned.join(", ")));
@@ -2640,8 +2635,7 @@ impl ShellApp {
                             }
                             Err(e) => {
                                 self.log_op(
-                                    &t!("toast.visibility_fail", err = format!("{e:#}"))
-                                        .to_string(),
+                                    t!("toast.visibility_fail", err = format!("{e:#}")).as_ref(),
                                 );
                             }
                         }
@@ -2672,7 +2666,7 @@ impl ShellApp {
                         self.m().save_field_values(p, &values);
                         let start_r = self.m().start(p, &values);
                         if let Err(e) = start_r {
-                            self.log_op(&t!("toast.start_fail", err = format!("{e:#}")).to_string());
+                            self.log_op(t!("toast.start_fail", err = format!("{e:#}")).as_ref());
                         } else {
                             self.log_op(&t!("op.start", name = &p.name));
                         }
@@ -2686,7 +2680,7 @@ impl ShellApp {
                     if ui.small_button(t!("act.stop")).clicked() {
                         let stop_r = self.m().stop(&p.id);
                         if let Err(e) = stop_r {
-                            self.log_op(&t!("toast.stop_fail", err = format!("{e:#}")).to_string());
+                            self.log_op(t!("toast.stop_fail", err = format!("{e:#}")).as_ref());
                         } else {
                             self.path_alive.insert(p.id.clone(), false);
                             self.log_op(&t!("op.stop", name = &p.name));
@@ -2704,7 +2698,7 @@ impl ShellApp {
                             .clicked()
                     {
                         let d = self.m().app_dir(p);
-                        let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
+                        let _ = std::process::Command::new(open_cmd()).arg(&d).spawn();
                     }
                     if ui.small_button(t!("act.edit")).clicked() {
                         self.open_edit(&p.id);
@@ -2757,7 +2751,7 @@ impl ShellApp {
                     }
                     if ui.small_button("🗁").on_hover_text(t!("act.open_log_dir")).clicked() {
                         let d = self.m().data_dir.join("logs");
-                        let _ = std::process::Command::new(&open_cmd()).arg(&d).spawn();
+                        let _ = std::process::Command::new(open_cmd()).arg(&d).spawn();
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("×").on_hover_text(t!("act.close")).clicked() {
@@ -2772,11 +2766,11 @@ impl ShellApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for line in tail_view_lines(&log) {
-                            if shared::config::is_err_line(&line) {
-                                let content = line.strip_prefix('\u{1f}').unwrap_or(&line);
+                            if shared::config::is_err_line(line) {
+                                let content = line.strip_prefix('\u{1f}').unwrap_or(line);
                                 ui.colored_label(egui::Color32::from_rgb(220, 90, 90), content);
                             } else {
-                                ui.monospace(line.strip_prefix('\u{1f}').unwrap_or(&line));
+                                ui.monospace(line.strip_prefix('\u{1f}').unwrap_or(line));
                             }
                         }
                         if log.is_empty() {
@@ -2905,7 +2899,7 @@ impl ShellApp {
                                 .all_programs()
                                 .iter()
                                 .find(|p| p.id == *id)
-                                .map_or(false, |p| p.hidden);
+                                .is_some_and(|p| p.hidden);
                             if ui.button(t!("menu.copy")).clicked() {
                                 act = Some(SidebarCtxAction::Duplicate(id.clone()));
                             }
@@ -2932,7 +2926,7 @@ impl ShellApp {
             .input(|i| i.pointer.any_pressed())
             .then(|| ctx.input(|i| i.pointer.latest_pos()))
             .flatten()
-            .map_or(false, |p| !popup_rect.contains(p));
+            .is_some_and(|p| !popup_rect.contains(p));
         if out_click && act.is_none() {
             self.sidebar_ctx = None;
             self.sidebar_ctx_pos = None;
@@ -2961,7 +2955,7 @@ impl ShellApp {
                         self.m().log_op(&t!("op.duplicate", name = &copy.name));
                     }
                     Err(e) => {
-                        self.log_op(&t!("toast.duplicate_fail", err = format!("{e:#}")).to_string())
+                        self.log_op(t!("toast.duplicate_fail", err = format!("{e:#}")).as_ref())
                     }
                 }
             }
@@ -2972,7 +2966,7 @@ impl ShellApp {
                     .all_programs()
                     .iter()
                     .find(|p| p.id == id)
-                    .map_or(false, |p| p.hidden);
+                    .is_some_and(|p| p.hidden);
                 let set_hidden_r = self.m().set_hidden(&id, !hidden, &self.config_path);
                 match set_hidden_r {
                     Ok(()) => {
@@ -2983,7 +2977,7 @@ impl ShellApp {
                         ));
                     }
                     Err(e) => {
-                        self.log_op(&t!("toast.visibility_fail", err = format!("{e:#}")).to_string());
+                        self.log_op(t!("toast.visibility_fail", err = format!("{e:#}")).as_ref());
                     }
                 }
             }
@@ -3400,7 +3394,7 @@ impl ShellApp {
             template_source: b.and_then(|x| x.template_source.clone()),
             imported_at: b.and_then(|x| x.imported_at),
             check_sha256: b.and_then(|x| x.check_sha256.clone()),
-            hidden: b.map_or(false, |x| x.hidden),
+            hidden: b.is_some_and(|x| x.hidden),
         };
         if is_new {
             let add_r = self.m().add_program(&updated, &self.config_path);
@@ -3415,7 +3409,7 @@ impl ShellApp {
                         .save_field_values(&updated, &std::collections::BTreeMap::new());
                 }
                 Err(e) => {
-                    self.log_op(&t!("toast.save_fail", err = format!("{e:#}")).to_string());
+                    self.log_op(t!("toast.save_fail", err = format!("{e:#}")).as_ref());
                 }
             }
             return;
@@ -3428,7 +3422,7 @@ impl ShellApp {
                 self.values.remove(&id);
             }
             Err(e) => {
-                self.log_op(&t!("toast.save_fail", err = format!("{e:#}")).to_string());
+                self.log_op(t!("toast.save_fail", err = format!("{e:#}")).as_ref());
             }
         }
     }
@@ -3490,7 +3484,7 @@ impl ShellApp {
                     }
                     Err(e) => {
                         let msg = format!("{e:#}");
-                        self.log_op(&t!("toast.delete_fail", err = msg).to_string());
+                        self.log_op(t!("toast.delete_fail", err = msg).as_ref());
                     }
                 }
             }
@@ -3524,8 +3518,8 @@ impl eframe::App for ShellApp {
             if self.quit.load(Ordering::SeqCst) {
                 return;
             }
-            let _ = ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            let _ = ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             ctx.request_repaint();
         }
         // 主题或选中程序变化时持久化 prefs（JSON），重启后恢复上次主题与程序

@@ -235,10 +235,6 @@ impl ShellManager {
         Ok(())
     }
 
-    pub fn default_config_path(&self) -> PathBuf {
-        self.data_dir.join("shell.json")
-    }
-
     /// Web 管理界面监听设置（bind/port）。
     pub fn web_settings(&self) -> crate::config::WebSettings {
         self.web.clone()
@@ -265,7 +261,7 @@ impl ShellManager {
     /// `repo` 为空且非 HTTP 源 = 本地程序：直接使用 `binary`（绝对/相对路径或 PATH 中的命令名）。
     pub fn bin_path(&self, p: &Program) -> PathBuf {
         let is_local = p.repo.is_empty()
-            && !p.source.as_ref().map_or(false, |s| s.is_http());
+            && !p.source.as_ref().is_some_and(|s| s.is_http());
         if is_local {
             return PathBuf::from(&p.binary);
         }
@@ -393,7 +389,7 @@ impl ShellManager {
         program: &Program,
         on_progress: &dyn Fn(&crate::progress::DownloadProgress),
     ) -> anyhow::Result<(String, String)> {
-        let is_http = program.source.as_ref().map_or(false, |s| s.is_http());
+        let is_http = program.source.as_ref().is_some_and(|s| s.is_http());
         // 0. 本地程序(repo 为空且非 HTTP 源)：壳不下载/不更新，直接使用 binary
         if program.repo.is_empty() && !is_http {
             let v = self.local_version(program);
@@ -420,7 +416,7 @@ impl ShellManager {
         let (rule, asset_name, url, api_digest) = self.github.resolve_download(program, &arch, &version)?;
 
         // 3. 下载到临时文件
-        let dl_path = self.data_dir.join(format!(".dl-{}", &asset_name));
+        let dl_path = self.data_dir.join(format!(".dl-{}", asset_name));
         info!("{}", t!("log.downloading", url = url, path = dl_path.display()));
         use crate::progress::{DownloadProgress, DownloadStage};
         on_progress(&DownloadProgress::stage(DownloadStage::Downloading));
@@ -507,13 +503,14 @@ impl ShellManager {
     }
 
     /// 下载完成后的公共落地：校验 sha256 → 解压/落盘 → 清理临时文件 → 记录版本号
+    #[allow(clippy::too_many_arguments)]
     fn apply_download(
         &self,
         program: &Program,
         rule: &AssetRule,
         arch: &str,
         version: &str,
-        dl_path: &PathBuf,
+        dl_path: &Path,
         expect: Option<String>,
         on_progress: &dyn Fn(&crate::progress::DownloadProgress),
     ) -> anyhow::Result<()> {
@@ -588,17 +585,17 @@ impl ShellManager {
     }
 
     /// 独立(data_dir + Program)的安装入口，供线程/CLI 使用。返回最新版本号。
-    pub fn install_standalone(data_dir: &PathBuf, program: &Program) -> anyhow::Result<String> {
+    pub fn install_standalone(data_dir: &Path, program: &Program) -> anyhow::Result<String> {
         Self::install_standalone_with_progress(data_dir, program, &|_| {})
     }
 
     /// 独立安装 + 进度回调（WebView/CLI 展示进度用）。
     pub fn install_standalone_with_progress(
-        data_dir: &PathBuf,
+        data_dir: &Path,
         program: &Program,
         on_progress: &dyn Fn(&crate::progress::DownloadProgress),
     ) -> anyhow::Result<String> {
-        let mut mgr = ShellManager::new(data_dir.clone())?;
+        let mut mgr = ShellManager::new(data_dir.to_path_buf())?;
         // 若存在 shell.json，则读取并应用其网络代理设置
         let cfg_path = data_dir.join("shell.json");
         if cfg_path.exists() {
@@ -635,7 +632,7 @@ impl ShellManager {
     /// 查询某程序状态(本地是否已装、是否运行、版本对比)；本地程序无远程对比。
     pub fn status(&mut self, program: &Program) -> ProgramStatus {
         let mut st = self.status_local(program);
-        let is_http = program.source.as_ref().map_or(false, |s| s.is_http());
+        let is_http = program.source.as_ref().is_some_and(|s| s.is_http());
         if program.repo.is_empty() && !is_http {
             st.latest_version = None;
             return st;
@@ -758,7 +755,7 @@ impl ShellManager {
         match self.runner.stop(id) {
             Ok(()) => {
                 crate::events::emit(crate::events::Event::ProgramStopped(id.to_string()));
-                return Ok(());
+                Ok(())
             }
             Err(e1) => {
                 let bin = self
@@ -938,6 +935,7 @@ impl ShellManager {
     /// - 仍在的 key 保留原值；但若原值等于「旧默认」（用户从未改过该字段），且新默认有变，
     ///   就跟随新默认——模板默认值变更后启动界面不会继续显示旧值；
     /// - 新增字段补其默认值；被删除的字段值一并移除。
+    ///
     /// 返回合并后的字段值(含新增字段默认值)。
     /// 本地编辑弹窗保存请走 [`Self::apply_local_edit`]：用户当面改了默认值，必须跟随。
     pub fn apply_template_update(
@@ -1103,13 +1101,13 @@ impl ShellManager {
         } else {
             self.programs.remove(self.programs.iter().position(|x| x.id == id).unwrap())
         };
-        if let Err(e) = self.runner.stop(&id) {
+        if let Err(e) = self.runner.stop(id) {
             log::warn!("{}", t!("log.stop_failed", id = id, err = format!("{e:#}")));
         }
         // 清理该程序专属数据目录（二进制/版本/字段值/整包解压都在一处）
         let removed = std::fs::remove_dir_all(self.app_dir(&p));
         if removed.is_err() {
-            let _ = std::fs::remove_file(&self.bin_path(&p));
+            let _ = std::fs::remove_file(self.bin_path(&p));
             let _ = std::fs::remove_file(self.app_dir(&p).join("version"));
             let _ = std::fs::remove_file(self.app_dir(&p).join("values.json"));
         }
@@ -1266,7 +1264,7 @@ fn resolve_member(package_dir: &Path, member: &str) -> PathBuf {
         return joined;
     }
     let leaf = member.rsplit('/').next().unwrap_or(member).to_string();
-    if let Some(found) = crate::extract::list_entries(&package_dir.to_path_buf())
+    if let Some(found) = crate::extract::list_entries(package_dir)
         .into_iter()
         .find(|f| f.file_name().map(|n| n == leaf.as_str()).unwrap_or(false))
     {
@@ -1315,7 +1313,7 @@ mod tests {
         remote.args = vec!["--bind".to_string(), "127.0.0.1".to_string(), "-p".to_string(), "{port}".into()];
         remote.fields.push(Field { key: "bind".into(), kind: FieldKind::String { label: "绑定".into(), default: "127.0.0.1".into(), placeholder: String::new() }, required: false });
 
-        let mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-unknown")).unwrap();
+        let _mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-unknown")).unwrap();
         let diff = ShellManager::template_diff(&current, &remote);
         assert!(diff.changed_args);
         assert!(diff.changed_fields);
@@ -1337,7 +1335,7 @@ mod tests {
         let p: Program = serde_json::from_str(r#"{"id":"x","name":"X","repo":"a/b","binary":"x1","fields":[],"args":[]}"#).unwrap();
         // 需有匹配 os 的 assets(否则 identity map) —— 直接复制相同 JSON 确保完全一致
         let q = prog_copy(&p);
-        let mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-noop")).unwrap();
+        let _mgr = ShellManager::new(std::env::temp_dir().join("cc-c4-noop")).unwrap();
         assert!(ShellManager::template_diff(&p, &q).is_empty());
     }
 

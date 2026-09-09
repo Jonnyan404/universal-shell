@@ -1,7 +1,7 @@
 //! 受管子进程的启停。每个程序只允许一个存活实例，用 HashMap 跟踪。
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::{Arc, Mutex};
 
@@ -88,15 +88,10 @@ fn trim_program_log(w: &mut std::io::BufWriter<std::fs::File>) {
 }
 
 /// 正在运行且被壳持有的子进程
+#[derive(Default)]
 pub struct Runner {
     /// program id -> 子进程句柄
     children: BTreeMap<String, Child>,
-}
-
-impl Default for Runner {
-    fn default() -> Self {
-        Self { children: BTreeMap::new() }
-    }
 }
 
 impl Runner {
@@ -136,7 +131,7 @@ impl Runner {
     /// 按可执行文件路径查找系统上匹配的进程 PID。
     /// 壳重启后子进程句柄丢失，用路径探测残留进程以恢复运行态。
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    fn pids_by_path(&self, bin_path: &PathBuf) -> Vec<u32> {
+    fn pids_by_path(&self, bin_path: &Path) -> Vec<u32> {
         let mut pids = Vec::new();
         let Ok(out) = std::process::Command::new("pgrep")
             .arg("-f")
@@ -162,7 +157,7 @@ impl Runner {
 
     /// Windows：用 tasklist 按镜像名(可执行文件名) 匹配进程 PID
     #[cfg(target_os = "windows")]
-    fn pids_by_path(&self, bin_path: &PathBuf) -> Vec<u32> {
+    fn pids_by_path(&self, bin_path: &Path) -> Vec<u32> {
         let Some(name) = bin_path.file_name().map(|n| n.to_string_lossy().into_owned())
         else {
             return Vec::new();
@@ -189,13 +184,13 @@ impl Runner {
 
     /// 系统上是否有该可执行文件的进程在运行（含残留孤儿）
     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-    pub fn is_process_alive(&self, bin_path: &PathBuf) -> bool {
+    pub fn is_process_alive(&self, bin_path: &Path) -> bool {
         !self.pids_by_path(bin_path).is_empty()
     }
 
     /// 其它平台兜底：无检测能力，返回 false
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    pub fn is_process_alive(&self, _bin_path: &PathBuf) -> bool {
+    pub fn is_process_alive(&self, _bin_path: &Path) -> bool {
         false
     }
 
@@ -203,7 +198,7 @@ impl Runner {
     /// 若该程序仍存活在系统上则会占用端口，导致无法再次启动）。
     /// 返回是否杀掉了进程。
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    pub fn kill_orphan_by_path(&self, bin_path: &PathBuf) -> bool {
+    pub fn kill_orphan_by_path(&self, bin_path: &Path) -> bool {
         let pids = self.pids_by_path(bin_path);
         for &pid in &pids {
             let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
@@ -212,7 +207,7 @@ impl Runner {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn kill_orphan_by_path(&self, bin_path: &PathBuf) -> bool {
+    pub fn kill_orphan_by_path(&self, bin_path: &Path) -> bool {
         let pids = self.pids_by_path(bin_path);
         for &pid in &pids {
             let _ = std::process::Command::new("taskkill")
@@ -224,7 +219,7 @@ impl Runner {
 
     /// 其它平台兜底：尽力而为（暂无实现），返回 false
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    pub fn kill_orphan_by_path(&self, _bin_path: &PathBuf) -> bool {
+    pub fn kill_orphan_by_path(&self, _bin_path: &Path) -> bool {
         false
     }
 
@@ -250,7 +245,6 @@ impl Runner {
         // 读写打开：写线程超限截断时需经同一句柄回读（只写句柄 read 会 EBADF 导致截断静默失效）
         let log_file = std::fs::OpenOptions::new()
             .read(true)
-            .write(true)
             .create(true)
             .append(true)
             .open(&log_path)?;

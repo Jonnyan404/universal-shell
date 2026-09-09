@@ -2118,44 +2118,6 @@ async function reloadPrograms() {
   renderSidebar();
 }
 
-async function duplicateCurrent() {
-  if (!current) return;
-  try {
-    const copy = await invoke("duplicate_program", { programId: current.id });
-    showNotice(t("toast.duplicated", { name: copy.name }));
-    await reloadPrograms();
-    switchCurrent(copy.id);
-  } catch (e) {
-    showNotice(String(e), true);
-  }
-}
-
-async function deleteCurrent() {
-  if (!current) return;
-  if (!confirm(t("ui.confirm_delete", { name: current.name }))) return;
-  try {
-    await invoke("delete_program", { programId: current.id });
-    showNotice(t("toast.deleted", { name: current.name }));
-    await reloadPrograms();
-    const next = programs[0];
-    if (next) switchCurrent(next.id);
-    else document.querySelector("#manage-view").hidden = true;
-  } catch (e) {
-    showNotice(String(e), true);
-  }
-}
-
-async function toggleHidden() {
-  if (!current) return;
-  try {
-    await invoke("set_program_hidden", { programId: current.id, hidden: !current.hidden });
-    showNotice(t(!current.hidden ? "toast.hidden" : "toast.unhidden", { name: current.name }));
-    await reloadPrograms();
-  } catch (e) {
-    showNotice(String(e), true);
-  }
-}
-
 // ---------- 导入本地模板 ----------
 let importFileHandle = null;
 

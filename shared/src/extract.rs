@@ -14,10 +14,10 @@ use rust_i18n::t;
 
 /// 从 archive 提取单个文件(或裸二进制)到 dest。
 pub fn extract_file(
-    archive: &PathBuf,
+    archive: &Path,
     format: &str,
     member: Option<&str>,
-    dest: &PathBuf,
+    dest: &Path,
 ) -> anyhow::Result<()> {
     match format {
         "tar.gz" | "tar" => extract_single_tar(archive, member, dest),
@@ -32,7 +32,7 @@ pub fn extract_file(
 }
 
 /// 整包解压到 dest_dir。
-pub fn extract_whole(archive: &PathBuf, format: &str, dest_dir: &PathBuf) -> anyhow::Result<()> {
+pub fn extract_whole(archive: &Path, format: &str, dest_dir: &Path) -> anyhow::Result<()> {
     std::fs::create_dir_all(dest_dir)?;
     match format {
         "tar.gz" | "tar" => extract_whole_tar(archive, dest_dir),
@@ -42,7 +42,7 @@ pub fn extract_whole(archive: &PathBuf, format: &str, dest_dir: &PathBuf) -> any
 }
 
 /// 列出目录内所有相对非目录条目的绝对路径。
-pub fn list_entries(dir: &PathBuf) -> Vec<PathBuf> {
+pub fn list_entries(dir: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let Ok(entries) = std::fs::read_dir(dir) else {
         return out;
@@ -58,7 +58,7 @@ pub fn list_entries(dir: &PathBuf) -> Vec<PathBuf> {
     out
 }
 
-fn extract_single_tar(archive: &PathBuf, want_member: Option<&str>, dest: &PathBuf) -> anyhow::Result<()> {
+fn extract_single_tar(archive: &Path, want_member: Option<&str>, dest: &Path) -> anyhow::Result<()> {
     let f = std::fs::File::open(archive).context(t!("err.extract.open_tar"))?;
     let gz = flate2::read::GzDecoder::new(f);
     let mut tar = tar::Archive::new(gz);
@@ -97,7 +97,7 @@ fn extract_single_tar(archive: &PathBuf, want_member: Option<&str>, dest: &PathB
     Ok(())
 }
 
-fn extract_single_gz(archive: &PathBuf, dest: &PathBuf) -> anyhow::Result<()> {
+fn extract_single_gz(archive: &Path, dest: &Path) -> anyhow::Result<()> {
     let f = std::fs::File::open(archive).context(t!("err.extract.open_gz"))?;
     let gz = flate2::read::GzDecoder::new(f);
     if let Some(parent) = dest.parent() {
@@ -111,7 +111,7 @@ fn extract_single_gz(archive: &PathBuf, dest: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn extract_single_zip(archive: &PathBuf, want_member: Option<&str>, dest: &PathBuf) -> anyhow::Result<()> {
+fn extract_single_zip(archive: &Path, want_member: Option<&str>, dest: &Path) -> anyhow::Result<()> {
     let f = std::fs::File::open(archive).context(t!("err.extract.open_zip"))?;
     let mut z = zip::ZipArchive::new(f).context(t!("err.extract.parse_zip"))?;
     if let Some(parent) = dest.parent() {
@@ -150,7 +150,7 @@ fn resolve_zip_name(z: &mut zip::ZipArchive<std::fs::File>, want_member: Option<
     }
 }
 
-fn extract_whole_tar(archive: &PathBuf, dest_dir: &PathBuf) -> anyhow::Result<()> {
+fn extract_whole_tar(archive: &Path, dest_dir: &Path) -> anyhow::Result<()> {
     let f = std::fs::File::open(archive).context(t!("err.extract.open_tar"))?;
     let gz = flate2::read::GzDecoder::new(f);
     let mut tar = tar::Archive::new(gz);
@@ -178,7 +178,7 @@ fn extract_whole_tar(archive: &PathBuf, dest_dir: &PathBuf) -> anyhow::Result<()
     Ok(())
 }
 
-fn extract_whole_zip(archive: &PathBuf, dest_dir: &PathBuf) -> anyhow::Result<()> {
+fn extract_whole_zip(archive: &Path, dest_dir: &Path) -> anyhow::Result<()> {
     let f = std::fs::File::open(archive).context(t!("err.extract.open_zip"))?;
     let mut z = zip::ZipArchive::new(f).context(t!("err.extract.parse_zip"))?;
     for i in 0..z.len() {

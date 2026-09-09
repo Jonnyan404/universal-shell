@@ -47,7 +47,7 @@ pub fn dehex(s: &str) -> anyhow::Result<Vec<u8>> {
         }
     }
     let s = s.trim();
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         bail!(t!("err.sign.hex_even"));
     }
     s.as_bytes()

@@ -17,7 +17,7 @@ fn main() {
     let _ = std::fs::remove_dir_all(&cache);
     let _ = std::fs::remove_dir_all(&serve);
     // 把仓库 registry 复制到临时服务目录
-    let _ = std::fs::create_dir_all(&serve.join("templates"));
+    let _ = std::fs::create_dir_all(serve.join("templates"));
     for entry in std::fs::read_dir(&repo_registry).unwrap().flatten() {
         let path = entry.path();
         let dest = serve.join(entry.file_name());

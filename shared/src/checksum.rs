@@ -86,8 +86,8 @@ mod tests {
         let p = std::env::temp_dir().join("cc-shared-sha-mismatch");
         std::fs::write(&p, b"hello").unwrap();
         // 把正确摘要首字符改掉，必须被拒
-        let bad = format!("3cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
-        let err = verify_download(&p, &bad).unwrap_err();
+        let bad = "3cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        let err = verify_download(&p, bad).unwrap_err();
         assert!(err.to_string().contains("sha256"));
         let _ = std::fs::remove_file(&p);
     }
@@ -98,7 +98,7 @@ mod tests {
         std::fs::write(&p, b"hello").unwrap();
         verify_download(
             &p,
-            &format!("sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"),
+            "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
         )
         .unwrap();
         let _ = std::fs::remove_file(&p);

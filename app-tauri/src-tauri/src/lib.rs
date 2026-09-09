@@ -4,7 +4,7 @@
 //! get_programs 返回的 fields 描述动态渲染。
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use shared::config::{Field, Program};
@@ -110,7 +110,7 @@ impl StatusView {
             .unwrap_or(0)
     }
 
-    fn from_status(s: &shared::ProgramStatus, bin_path: &PathBuf, autostart: bool) -> Self {
+    fn from_status(s: &shared::ProgramStatus, bin_path: &Path, autostart: bool) -> Self {
         let up_to_date = s.installed
             && s.local_version != "-"
             && match &s.latest_version {
@@ -135,7 +135,7 @@ impl StatusView {
     /// 若本地有版本检查缓存（曾经联网查过），则回填最新版本与上次检查时间。
     fn from_local(
         s: &shared::ProgramStatus,
-        bin_path: &PathBuf,
+        bin_path: &Path,
         autostart: bool,
         repo: &str,
         vcheck: &BTreeMap<String, (String, u64)>,
@@ -200,7 +200,7 @@ fn to_view(p: &Program) -> ProgramView {
         fields: p
             .fields
             .iter()
-            .map(|f| to_field_view(f))
+            .map(to_field_view)
             .collect(),
         env: p
             .env
@@ -1285,7 +1285,6 @@ fn import_local_template(
         &state.config_path,
         &t!("op.import_local"),
     )
-    .map_err(|e| e)
 }
 
 /// 本地导入公共落盘：解析好 Program 后按 overwrite 覆盖或追加进受管列表。
@@ -1293,7 +1292,7 @@ fn commit_program(
     mgr: &mut ShellManager,
     program: &mut Program,
     overwrite: bool,
-    config_path: &PathBuf,
+    config_path: &Path,
     import_desc: &str,
 ) -> Result<ProgramView, String> {
     if program.binary.is_empty() {

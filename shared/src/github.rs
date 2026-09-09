@@ -131,31 +131,6 @@ impl GitHub {
         Ok(rel)
     }
 
-    /// 找匹配 asset 的下载直链(可走加速前缀)
-    pub fn find_asset_url(
-        &self,
-        release: &LatestRelease,
-        want_filename: &str,
-    ) -> anyhow::Result<String> {
-        let asset = release
-            .assets
-            .iter()
-            .find(|a| a.name == want_filename)
-            .ok_or_else(|| anyhow!(t!("err.github.no_asset", name = want_filename)))?;
-        let raw = asset.browser_download_url.clone();
-        if let Some(p) = &self.proxy_prefix {
-            if !p.is_empty() {
-                return Ok(format!("{}{}", p.trim_end_matches('/'), raw));
-            }
-        }
-        Ok(raw)
-    }
-
-    /// 下载资产到目标路径（URL 已含加速前缀；仅通用代理作用于请求本身）
-    pub fn download_to(&self, url: &str, dest: &PathBuf) -> anyhow::Result<()> {
-        self.download_to_with_progress(url, dest, &|_, _| {})
-    }
-
     /// 带进度回调的下载：逐块读取并回调 (bytes_received, total_bytes)。
     /// `total` 未知时为 0（如上游未给 Content-Length）。
     pub fn download_to_with_progress(
@@ -197,9 +172,9 @@ impl GitHub {
     /// 按候选列表对真实发行版资产做顺序匹配：
     /// 遍历 candidates，命中第一个真实存在者即返回 (资产名, 其下载 URL, 其 sha256 digest)。
     /// 全部未命中返回 Err(含提示)。
-    pub fn match_candidate<'a>(
+    pub fn match_candidate(
         &self,
-        release: &'a LatestRelease,
+        release: &LatestRelease,
         candidates: &[String],
     ) -> anyhow::Result<(String, String, Option<String>)> {
         for name in candidates {

@@ -2,7 +2,7 @@
 //! （镜像同名命令的参数/返回结构），供同一份 SPA 在浏览器与桌面窗口使用。
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -214,7 +214,7 @@ impl StatusView {
     }
 
     /// 远端已刷新的完整状态（批量管理用）：直接带最新版本与发布时间
-    fn from_status(s: &shared::ProgramStatus, bin_path: &PathBuf, autostart: bool) -> Self {
+    fn from_status(s: &shared::ProgramStatus, bin_path: &Path, autostart: bool) -> Self {
         let up_to_date = s.installed
             && s.local_version != "-"
             && match &s.latest_version {
@@ -237,7 +237,7 @@ impl StatusView {
     /// 本地即时渲染阶段：未知最新版本；有版本检查缓存则回填
     fn from_local(
         s: &shared::ProgramStatus,
-        bin_path: &PathBuf,
+        bin_path: &Path,
         autostart: bool,
         repo: &str,
         vcheck: &BTreeMap<String, (String, u64)>,
@@ -622,7 +622,7 @@ fn commit_program(
     mgr: &mut ShellManager,
     program: &mut Program,
     overwrite: bool,
-    config_path: &PathBuf,
+    config_path: &Path,
     import_desc: &str,
 ) -> Result<ProgramView, String> {
     if program.binary.is_empty() {
@@ -791,10 +791,10 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let values = arg_values(args);
             mgr.save_field_values(&p, &values);
             if let Err(e) = mgr.apply_key_autostart(&p, &values) {
-                mgr.log_op(&t!("log.autostart.set_fail", err = format!("{e:#}")).to_string());
+                mgr.log_op(t!("log.autostart.set_fail", err = format!("{e:#}")).as_ref());
             }
             mgr.start(&p, &values).map_err(|e| format!("{e:#}"))?;
-            mgr.log_op(&t!("op.start", name = &p.name).to_string());
+            mgr.log_op(t!("op.start", name = &p.name).as_ref());
             let bin = mgr.bin_path(&p);
             let s = mgr.status_local(&p);
             let auto = mgr.program_autostart(&p.id);
@@ -809,7 +809,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             };
             mgr.stop(&program_id).map_err(|e| format!("{e:#}"))?;
             mgr.clear_log(&program_id);
-            mgr.log_op(&t!("op.stop", name = &p.name).to_string());
+            mgr.log_op(t!("op.stop", name = &p.name).as_ref());
             let bin = mgr.bin_path(&p);
             let s = mgr.status_local(&p);
             let auto = mgr.program_autostart(&p.id);
@@ -826,10 +826,10 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
             mgr.save_field_values(&p, &values);
             if let Err(e) = mgr.apply_key_autostart(&p, &values) {
-                mgr.log_op(&t!("log.autostart.set_fail", err = format!("{e:#}")).to_string());
+                mgr.log_op(t!("log.autostart.set_fail", err = format!("{e:#}")).as_ref());
             }
             mgr.start(&p, &values).map_err(|e| format!("{e:#}"))?;
-            mgr.log_op(&t!("op.restart", name = &p.name).to_string());
+            mgr.log_op(t!("op.restart", name = &p.name).as_ref());
             let bin = mgr.bin_path(&p);
             let s = mgr.status_local(&p);
             let auto = mgr.program_autostart(&p.id);
@@ -839,7 +839,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         "stop_all" => {
             let mut mgr = state.manager.lock().unwrap();
             mgr.stop_all();
-            mgr.log_op(&t!("op.stop_all").to_string());
+            mgr.log_op(t!("op.stop_all").as_ref());
             Ok(json!({}))
         }
 
@@ -909,12 +909,11 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 return Err(program_not_found(&program_id));
             };
             mgr.set_program_autostart(&program_id, enabled);
-            mgr.log_op(&t!(
+            mgr.log_op(t!(
                 "op.toggle_autostart",
                 onoff = t!(if enabled { "op.enable" } else { "op.disable" }),
                 name = &p.name
-            )
-            .to_string());
+            ).as_ref());
             Ok(json!({}))
         }
         "shell_autostart_enabled" => {
@@ -926,11 +925,10 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let mut mgr = state.manager.lock().unwrap();
             let r = mgr.autostart.set_shell_enabled(enabled).map_err(|e| format!("{e:#}"));
             if r.is_ok() {
-                mgr.log_op(&t!(
+                mgr.log_op(t!(
                     "op.toggle_shell_autostart",
                     onoff = t!(if enabled { "op.enable" } else { "op.disable" })
-                )
-                .to_string());
+                ).as_ref());
             }
             r.map(|_| json!({}))
         }
@@ -1390,7 +1388,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 let view = to_view(&next);
                 mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
                 mgr.log_op(&t!("op.import_overwrite", desc = t!("op.import_local"), id = &program.id));
-                return Ok(serde_json::to_value(view).map_err(|e| format!("rpc: view: {e}"))?);
+                return serde_json::to_value(view).map_err(|e| format!("rpc: view: {e}"));
             }
             if program.binary.is_empty() {
                 program.binary = program.id.clone();

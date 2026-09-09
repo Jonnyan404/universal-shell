@@ -60,7 +60,7 @@ mod tests {
         assert!(is_newer("1.2.3", "1.2.2"));
         assert!(!is_newer("1.2.2", "1.2.3"));
         assert!(!is_newer("1.2.3", "1.2.3"));
-        assert!(is_newer("v1.9.0", "v1.10.0") == false);
+        assert!(!is_newer("v1.9.0", "v1.10.0"));
         assert!(is_newer("1.10.0", "1.9.0"));
         assert!(is_newer("1.2.4", "1.2"));
         assert!(is_newer("1.2.0", "1.2.0-beta2"));
