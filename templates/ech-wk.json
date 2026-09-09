@@ -1,0 +1,40 @@
+{
+  "id": "ech-wk",
+  "name": "ECH Workers 客户端",
+  "description": "ech-wk — ECH Workers 代理客户端（TLS 1.3 ECH + Cloudflare Workers），跨平台 SOCKS5/HTTP 代理，支持分流模式。客户端网络监听地址默认 127.0.0.1:30000。",
+  "repo": "byJoey/ech-wk",
+  "binary": "ech-workers",
+  "category": "proxy",
+  "assets": {
+    "darwin": {
+      "candidates": ["ECHWorkers-darwin-{arch}.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "ech-workers"
+    },
+    "linux": {
+      "candidates": ["ECHWorkers-linux-{arch}.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "ech-workers"
+    },
+    "windows": {
+      "candidates": ["ECHWorkers-windows-amd64.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "ech-workers.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "server", "kind": "string", "label": "服务端地址", "default": "", "placeholder": "your-worker.workers.dev:443", "required": true },
+    { "key": "listen", "kind": "string", "label": "本地监听地址", "default": "127.0.0.1:30000", "placeholder": "127.0.0.1:30000 / 0.0.0.0:30001" },
+    { "key": "token", "kind": "string", "label": "身份令牌", "default": "", "placeholder": "与服务端一致的 token（可留空）" },
+    { "key": "routing", "kind": "string", "label": "分流模式", "default": "global", "placeholder": "global / bypass_cn / none" },
+    { "key": "extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-ip 1.2.3.4 -dns dns.alidns.com/dns-query -ech cloudflare-ech.com" }
+  ],
+  "args": ["-f", "{server}", "-l", "{listen}", "-token", "{token}", "-routing", "{routing}", "{extra}"]
+}
