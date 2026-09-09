@@ -10,7 +10,7 @@ on:
       version:
         description: '版本号 (例如: 0.1.0)'
         required: true
-        default: '0.1.0'
+        default: '0.2.0'
       deploy:
         description: '构建后部署到 release tag v<version> (确认已存在 release)'
         required: false
