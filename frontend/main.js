@@ -806,7 +806,10 @@ async function checkUpdates() {
     statuses = full;
     renderSidebar();
     renderBatch();
-    showNotice(t("dl.done"));
+    // 代理/网络不通等场景：有远程源的程序查不到最新版本 → 提示失败而非一律「检查完成」
+    const failed = statuses.filter((it) => hasRemoteSource(it) && !it.status?.latest_version).length;
+    if (failed > 0) showNotice(t("dl.partial_fail", { count: failed }), true);
+    else showNotice(t("dl.done"));
   } catch (e) {
     showNotice(String(e), true);
   } finally {

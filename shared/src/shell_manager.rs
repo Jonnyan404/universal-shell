@@ -654,7 +654,7 @@ impl ShellManager {
 
     /// 远程最新版本（按 source 分发 GitHub / HTTP 源）。本地程序(空 repo 且非 http)返回 None。
     pub fn latest_remote(&self, program: &Program) -> Option<(String, String)> {
-        latest_remote(program, &self.github, &self.http)
+        latest_remote(program, &self.github, &self.http).ok().flatten()
     }
 
     /// 壳是否仍持有该程序的子进程句柄（try_wait 轮询回收，无进程派生，
@@ -1237,24 +1237,32 @@ impl Default for ProgramStatus {
 }
 
 /// 按 source 分发远程最新版本(GitHub / HTTP 源)。返回 (version, published_at)。
-/// 本地程序(空 repo 且非 http)无远程版本，返回 None。供 UI 批量状态刷新/版本检查复用。
+/// - `Ok(None)`：本地程序(空 repo 且非 http)无远程版本；
+/// - `Ok(Some(v, pb))`：查询成功；
+/// - `Err(msg)`：网络/上游请求失败（供调用方写壳日志并在 UI 提示，不再静默吞错）。
 pub fn latest_remote(
     program: &Program,
     gh: &GitHub,
     hs: &crate::source_http::HttpSource,
-) -> Option<(String, String)> {
+) -> Result<Option<(String, String)>, String> {
     if let Some(src) = program.source.as_ref().filter(|s| s.is_http()) {
-        return hs.latest_version(src).ok().map(|v| (v, String::new()));
+        return hs
+            .latest_version(src)
+            .map(|v| Some((v, String::new())))
+            .map_err(|e| format!("{e:#}"));
     }
     if program.repo.is_empty() {
-        return None;
+        return Ok(None);
     }
-    gh.latest(&program.repo).ok().map(|l| {
-        (
-            l.tag_name.trim_start_matches('v').to_string(),
-            l.published_at.clone(),
-        )
-    })
+    gh.latest(&program.repo)
+        .map(|l| {
+            (
+                l.tag_name.trim_start_matches('v').to_string(),
+                l.published_at.clone(),
+            )
+        })
+        .map(Some)
+        .map_err(|e| format!("{e:#}"))
 }
 
 /// 在解包目录内以 member(可能含前缀) 匹配真实文件路径；找不到回退直接拼接

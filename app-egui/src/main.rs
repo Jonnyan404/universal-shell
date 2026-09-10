@@ -921,7 +921,7 @@ impl ShellApp {
             hs.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
             let mut out = Vec::with_capacity(programs.len());
             for p in &programs {
-                let latest = shared::shell_manager::latest_remote(p, &gh, &hs);
+                let latest = shared::shell_manager::latest_remote(p, &gh, &hs).ok().flatten();
                 let (ver, ts) = match latest {
                     Some((v, t)) => (Some(v), t),
                     None => (None, String::new()),

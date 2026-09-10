@@ -163,6 +163,7 @@ dl.working: 处理中…
 dl.checking: 正在检查更新…
 dl.checking_short: 检查中…
 dl.done: 检查完成
+dl.partial_fail: '%{count} 个程序检查更新失败，详见壳日志'
 upd.check: 检查更新
 upd.checking: 正在检查壳更新…
 upd.latest: 壳已是最新（%{ver}）
@@ -421,6 +422,7 @@ err.http.url_failed: '直链 %{url} 下载失败: %{err}'
 err.http.bad_sha: '%{url} 未解析出 sha256 摘要'
 err.http.status: 'HTTP 请求 %{url} 返回 %{status}'
 err.http.read: '读取响应体失败'
+err.shell_thread_panic: '检查线程异常退出'
 log.config.load: '加载配置 %{path}'
 log.config.loaded: '已加载 %{count} 个受管程序'
 log.config.saved: '已保存配置 %{path}'
@@ -435,3 +437,4 @@ log.autostart.launched: '开机自启已拉起 %{name}'
 log.autostart.launch_failed: '开机自启拉起 %{name} 失败: %{err}'
 log.stop_failed: '停止「%{id}」失败: %{err}'
 log.runner.stopped: '已停止 %{id}'
+log.check_version_fail: '检查「%{name}」最新版本失败: %{err}'

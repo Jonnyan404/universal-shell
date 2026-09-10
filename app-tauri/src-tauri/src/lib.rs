@@ -306,7 +306,7 @@ fn get_status(state: State<AppState>, program_id: String) -> Result<StatusView, 
         pid = p.id.clone();
         drop(mgr);
         // 本地程序(空 repo 且非 http 源)无远程版本，跳过查询
-        if let Some((v, pb)) = shared::shell_manager::latest_remote(&p, &gh, &hs) {
+        if let Some((v, pb)) = shared::shell_manager::latest_remote(&p, &gh, &hs).ok().flatten() {
             local.latest_version = Some(v);
             local.latest_published = pb;
         }
@@ -361,10 +361,12 @@ fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, 
 #[tauri::command]
 fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String> {
     let layout;
+    let data_dir;
     let mut locals: Vec<(Program, PathBuf, shared::ProgramStatus, bool)> = {
         let mut mgr = state.manager.lock().unwrap();
         let progs = mgr.all_programs();
         layout = mgr.proxy.clone();
+        data_dir = mgr.data_dir.clone();
         progs
             .into_iter()
             .map(|p| {
@@ -376,7 +378,7 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             .collect()
     };
     // 锁外并行：按 source 分发，每个程序各起一个线程查最新版本（全局缓存避免重复网络）
-    let latest: Vec<Option<(String, String)>> = std::thread::scope(|s| {
+    let latest: Vec<Result<Option<(String, String)>, String>> = std::thread::scope(|s| {
         let handles: Vec<_> = locals
             .iter()
             .map(|(p, _, _, _)| {
@@ -391,13 +393,19 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().unwrap_or(None))
+            .map(|h| h.join().unwrap_or_else(|_| Err(t!("err.shell_thread_panic").to_string())))
             .collect()
     });
-    for ((_, _, s, _), lv) in locals.iter_mut().zip(latest) {
-        if let Some((v, pb)) = lv {
+    for ((p, _, s, _), lv) in locals.iter_mut().zip(latest) {
+        if let Ok(Some((v, pb))) = lv {
             s.latest_version = Some(v);
             s.latest_published = pb;
+        } else if let Err(e) = lv {
+            // 失败写壳日志（代理不通等场景便于查找问题），不再静默吞错
+            shared::ShellManager::log_op_for(
+                &data_dir,
+                &t!("log.check_version_fail", name = &p.name, err = e),
+            );
         }
     }
     // 落盘版本检查缓存（repo -> (最新版本, 检查时间戳)），供后续本地刷新展示“距上次更新多久”

@@ -1097,10 +1097,11 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
 
         // ---------- 批量管理：远端最新版本 ----------
         "batch_status" => {
-            let (layout, locals) = {
+            let (layout, data_dir, locals) = {
                 let mut mgr = state.manager.lock().unwrap();
                 (
                     mgr.proxy.clone(),
+                    mgr.data_dir.clone(),
                     mgr.all_programs()
                         .into_iter()
                         .map(|p| {
@@ -1112,27 +1113,52 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                         .collect::<Vec<_>>(),
                 )
             };
-            // 锁外并行：按 source 分发查最新版本
-            let latest: Vec<Option<(String, String)>> = std::thread::scope(|s| {
-                let handles: Vec<_> = locals
-                    .iter()
-                    .map(|(p, _, _, _)| {
-                        let p = p.clone();
-                        let layout = layout.clone();
-                        s.spawn(move || {
-                            let gh = proxied_github(&layout);
-                            let hs = proxied_http(&layout);
-                            shared::shell_manager::latest_remote(&p, &gh, &hs)
+            // 锁外并行：按 source 分发查最新版本。
+            // Ok(None)=本地无远程版本；Ok(Some)=成功；Err=请求失败（含代理不通），
+            // 失败不再静默吞掉——写壳日志并汇总给前端提示。
+            let latest: Vec<Result<Option<(String, String)>, String>> =
+                std::thread::scope(|s| {
+                    let handles: Vec<_> = locals
+                        .iter()
+                        .map(|(p, _, _, _)| {
+                            let p = p.clone();
+                            let layout = layout.clone();
+                            s.spawn(move || {
+                                let gh = proxied_github(&layout);
+                                let hs = proxied_http(&layout);
+                                shared::shell_manager::latest_remote(&p, &gh, &hs)
+                            })
                         })
-                    })
-                    .collect();
-                handles.into_iter().map(|h| h.join().unwrap_or(None)).collect()
-            });
+                        .collect();
+                    handles
+                        .into_iter()
+                        .map(|h| h.join().unwrap_or_else(|_| Err(t!("err.shell_thread_panic").to_string())))
+                        .collect()
+                });
+            let mut failures: Vec<String> = Vec::new();
             let mut locals = locals;
-            for ((_, _, s, _), lv) in locals.iter_mut().zip(latest) {
-                if let Some((v, pb)) = lv {
-                    s.latest_version = Some(v);
-                    s.latest_published = pb;
+            for ((p, _, s, _), lv) in locals.iter_mut().zip(latest) {
+                match lv {
+                    Ok(Some((v, pb))) => {
+                        s.latest_version = Some(v);
+                        s.latest_published = pb;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        s.latest_version = None;
+                        log::warn!("latest_remote {}: {}", p.name, e);
+                        failures.push(t!(
+                            "log.check_version_fail",
+                            name = &p.name,
+                            err = e
+                        ).into());
+                    }
+                }
+            }
+            // 壳日志：记录失败的版本检查（代理不通等场景便于查找问题）
+            if !failures.is_empty() {
+                for msg in failures.iter() {
+                    shared::ShellManager::log_op_for(&data_dir, msg);
                 }
             }
             if locals.iter().any(|(_, _, s, _)| s.latest_version.is_some()) {

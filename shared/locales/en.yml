@@ -163,6 +163,7 @@ dl.working: Working…
 dl.checking: Checking updates…
 dl.checking_short: Checking…
 dl.done: Check complete
+dl.partial_fail: '%{count} program(s) failed update check, see shell log'
 upd.check: Check for updates
 upd.checking: Checking for shell updates…
 upd.latest: Shell is up to date (%{ver})
@@ -421,6 +422,7 @@ err.http.url_failed: 'Direct link %{url} download failed: %{err}'
 err.http.bad_sha: 'No sha256 digest parsed from %{url}'
 err.http.status: 'HTTP request %{url} returned %{status}'
 err.http.read: 'Failed to read response body'
+err.shell_thread_panic: 'Update check thread panicked'
 log.config.load: 'Loading config %{path}'
 log.config.loaded: 'Loaded %{count} managed programs'
 log.config.saved: 'Config saved to %{path}'
@@ -435,3 +437,4 @@ log.autostart.launched: 'Autostart launched %{name}'
 log.autostart.launch_failed: 'Autostart launch %{name} failed: %{err}'
 log.stop_failed: 'Failed to stop "%{id}": %{err}'
 log.runner.stopped: 'Stopped %{id}'
+log.check_version_fail: 'Failed to check latest version of "%{name}": %{err}'
