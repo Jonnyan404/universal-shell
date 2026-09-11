@@ -94,6 +94,8 @@ sett.eff_off: Network disabled
 sett.eff_none: No active item
 sett.kind_acc: Accelerator
 sett.kind_proxy: Proxy
+sett.kind_http: HTTP
+sett.kind_socks5: SOCKS5
 sett.edit: Edit
 sett.shell_auto: Shell autostart
 sett.shell_auto_label: 'Start this shell at login (and launch autostart programs)'

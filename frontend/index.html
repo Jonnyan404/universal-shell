@@ -275,11 +275,17 @@
                   <option value="socks5" data-i18n="sett.kind_socks5">SOCKS5</option>
                 </select>
                 <input id="sett-net-host" data-i18n-placeholder="sett.acc_placeholder" placeholder="https://自建加速前缀/api.github.com/" />
-                <span id="sett-net-cred" hidden>
-                  <input id="sett-net-user" data-i18n-placeholder="sett.proxy_user" placeholder="用户名（可选）" />
-                  <input id="sett-net-pass" type="password" data-i18n-placeholder="sett.proxy_pass" placeholder="密码（可选）" />
-                </span>
                 <button type="button" id="sett-net-submit" class="op-btn" data-i18n="act.add">添加</button>
+              </div>
+              <div class="sett-add-line" id="sett-net-cred" hidden>
+                <label class="sett-net-cred-field">
+                  <span data-i18n="sett.proxy_user"></span>
+                  <input id="sett-net-user" data-i18n-placeholder="sett.proxy_user" placeholder="用户名（可选）" />
+                </label>
+                <label class="sett-net-cred-field">
+                  <span data-i18n="sett.proxy_pass"></span>
+                  <input id="sett-net-pass" type="password" data-i18n-placeholder="sett.proxy_pass" placeholder="密码（可选）" />
+                </label>
               </div>
             </div>
           </div>

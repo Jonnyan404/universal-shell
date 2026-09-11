@@ -1593,8 +1593,8 @@ cache,
                                     .width(90.0)
                                     .show_ui(ui, |ui| {
                                         ui.selectable_value(&mut self.settings_proxy_type, "acc".into(), t!("sett.kind_acc"));
-                                        ui.selectable_value(&mut self.settings_proxy_type, "http".into(), "HTTP");
-                                        ui.selectable_value(&mut self.settings_proxy_type, "socks5".into(), "SOCKS5");
+                                        ui.selectable_value(&mut self.settings_proxy_type, "http".into(), t!("sett.kind_http"));
+                                        ui.selectable_value(&mut self.settings_proxy_type, "socks5".into(), t!("sett.kind_socks5"));
                                     });
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.settings_proxy_host)
