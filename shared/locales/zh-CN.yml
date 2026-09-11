@@ -81,6 +81,10 @@ sett.proxy_user: 用户名（可选）
 sett.proxy_pass: 密码（可选）
 sett.ping: 测速
 sett.ping_fail: 不可用
+sett.ping_none: 没有可测速的项，先添加一个
+sett.ping_start: 测速中…
+sett.ping_done: 测速完成：%{ok}/%{total} 可用
+sett.collapse_head: 加速地址与代理配置
 sett.empty: 暂无，添加一个吧
 sett.remove: 移除
 sett.url_invalid: 地址需以 http(s):// 开头

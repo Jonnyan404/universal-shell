@@ -1007,16 +1007,22 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 args.get("targets").cloned().unwrap_or(Value::Null),
             )
             .unwrap_or_default();
-            let pings: Vec<Option<u64>> = targets
-                .iter()
-                .map(|t| {
-                    if t.kind == "proxy" {
-                        shared::ping::ping_proxy(&t.url)
-                    } else {
-                        shared::ping::ping_url(&t.url)
-                    }
-                })
-                .collect();
+            // 并行测速：各目标互不依赖，串行会 5s×N 拖慢设置面板
+            let pings: Vec<Option<u64>> = std::thread::scope(|s| {
+                targets
+                    .iter()
+                    .map(|t| {
+                        s.spawn(move || {
+                            if t.kind == "proxy" {
+                                shared::ping::ping_proxy(&t.url)
+                            } else {
+                                shared::ping::ping_url(&t.url)
+                            }
+                        })
+                    })
+                    .map(|h| h.join().ok().flatten())
+                    .collect()
+            });
             Ok(json!({ "pings": pings }))
         }
 

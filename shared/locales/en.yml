@@ -81,6 +81,10 @@ sett.proxy_user: Username (optional)
 sett.proxy_pass: Password (optional)
 sett.ping: Test
 sett.ping_fail: Unreachable
+sett.ping_none: Nothing to test — add an entry first
+sett.ping_start: Testing…
+sett.ping_done: 'Done: %{ok}/%{total} reachable'
+sett.collapse_head: Accelerate prefixes & proxy config
 sett.empty: None yet — add one
 sett.remove: Remove
 sett.url_invalid: URL must start with http(s)://

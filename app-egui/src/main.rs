@@ -927,9 +927,12 @@ cache,
                 }
                 Msg::PingsDone(urls, pings) => {
                     self.settings_ping_busy = false;
+                    let total = urls.len();
+                    let ok = pings.iter().filter(|m| m.is_some()).count();
                     for (u, ms) in urls.into_iter().zip(pings) {
                         self.settings_pings.insert(u, ms);
                     }
+                    self.show_toast(t!("sett.ping_done", ok = ok, total = total).to_string());
                 }
             }
         }
@@ -1369,19 +1372,23 @@ cache,
             return;
         }
         self.settings_ping_busy = true;
+        self.show_toast(t!("sett.ping_start").to_string());
         let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            let urls: Vec<String> = targets.iter().map(|(u, _)| u.clone()).collect();
-            let pings: Vec<Option<u64>> = targets
+        std::thread::scope(|s| {
+            let handles: Vec<_> = targets
                 .iter()
                 .map(|(u, is_proxy)| {
-                    if *is_proxy {
-                        shared::ping::ping_proxy(u)
-                    } else {
-                        shared::ping::ping_url(u)
-                    }
+                    s.spawn(move || {
+                        if *is_proxy {
+                            shared::ping::ping_proxy(u)
+                        } else {
+                            shared::ping::ping_url(u)
+                        }
+                    })
                 })
                 .collect();
+            let pings: Vec<Option<u64>> = handles.into_iter().map(|h| h.join().ok().flatten()).collect();
+            let urls: Vec<String> = targets.iter().map(|(u, _)| u.clone()).collect();
             let _ = tx.send(Msg::PingsDone(urls, pings));
         });
     }
@@ -1398,149 +1405,152 @@ cache,
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.settings_proxy_enabled, t!("sett.proxy_on"));
                 });
-                // 加速地址预置列表：单选 + 测速 + 删除；下方输入框添加新项
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.accelerate")));
-                    ui.horizontal(|ui| {
-                        if ui
-                            .small_button(format!("🔄 {}", t!("sett.ping")))
-                            .clicked()
-                        {
-                            self.measure_net_pings(false);
-                        }
-                        if ui.small_button(format!("+ {}", t!("act.add"))).clicked() {
-                            self.settle_accel_add();
-                        }
-                    });
-                });
-                ui.add_space(2.0);
-                ui.add_enabled_ui(self.settings_proxy_enabled, |ui| {
-                    let mut accel_to_del: Option<String> = None;
-                    let items: Vec<(String, String)> = self.settings_accel_list.clone();
-                    let selected = self.settings_selected_accel.clone();
-                    let mut sel_change: Option<String> = None;
-                    for (id, url) in &items {
+                // 加速地址 / 代理列表：收进可折叠区减少挤占
+                egui::CollapsingHeader::new(t!("sett.collapse_head"))
+                    .default_open(false)
+                    .id_salt("sett_net_collapse")
+                    .show(ui, |ui| {
+                        // 加速地址预置列表：单选 + 测速 + 删除；下方输入框添加新项
                         ui.horizontal(|ui| {
-                            ui.add_space(100.0);
-                            let is_sel = selected == *id;
-                            if ui
-                                .radio(is_sel, "")
-                                .on_hover_text(url)
-                                .clicked()
-                            {
-                                sel_change = Some(id.clone());
-                            }
-                            let ping = self.settings_pings.get(url);
-                            let ping_text = match ping {
-                                Some(Some(ms)) => format!("  {ms} ms"),
-                                Some(None) => format!("  {}", t!("sett.ping_fail")),
-                                None => String::new(),
-                            };
-                            ui.label(format!("{url}{ping_text}"));
-                            if ui.small_button("🗑").clicked() {
-                                accel_to_del = Some(id.clone());
-                            }
-                        });
-                    }
-                    if let Some(id) = sel_change {
-                        self.settings_selected_accel = id;
-                    }
-                    ui.horizontal(|ui| {
-                        ui.add_space(100.0);
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.settings_accel)
-                                .hint_text(t!("sett.acc_placeholder"))
-                                .desired_width(f32::INFINITY),
-                        );
-                    });
-                    if let Some(id) = accel_to_del {
-                        self.settings_accel_list
-                            .retain(|(i, _)| *i != id);
-                        if self.settings_selected_accel == id {
-                            self.settings_selected_accel =
-                                self.settings_accel_list.first().map(|(i, _)| i.clone()).unwrap_or_default();
-                        }
-                    }
-                });
-                // 通用代理：已保存列表（单选 + 测速 + 删除）+ 添加表单
-                ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.proxy")));
-                    if ui.small_button(format!("🔄 {}", t!("sett.ping"))).clicked() {
-                        self.measure_net_pings(true);
-                    }
-                });
-                ui.add_space(2.0);
-                ui.add_enabled_ui(self.settings_proxy_enabled, |ui| {
-                    let mut proxy_to_del: Option<String> = None;
-                    let items: Vec<(String, String)> = self.settings_proxy_list.clone();
-                    let selected = self.settings_selected_proxy.clone();
-                    let mut sel_change: Option<String> = None;
-                    for (id, url) in &items {
-                        ui.horizontal(|ui| {
-                            ui.add_space(100.0);
-                            let is_sel = selected == *id;
-                            if ui.radio(is_sel, "").on_hover_text(url).clicked() {
-                                sel_change = Some(id.clone());
-                            }
-                            let ping = self.settings_pings.get(url);
-                            let ping_text = match ping {
-                                Some(Some(ms)) => format!("  {ms} ms"),
-                                Some(None) => format!("  {}", t!("sett.ping_fail")),
-                                None => String::new(),
-                            };
-                            ui.label(format!("{url}{ping_text}"));
-                            if ui.small_button("🗑").clicked() {
-                                proxy_to_del = Some(id.clone());
-                            }
-                        });
-                    }
-                    if let Some(id) = sel_change {
-                        self.settings_selected_proxy = id;
-                    }
-                    // 添加代理表单：类型 + 地址 + 用户名/密码（对齐 Tauri sett-proxy）
-                    ui.horizontal(|ui| {
-                        ui.add_space(100.0);
-                        egui::ComboBox::from_id_salt("sett_proxy_type")
-                            .selected_text(&self.settings_proxy_type)
-                            .width(90.0)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.settings_proxy_type, "http".to_string(), "HTTP");
-                                ui.selectable_value(&mut self.settings_proxy_type, "socks5".to_string(), "SOCKS5");
+                            ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.accelerate")));
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .small_button(format!("🔄 {}", t!("sett.ping")))
+                                    .clicked()
+                                {
+                                    self.measure_net_pings(false);
+                                }
+                                if ui.small_button(format!("+ {}", t!("act.add"))).clicked() {
+                                    self.settle_accel_add();
+                                }
                             });
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.settings_proxy_host)
-                                .hint_text(t!("sett.proxy_placeholder"))
-                                .desired_width(f32::INFINITY),
-                        );
-                        if ui.button(format!("+ {}", t!("act.add"))).clicked() {
-                            self.settle_proxy_add();
-                        }
+                        });
+                        ui.add_enabled_ui(self.settings_proxy_enabled, |ui| {
+                            let mut accel_to_del: Option<String> = None;
+                            let items: Vec<(String, String)> = self.settings_accel_list.clone();
+                            let selected = self.settings_selected_accel.clone();
+                            let mut sel_change: Option<String> = None;
+                            for (id, url) in &items {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(100.0);
+                                    let is_sel = selected == *id;
+                                    if ui
+                                        .radio(is_sel, "")
+                                        .on_hover_text(url)
+                                        .clicked()
+                                    {
+                                        sel_change = Some(id.clone());
+                                    }
+                                    let ping = self.settings_pings.get(url);
+                                    let ping_text = match ping {
+                                        Some(Some(ms)) => format!("  {ms} ms"),
+                                        Some(None) => format!("  {}", t!("sett.ping_fail")),
+                                        None => String::new(),
+                                    };
+                                    ui.label(format!("{url}{ping_text}"));
+                                    if ui.small_button("🗑").clicked() {
+                                        accel_to_del = Some(id.clone());
+                                    }
+                                });
+                            }
+                            if let Some(id) = sel_change {
+                                self.settings_selected_accel = id;
+                            }
+                            ui.horizontal(|ui| {
+                                ui.add_space(100.0);
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.settings_accel)
+                                        .hint_text(t!("sett.acc_placeholder"))
+                                        .desired_width(f32::INFINITY),
+                                );
+                            });
+                            if let Some(id) = accel_to_del {
+                                self.settings_accel_list
+                                    .retain(|(i, _)| *i != id);
+                                if self.settings_selected_accel == id {
+                                    self.settings_selected_accel =
+                                        self.settings_accel_list.first().map(|(i, _)| i.clone()).unwrap_or_default();
+                                }
+                            }
+                        });
+                        ui.add_space(8.0);
+                        // 通用代理：已保存列表（单选 + 测速 + 删除）+ 添加表单
+                        ui.horizontal(|ui| {
+                            ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.proxy")));
+                            if ui.small_button(format!("🔄 {}", t!("sett.ping"))).clicked() {
+                                self.measure_net_pings(true);
+                            }
+                        });
+                        ui.add_enabled_ui(self.settings_proxy_enabled, |ui| {
+                            let mut proxy_to_del: Option<String> = None;
+                            let items: Vec<(String, String)> = self.settings_proxy_list.clone();
+                            let selected = self.settings_selected_proxy.clone();
+                            let mut sel_change: Option<String> = None;
+                            for (id, url) in &items {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(100.0);
+                                    let is_sel = selected == *id;
+                                    if ui.radio(is_sel, "").on_hover_text(url).clicked() {
+                                        sel_change = Some(id.clone());
+                                    }
+                                    let ping = self.settings_pings.get(url);
+                                    let ping_text = match ping {
+                                        Some(Some(ms)) => format!("  {ms} ms"),
+                                        Some(None) => format!("  {}", t!("sett.ping_fail")),
+                                        None => String::new(),
+                                    };
+                                    ui.label(format!("{url}{ping_text}"));
+                                    if ui.small_button("🗑").clicked() {
+                                        proxy_to_del = Some(id.clone());
+                                    }
+                                });
+                            }
+                            if let Some(id) = sel_change {
+                                self.settings_selected_proxy = id;
+                            }
+                            // 添加代理表单：类型 + 地址 + 用户名/密码（对齐 Tauri sett-proxy）
+                            ui.horizontal(|ui| {
+                                ui.add_space(100.0);
+                                egui::ComboBox::from_id_salt("sett_proxy_type")
+                                    .selected_text(&self.settings_proxy_type)
+                                    .width(90.0)
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut self.settings_proxy_type, "http".to_string(), "HTTP");
+                                        ui.selectable_value(&mut self.settings_proxy_type, "socks5".to_string(), "SOCKS5");
+                                    });
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.settings_proxy_host)
+                                        .hint_text(t!("sett.proxy_placeholder"))
+                                        .desired_width(f32::INFINITY),
+                                );
+                                if ui.button(format!("+ {}", t!("act.add"))).clicked() {
+                                    self.settle_proxy_add();
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.add_space(100.0);
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.settings_proxy_user)
+                                        .hint_text(t!("sett.proxy_user"))
+                                        .desired_width(f32::INFINITY),
+                                );
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.settings_proxy_pass)
+                                        .password(true)
+                                        .hint_text(t!("sett.proxy_pass"))
+                                        .desired_width(f32::INFINITY),
+                                );
+                            });
+                            if let Some(id) = proxy_to_del {
+                                self.settings_proxy_list
+                                    .retain(|(i, _)| *i != id);
+                                if self.settings_selected_proxy == id {
+                                    self.settings_selected_proxy =
+                                        self.settings_proxy_list.first().map(|(i, _)| i.clone()).unwrap_or_default();
+                                }
+                            }
+                        });
                     });
-                    ui.horizontal(|ui| {
-                        ui.add_space(100.0);
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.settings_proxy_user)
-                                .hint_text(t!("sett.proxy_user"))
-                                .desired_width(f32::INFINITY),
-                        );
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.settings_proxy_pass)
-                                .password(true)
-                                .hint_text(t!("sett.proxy_pass"))
-                                .desired_width(f32::INFINITY),
-                        );
-                    });
-                    if let Some(id) = proxy_to_del {
-                        self.settings_proxy_list
-                            .retain(|(i, _)| *i != id);
-                        if self.settings_selected_proxy == id {
-                            self.settings_selected_proxy =
-                                self.settings_proxy_list.first().map(|(i, _)| i.clone()).unwrap_or_default();
-                        }
-                    }
-                });
                 // 壳开机自启（对齐 Tauri sett-shell-auto）
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.settings_shell_auto, t!("sett.shell_auto_label"));

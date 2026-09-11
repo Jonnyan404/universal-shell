@@ -261,36 +261,39 @@
               </label>
               <span data-i18n="sett.proxy_on">启用（代理优先于加速地址）</span>
             </div>
-            <div class="sett-section">
-              <div class="sett-section-head">
-                <span data-i18n="sett.accelerate">加速地址</span>
-                <button type="button" id="sett-accel-refresh" class="op-btn" data-i18n="sett.ping">测试</button>
+            <details class="sett-collapsible" id="sett-net-details">
+              <summary data-i18n="sett.collapse_head">加速地址与代理配置</summary>
+              <div class="sett-section">
+                <div class="sett-section-head">
+                  <span data-i18n="sett.accelerate">加速地址</span>
+                  <button type="button" id="sett-accel-refresh" class="op-btn" data-i18n="sett.ping">测试</button>
+                </div>
+                <div id="sett-accel-list" class="sett-list"></div>
+                <div class="sett-add-line">
+                  <input id="sett-accel-new" data-i18n-placeholder="sett.acc_placeholder" placeholder="https://自建加速前缀/api.github.com/" />
+                  <button type="button" id="sett-accel-add" class="op-btn" data-i18n="act.add">添加</button>
+                </div>
               </div>
-              <div id="sett-accel-list" class="sett-list"></div>
-              <div class="sett-add-line">
-                <input id="sett-accel-new" data-i18n-placeholder="sett.acc_placeholder" placeholder="https://自建加速前缀/api.github.com/" />
-                <button type="button" id="sett-accel-add" class="op-btn" data-i18n="act.add">添加</button>
+              <div class="sett-section">
+                <div class="sett-section-head">
+                  <span data-i18n="sett.proxy">通用代理</span>
+                  <button type="button" id="sett-proxy-ping-all" class="op-btn" data-i18n="sett.ping">测试</button>
+                </div>
+                <div id="sett-proxy-list" class="sett-list"></div>
+                <div class="sett-add-line">
+                  <select id="sett-proxy-type">
+                    <option value="http">HTTP</option>
+                    <option value="socks5">SOCKS5</option>
+                  </select>
+                  <input id="sett-proxy-host" data-i18n-placeholder="sett.proxy_placeholder" placeholder="地址:端口" />
+                </div>
+                <div class="sett-add-line">
+                  <input id="sett-proxy-user" data-i18n-placeholder="sett.proxy_user" placeholder="用户名（可选）" />
+                  <input id="sett-proxy-pass" type="password" data-i18n-placeholder="sett.proxy_pass" placeholder="密码（可选）" />
+                  <button type="button" id="sett-proxy-add" class="op-btn" data-i18n="act.add">添加</button>
+                </div>
               </div>
-            </div>
-            <div class="sett-section">
-              <div class="sett-section-head">
-                <span data-i18n="sett.proxy">通用代理</span>
-                <button type="button" id="sett-proxy-ping-all" class="op-btn" data-i18n="sett.ping">测试</button>
-              </div>
-              <div id="sett-proxy-list" class="sett-list"></div>
-              <div class="sett-add-line">
-                <select id="sett-proxy-type">
-                  <option value="http">HTTP</option>
-                  <option value="socks5">SOCKS5</option>
-                </select>
-                <input id="sett-proxy-host" data-i18n-placeholder="sett.proxy_placeholder" placeholder="地址:端口" />
-              </div>
-              <div class="sett-add-line">
-                <input id="sett-proxy-user" data-i18n-placeholder="sett.proxy_user" placeholder="用户名（可选）" />
-                <input id="sett-proxy-pass" type="password" data-i18n-placeholder="sett.proxy_pass" placeholder="密码（可选）" />
-                <button type="button" id="sett-proxy-add" class="op-btn" data-i18n="act.add">添加</button>
-              </div>
-            </div>
+            </details>
           </div>
         </div>
         <div class="edit-row">

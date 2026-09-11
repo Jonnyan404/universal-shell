@@ -592,6 +592,12 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .sett-add-line { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .sett-add-line .op-btn { flex: 0 0 auto; padding: 6px 12px; font-size: 12px; }
 .sett-proxy-empty { color: var(--muted); font-size: 12px; padding: 4px 2px; }
+.sett-collapsible { margin-top: 8px; }
+.sett-collapsible summary {
+  cursor: pointer; color: var(--accent); font-size: 13px; padding: 2px 0 6px;
+  user-select: none;
+}
+.sett-collapsible[open] .sett-section:first-child { margin-top: 0; }
 .sett-token { display: flex; gap: 6px; align-items: center; }
 .sett-token input { flex: 1; min-width: 0; width: auto; }
 .edit-fields { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }

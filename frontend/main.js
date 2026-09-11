@@ -1618,8 +1618,6 @@ function openSettings() {
       settSelectedAccel = p.selected_accelerate || "";
       settSelectedProxy = p.selected_proxy || "";
       renderSettNet();
-      measureAccelPings();
-      measureProxyPings();
     })
     .catch((e) => showNotice(String(e), true));
   invoke("shell_autostart_enabled")
@@ -1642,8 +1640,8 @@ function openSettings() {
 }
 
 function renderSettNet() {
-  renderSettList("#sett-accel-list", settAccel, settSelectedAccel, settAccelPings, "sett-accel-choice", (id) => { settSelectedAccel = id; }, (id) => { settAccel = settAccel.filter((e) => e.id !== id); settAccelPings = {}; renderSettNet(); measureAccelPings(); });
-  renderSettList("#sett-proxy-list", settProxies, settSelectedProxy, settProxyPings, "sett-proxy-choice", (id) => { settSelectedProxy = id; }, (id) => { settProxies = settProxies.filter((e) => e.id !== id); settProxyPings = {}; renderSettNet(); measureProxyPings(); });
+  renderSettList("#sett-accel-list", settAccel, settSelectedAccel, settAccelPings, "sett-accel-choice", (id) => { settSelectedAccel = id; }, (id) => { settAccel = settAccel.filter((e) => e.id !== id); settAccelPings = {}; renderSettNet(); });
+  renderSettList("#sett-proxy-list", settProxies, settSelectedProxy, settProxyPings, "sett-proxy-choice", (id) => { settSelectedProxy = id; }, (id) => { settProxies = settProxies.filter((e) => e.id !== id); settProxyPings = {}; renderSettNet(); });
 }
 
 function renderSettList(boxSel, items, selectedId, pings, radioName, onSelect, onRemove) {
@@ -1675,28 +1673,40 @@ function renderSettList(boxSel, items, selectedId, pings, radioName, onSelect, o
 
 function measureAccelPings() {
   const targets = settAccel.map((e) => ({ url: e.url, kind: "url" }));
-  if (!targets.length) return;
+  if (!targets.length) { showNotice(t("sett.ping_none")); return; }
+  settAccelPings = {};
+  renderSettNet();
+  showNotice(t("sett.ping_start"));
   invoke("check_pings", { targets })
     .then((list) => {
+      const arr = (list && list.pings) || [];
       const map = {};
-      targets.forEach((tg, i) => { map[tg.url] = list ? list[i] : null; });
+      targets.forEach((tg, i) => { map[tg.url] = arr[i] != null ? arr[i] : null; });
       settAccelPings = map;
       renderSettNet();
+      const ok = arr.filter((v) => v != null).length;
+      showNotice(t("sett.ping_done", { ok, total: arr.length }));
     })
-    .catch(() => {});
+    .catch((e) => showNotice(String(e), true));
 }
 
 function measureProxyPings() {
   const targets = settProxies.map((e) => ({ url: e.url, kind: "proxy" }));
-  if (!targets.length) return;
+  if (!targets.length) { showNotice(t("sett.ping_none")); return; }
+  settProxyPings = {};
+  renderSettNet();
+  showNotice(t("sett.ping_start"));
   invoke("check_pings", { targets })
     .then((list) => {
+      const arr = (list && list.pings) || [];
       const map = {};
-      targets.forEach((tg, i) => { map[tg.url] = list ? list[i] : null; });
+      targets.forEach((tg, i) => { map[tg.url] = arr[i] != null ? arr[i] : null; });
       settProxyPings = map;
       renderSettNet();
+      const ok = arr.filter((v) => v != null).length;
+      showNotice(t("sett.ping_done", { ok, total: arr.length }));
     })
-    .catch(() => {});
+    .catch((e) => showNotice(String(e), true));
 }
 
 function settAddAccel() {
@@ -1709,7 +1719,6 @@ function settAddAccel() {
   settSelectedAccel = id;
   document.querySelector("#sett-accel-new").value = "";
   renderSettNet();
-  measureAccelPings();
 }
 
 function settAddProxy() {
@@ -1727,7 +1736,6 @@ function settAddProxy() {
   document.querySelector("#sett-proxy-user").value = "";
   document.querySelector("#sett-proxy-pass").value = "";
   renderSettNet();
-  measureProxyPings();
 }
 
 async function saveSettings() {
