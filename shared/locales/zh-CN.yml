@@ -74,6 +74,7 @@ sett.title: 全局设置
 sett.accelerate: 加速地址
 sett.acc_placeholder: '如 https://gh-proxy.com/（GitHub API/下载前缀）'
 sett.proxy: 通用代理
+sett.proxy_on: 启用（关闭时代理不生效但保留配置）
 sett.proxy_placeholder: '如 127.0.0.1:7890（HTTP/SOCKS5 地址:端口）'
 sett.proxy_user: 用户名（可选）
 sett.proxy_pass: 密码（可选）

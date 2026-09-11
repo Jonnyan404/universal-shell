@@ -146,6 +146,8 @@ struct LocaleView {
 struct ProxyView {
     accelerate_prefix: String,
     http_proxy: String,
+    /// 通用代理开关：false 时不生效（配置保留）
+    proxy_enabled: bool,
 }
 
 #[derive(Serialize)]
@@ -343,13 +345,13 @@ fn program_not_found(id: &str) -> String {
 /// 用当前网络设置(加速前缀 + 通用代理)构建 GitHub 客户端
 fn proxied_github(proxy: &shared::ProxySettings) -> shared::GitHub {
     let mut gh = shared::GitHub::default();
-    gh.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+    gh.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
     gh
 }
 
 fn proxied_http(proxy: &shared::ProxySettings) -> shared::source_http::HttpSource {
     let mut hs = shared::source_http::HttpSource::default();
-    hs.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+    hs.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
     hs
 }
 
@@ -363,7 +365,7 @@ fn registry_client(
         mgr.data_dir.join("cache/registry"),
         mgr.registry_pubkeys.clone(),
         Some(&mgr.proxy.accelerate_prefix),
-        Some(&mgr.proxy.http_proxy),
+        Some(mgr.proxy.effective_http_proxy()),
     )
 }
 
@@ -885,13 +887,16 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             Ok(json!(ProxyView {
                 accelerate_prefix: mgr.proxy.accelerate_prefix.clone(),
                 http_proxy: mgr.proxy.http_proxy.clone(),
+                proxy_enabled: mgr.proxy.proxy_effective(),
             }))
         }
         "set_proxy" => {
             let mut mgr = state.manager.lock().unwrap();
             mgr.proxy.accelerate_prefix = arg_str(args, "acceleratePrefix").trim().to_string();
             mgr.proxy.http_proxy = arg_str(args, "httpProxy").trim().to_string();
-            let (acc, hp) = (mgr.proxy.accelerate_prefix.clone(), mgr.proxy.http_proxy.clone());
+            mgr.proxy.proxy_enabled = Some(arg_bool(args, "proxyEnabled"));
+            let acc = mgr.proxy.accelerate_prefix.clone();
+            let hp = mgr.proxy.effective_http_proxy().to_string();
             mgr.github.apply_network(&acc, &hp);
             shared::clear_github_cache();
             let reg_cache = mgr.data_dir.join("cache/registry");
@@ -1250,7 +1255,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         "check_shell_update" => {
             let (accel, proxy) = {
                 let mgr = state.manager.lock().unwrap();
-                (mgr.proxy.accelerate_prefix.clone(), mgr.proxy.http_proxy.clone())
+                (mgr.proxy.accelerate_prefix.clone(), mgr.proxy.effective_http_proxy().to_string())
             };
             let current = shared::version::build_version().to_string();
             match shared::check_shell_update(&current, &accel, &proxy).map_err(|e| format!("{e:#}")) {
@@ -1335,7 +1340,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 cache,
                 pubkeys,
                 Some(&proxy.accelerate_prefix),
-                Some(&proxy.http_proxy),
+                Some(proxy.effective_http_proxy()),
                 true,
             );
             let offline_n = merged.sources.iter().filter(|(_, off, _)| *off).count();

@@ -196,11 +196,11 @@ impl ShellManager {
         // 应用网络代理设置到 GitHub 客户端
         self.github.apply_network(
             &cfg.proxy.accelerate_prefix,
-            &cfg.proxy.http_proxy,
+            cfg.proxy.effective_http_proxy(),
         );
         self.http.apply_network(
             &cfg.proxy.accelerate_prefix,
-            &cfg.proxy.http_proxy,
+            cfg.proxy.effective_http_proxy(),
         );
         self.proxy = cfg.proxy;
         self.locale = if cfg.locale.is_empty() { "auto".to_string() } else { cfg.locale };
@@ -601,9 +601,9 @@ impl ShellManager {
         if cfg_path.exists() {
             if let Ok(cfg) = crate::config::ShellConfig::load(&cfg_path) {
                 mgr.github
-                    .apply_network(&cfg.proxy.accelerate_prefix, &cfg.proxy.http_proxy);
+                    .apply_network(&cfg.proxy.accelerate_prefix, cfg.proxy.effective_http_proxy());
                 mgr.http
-                    .apply_network(&cfg.proxy.accelerate_prefix, &cfg.proxy.http_proxy);
+                    .apply_network(&cfg.proxy.accelerate_prefix, cfg.proxy.effective_http_proxy());
             }
         }
         let (version, _) = mgr.install_or_update(program, on_progress)?;

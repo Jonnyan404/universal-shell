@@ -547,6 +547,21 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .sett-proxy { flex: 1; min-width: 0; }
 .sett-proxy-line { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .sett-proxy-line:last-child { margin-bottom: 0; }
+.sett-proxy-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
+.sett-proxy.off .sett-proxy-line { opacity: 0.45; pointer-events: none; }
+.sett-proxy.off .sett-proxy-toggle { color: var(--muted); opacity: 0.6; }
+.sett-proxy .switch { position: relative; display: inline-block; width: 34px; height: 20px; flex: 0 0 auto; }
+.sett-proxy .switch input { opacity: 0; width: 0; height: 0; }
+.sett-proxy .slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background: var(--border); border-radius: 20px; transition: 0.2s;
+}
+.sett-proxy .slider::before {
+  content: ""; position: absolute; height: 14px; width: 14px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%; transition: 0.2s;
+}
+.sett-proxy .switch input:checked + .slider { background: var(--accent); }
+.sett-proxy .switch input:checked + .slider::before { transform: translateX(14px); }
 .sett-proxy select {
   flex: 0 0 96px; background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px; padding: 7px 6px;

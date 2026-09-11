@@ -604,11 +604,30 @@ pub struct ProxySettings {
     /// 通用代理（HTTP/SOCKS5），如 "http://127.0.0.1:7890"
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub http_proxy: String,
+    /// 代理开关：是否启用通用代理。
+    /// 旧配置（无此字段）→ None，按「http_proxy 非空即启用」兼容；
+    /// 显式设为 Some(false) 时即使填了地址也不生效（配置保留，随时可恢复）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_enabled: Option<bool>,
 }
 
 impl ProxySettings {
     pub fn is_empty(&self) -> bool {
         self.accelerate_prefix.is_empty() && self.http_proxy.is_empty()
+    }
+
+    /// 通用代理是否生效：未显式设置时按「填了地址即启用」。
+    pub fn proxy_effective(&self) -> bool {
+        self.proxy_enabled.unwrap_or(!self.http_proxy.is_empty())
+    }
+
+    /// 生效的通用代理地址：开关关闭（或未填）时为空串，调用方无需再判开关。
+    pub fn effective_http_proxy(&self) -> &str {
+        if self.proxy_effective() {
+            &self.http_proxy
+        } else {
+            ""
+        }
     }
 }
 
@@ -617,5 +636,45 @@ impl ShellConfig {
         let raw = std::fs::read_to_string(path)?;
         let cfg: Self = serde_json::from_str(&raw)?;
         Ok(cfg)
+    }
+}
+
+#[cfg(test)]
+mod proxy_tests {
+    use super::*;
+
+    /// 旧配置无 proxy_enabled 字段：按「填了地址即启用」兼容。
+    #[test]
+    fn old_config_missing_toggle_defaults_to_enabled() {
+        let p: ProxySettings =
+            serde_json::from_str(r#"{"http_proxy":"socks5://127.0.0.1:7890"}"#)
+                .unwrap();
+        assert!(p.proxy_effective());
+        assert_eq!(p.effective_http_proxy(), "socks5://127.0.0.1:7890");
+    }
+
+    /// 显式关闭开关：地址保留但不生效；重新打开恢复。
+    #[test]
+    fn toggle_off_keeps_config_but_disables() {
+        let mut p: ProxySettings = serde_json::from_str(
+            r#"{"accelerate_prefix":"https://gh-proxy.com/","http_proxy":"http://127.0.0.1:7890","proxy_enabled":false}"#,
+        )
+        .unwrap();
+        assert!(!p.proxy_effective());
+        assert_eq!(p.effective_http_proxy(), "");
+        p.proxy_enabled = Some(true);
+        assert_eq!(p.effective_http_proxy(), "http://127.0.0.1:7890");
+    }
+
+    /// 关闭时对象序列化仍带 proxy_enabled=false（保证持久化）。
+    #[test]
+    fn toggled_off_persists_enabled_flag() {
+        let p = ProxySettings {
+            accelerate_prefix: String::new(),
+            http_proxy: String::new(),
+            proxy_enabled: Some(false),
+        };
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(s.contains("proxy_enabled"));
     }
 }

@@ -258,6 +258,13 @@
         <div class="edit-row">
           <label data-i18n="sett.proxy">通用代理</label>
           <div class="sett-proxy">
+            <div class="sett-proxy-toggle">
+              <label class="switch">
+                <input id="sett-proxy-enabled" type="checkbox" />
+                <span class="slider"></span>
+              </label>
+              <span data-i18n="sett.proxy_on">启用（关闭时代理不生效但保留配置）</span>
+            </div>
             <div class="sett-proxy-line">
               <select id="sett-proxy-type">
                 <option value="http">HTTP</option>

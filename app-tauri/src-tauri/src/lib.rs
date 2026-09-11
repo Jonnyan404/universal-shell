@@ -248,13 +248,13 @@ fn get_programs(state: State<AppState>) -> Vec<ProgramView> {
 /// 用当前网络设置(加速前缀 + 通用代理)构建 GitHub 客户端
 fn proxied_github(proxy: &shared::ProxySettings) -> shared::GitHub {
     let mut gh = shared::GitHub::default();
-    gh.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+    gh.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
     gh
 }
 
 fn proxied_http(proxy: &shared::ProxySettings) -> shared::source_http::HttpSource {
     let mut hs = shared::source_http::HttpSource::default();
-    hs.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+    hs.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
     hs
 }
 
@@ -729,6 +729,8 @@ fn reveal_app_dir(state: State<AppState>, program_id: String) -> Result<(), Stri
 struct ProxyView {
     accelerate_prefix: String,
     http_proxy: String,
+    /// 通用代理开关：false 时不生效（配置保留）
+    proxy_enabled: bool,
 }
 
 /// 读取当前网络代理/加速设置
@@ -738,6 +740,7 @@ fn get_proxy(state: State<AppState>) -> ProxyView {
     ProxyView {
         accelerate_prefix: mgr.proxy.accelerate_prefix.clone(),
         http_proxy: mgr.proxy.http_proxy.clone(),
+        proxy_enabled: mgr.proxy.proxy_effective(),
     }
 }
 
@@ -748,12 +751,17 @@ fn set_proxy(
     state: State<AppState>,
     accelerate_prefix: String,
     http_proxy: String,
+    proxy_enabled: bool,
 ) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
     mgr.proxy.accelerate_prefix = accelerate_prefix.trim().to_string();
     mgr.proxy.http_proxy = http_proxy.trim().to_string();
+    mgr.proxy.proxy_enabled = Some(proxy_enabled);
     // 应用到 GitHub 客户端（版本查询/下载）——先复制值再避免借用冲突
-    let (acc, hp) = (mgr.proxy.accelerate_prefix.clone(), mgr.proxy.http_proxy.clone());
+    let (acc, hp) = (
+        mgr.proxy.accelerate_prefix.clone(),
+        mgr.proxy.effective_http_proxy().to_string(),
+    );
     mgr.github.apply_network(&acc, &hp);
     // 清空全局最新版本缓存，避免旧网络结果残留
     shared::clear_github_cache();
@@ -799,7 +807,7 @@ fn check_shell_update(state: State<AppState>) -> Result<ShellUpdateView, String>
         let mgr = state.manager.lock().unwrap();
         (
             mgr.proxy.accelerate_prefix.clone(),
-            mgr.proxy.http_proxy.clone(),
+            mgr.proxy.effective_http_proxy().to_string(),
         )
     };
     let current = shared::version::build_version().to_string();
@@ -1159,7 +1167,7 @@ fn get_manifest(
         cache,
         mgr.registry_pubkeys.clone(),
         Some(&mgr.proxy.accelerate_prefix),
-        Some(&mgr.proxy.http_proxy),
+        Some(mgr.proxy.effective_http_proxy()),
     );
     let (offline, _fetched_at, manifest) = client
         .load_manifest()
@@ -1205,7 +1213,7 @@ fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<M
         cache,
         pubkeys,
         Some(&proxy.accelerate_prefix),
-        Some(&proxy.http_proxy),
+        Some(proxy.effective_http_proxy()),
         true,
     );
     Ok(MergedManifestView {
@@ -1358,7 +1366,7 @@ fn template_status(
         cache,
         mgr.registry_pubkeys.clone(),
         Some(&mgr.proxy.accelerate_prefix),
-        Some(&mgr.proxy.http_proxy),
+        Some(mgr.proxy.effective_http_proxy()),
     );
     let (_offline, program) = client
         .load_template(&template_id)
@@ -1390,7 +1398,7 @@ fn template_diff(
         cache,
         mgr.registry_pubkeys.clone(),
         Some(&mgr.proxy.accelerate_prefix),
-        Some(&mgr.proxy.http_proxy),
+        Some(mgr.proxy.effective_http_proxy()),
     );
     let (_offline, program) = client
         .load_template(&template_id)
@@ -1417,7 +1425,7 @@ fn import_template(
         cache,
         mgr.registry_pubkeys.clone(),
         Some(&mgr.proxy.accelerate_prefix),
-        Some(&mgr.proxy.http_proxy),
+        Some(mgr.proxy.effective_http_proxy()),
     );
     let (_offline, mut program) = client
         .load_template(&template_id)

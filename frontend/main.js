@@ -112,7 +112,8 @@ function showNotice(msg, isError) {
 async function netErrorNotice(err, n) {
   let hasProxy = false;
   try {
-    hasProxy = !!((await invoke("get_proxy")).http_proxy || "").trim();
+    const p = await invoke("get_proxy");
+    hasProxy = p.proxy_enabled !== false && !!(p.http_proxy || "").trim();
   } catch {}
   const key = hasProxy ? (n ? "err.net_proxy_n" : "err.net_proxy") : (n ? "err.network_n" : "err.network");
   showNotice(n ? t(key, { count: n }) : t(key), true);
@@ -1591,6 +1592,8 @@ function openSettings() {
   const typeEl = document.querySelector("#sett-proxy-type");
   const userEl = document.querySelector("#sett-proxy-user");
   const passEl = document.querySelector("#sett-proxy-pass");
+  const onEl = document.querySelector("#sett-proxy-enabled");
+  const proxyBox = document.querySelector(".sett-proxy");
   acc.value = "";
   hostEl.value = "";
   userEl.value = "";
@@ -1599,6 +1602,8 @@ function openSettings() {
   invoke("get_proxy")
     .then((p) => {
       acc.value = p.accelerate_prefix || "";
+      onEl.checked = p.proxy_enabled !== false;
+      proxyBox.classList.toggle("off", !onEl.checked);
       const parsed = parseProxy(p.http_proxy || "");
       typeEl.value = parsed.type;
       hostEl.value = parsed.host;
@@ -1632,12 +1637,13 @@ async function saveSettings() {
   const user = document.querySelector("#sett-proxy-user").value.trim();
   const pass = document.querySelector("#sett-proxy-pass").value;
   const hp = buildProxy(type, host, user, pass);
+  const proxyEnabled = document.querySelector("#sett-proxy-enabled").checked;
   const shellAuto = document.querySelector("#sett-shell-auto").checked;
   const webPort = Number(document.querySelector("#sett-web-port").value) || 0;
   const webBind = document.querySelector("#sett-lan").checked ? "0.0.0.0" : "";
   const webToken = document.querySelector("#sett-token").value.trim();
   try {
-    await invoke("set_proxy", { acceleratePrefix: acc, httpProxy: hp });
+    await invoke("set_proxy", { acceleratePrefix: acc, httpProxy: hp, proxyEnabled });
     try {
       await invoke("set_shell_autostart", { enabled: shellAuto });
     } catch (e) {
@@ -2570,6 +2576,9 @@ document.querySelector("#sett-cancel").onclick = () => { settingsModal.hidden = 
 document.querySelector("#settings-form").onsubmit = (e) => {
   e.preventDefault();
   saveSettings();
+};
+document.querySelector("#sett-proxy-enabled").onchange = (e) => {
+  document.querySelector(".sett-proxy").classList.toggle("off", !e.target.checked);
 };
 document.querySelector("#sett-check-update").onclick = () => checkShellUpdate(true);
 document.querySelector("#sett-update-link").onclick = (e) => {

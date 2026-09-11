@@ -213,6 +213,8 @@ struct ShellApp {
     progress: Option<(String, f64, String)>,
     /// 设置面板：加速前缀 / 通用代理 编辑框
     settings_accel: String,
+    /// 通用代理开关：关闭时即使填了地址也不生效
+    settings_proxy_enabled: bool,
     settings_proxy_type: String,
     settings_proxy_host: String,
     settings_proxy_user: String,
@@ -348,6 +350,7 @@ impl ShellApp {
             .and_then(|id| programs.iter().find(|p| &p.id == id).map(|p| p.id.clone()))
             .or_else(|| programs.first().map(|p| p.id.clone()));
         let settings_accel = mgr.proxy.accelerate_prefix.clone();
+        let settings_proxy_enabled = mgr.proxy.proxy_effective();
         let (settings_proxy_type, settings_proxy_host, settings_proxy_user, settings_proxy_pass) =
             parse_proxy(&mgr.proxy.http_proxy);
         let settings_shell_auto = mgr.autostart.shell_is_enabled();
@@ -412,6 +415,7 @@ impl ShellApp {
             status_pending: std::collections::HashSet::new(),
             progress: None,
             settings_accel,
+            settings_proxy_enabled,
             settings_proxy_type,
             settings_proxy_host,
             settings_proxy_user,
@@ -596,7 +600,7 @@ impl ShellApp {
                     cache,
                     pubkeys,
                     Some(&proxy.accelerate_prefix),
-                    Some(&proxy.http_proxy),
+                    Some(proxy.effective_http_proxy()),
                     true,
                 )
             } else {
@@ -619,7 +623,7 @@ impl ShellApp {
                 cache,
                 pubkeys,
                 Some(&proxy.accelerate_prefix),
-                Some(&proxy.http_proxy),
+                    Some(proxy.effective_http_proxy()),
             );
             match client.load_template(&id) {
                 Ok((_, program)) => {
@@ -649,7 +653,7 @@ impl ShellApp {
                     cache,
                     pubkeys,
                     Some(&proxy.accelerate_prefix),
-                    Some(&proxy.http_proxy),
+                    Some(proxy.effective_http_proxy()),
                 );
                 let (_offline, program) = client.load_template(&id).map_err(|e| format!("{e:#}"))?;
                 let diff = shared::ShellManager::template_diff(&installed, &program);
@@ -676,7 +680,7 @@ impl ShellApp {
                     cache,
                     pubkeys,
                     Some(&proxy.accelerate_prefix),
-                    Some(&proxy.http_proxy),
+                    Some(proxy.effective_http_proxy()),
                 );
                 let (_offline, program) =
                     client.load_template(&id).map_err(|e| format!("{e:#}"))?;
@@ -695,7 +699,7 @@ impl ShellApp {
         self.shell_update_checking = true;
         let current = shared::version::build_version().to_string();
         let accel = self.m().proxy.accelerate_prefix.clone();
-        let proxy = self.m().proxy.http_proxy.clone();
+        let proxy = self.m().proxy.effective_http_proxy().to_string();
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let result = shared::check_shell_update(&current, &accel, &proxy);
@@ -901,9 +905,9 @@ impl ShellApp {
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let mut gh = shared::GitHub::default();
-            gh.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+            gh.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
             let mut hs = shared::source_http::HttpSource::default();
-            hs.apply_network(&proxy.accelerate_prefix, &proxy.http_proxy);
+            hs.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
             let mut out = Vec::with_capacity(programs.len());
             for p in &programs {
                 let latest = shared::shell_manager::latest_remote(p, &gh, &hs).ok().flatten();
@@ -1287,38 +1291,48 @@ impl ShellApp {
                             .desired_width(f32::INFINITY),
                     );
                 });
-                // 通用代理：类型 + 地址 + 用户名/密码（对齐 Tauri sett-proxy）
+                // 通用代理：开关 + 类型 + 地址 + 用户名/密码（对齐 Tauri sett-proxy）
                 ui.horizontal(|ui| {
                     ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.proxy")));
-                    egui::ComboBox::from_id_salt("sett_proxy_type")
-                        .selected_text(&self.settings_proxy_type)
-                        .width(90.0)
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.settings_proxy_type, "http".to_string(), "HTTP");
-                            ui.selectable_value(&mut self.settings_proxy_type, "socks5".to_string(), "SOCKS5");
-                        });
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.settings_proxy_host)
-                            .hint_text(t!("sett.proxy_placeholder"))
-                            .desired_width(f32::INFINITY),
-                    );
+                    ui.checkbox(&mut self.settings_proxy_enabled, t!("sett.proxy_on"));
                 });
                 ui.horizontal(|ui| {
                     ui.add_space(100.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.settings_proxy_user)
-                            .hint_text(t!("sett.proxy_user"))
-                            .desired_width(f32::INFINITY),
-                    );
+                    ui.add_enabled_ui(self.settings_proxy_enabled, |ui| {
+                        egui::ComboBox::from_id_salt("sett_proxy_type")
+                            .selected_text(&self.settings_proxy_type)
+                            .width(90.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.settings_proxy_type, "http".to_string(), "HTTP");
+                                ui.selectable_value(&mut self.settings_proxy_type, "socks5".to_string(), "SOCKS5");
+                            });
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.settings_proxy_host)
+                                .hint_text(t!("sett.proxy_placeholder"))
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
                 });
                 ui.horizontal(|ui| {
                     ui.add_space(100.0);
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.settings_proxy_pass)
-                            .password(true)
-                            .hint_text(t!("sett.proxy_pass"))
-                            .desired_width(f32::INFINITY),
-                    );
+                    ui.add_enabled_ui(self.settings_proxy_enabled, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.settings_proxy_user)
+                                .hint_text(t!("sett.proxy_user"))
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.add_space(100.0);
+                    ui.add_enabled_ui(self.settings_proxy_enabled, |ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.settings_proxy_pass)
+                                .password(true)
+                                .hint_text(t!("sett.proxy_pass"))
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
                 });
                 // 壳开机自启（对齐 Tauri sett-shell-auto）
                 ui.horizontal(|ui| {
@@ -1414,7 +1428,9 @@ impl ShellApp {
                             let was_running = self.web_on && self.web_handle.is_some();
                             self.m().proxy.accelerate_prefix = accel.clone();
                             self.m().proxy.http_proxy = proxy.clone();
-                            self.m().github.apply_network(&accel, &proxy);
+                            self.m().proxy.proxy_enabled = Some(self.settings_proxy_enabled);
+                            let eff_proxy = self.m().proxy.effective_http_proxy().to_string();
+                            self.m().github.apply_network(&accel, &eff_proxy);
                             let shell_auto = self.settings_shell_auto;
                             let autostart_r = self
                                 .m()
