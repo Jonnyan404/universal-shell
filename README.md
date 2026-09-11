@@ -13,6 +13,17 @@ A configuration-driven manager that downloads, configures, and runs third-party 
 
 ## Quick start
 
+### 0. Pick an interface
+
+| | egui (`app-egui`) | Tauri (`app-tauri`) | CLI (`us-web`, `app-cli`) |
+|---|---|---|---|
+| What it is | Lightweight native GUI | Full-featured desktop app (system WebView) | Headless web manager, no window |
+| Best for | Tray-resident light tool, fastest to start | Polished UI / rich frontend | NAS, Raspberry Pi, headless server |
+| Rendering | Native drawing, no WebView | System WebView | Browser only |
+| File picker | rfd | tauri dialog plugin | manual / upload via web |
+
+Yes, all three share the same config, data directory and template library — safe to switch between them anytime.
+
 ### 1. Download
 
 Get the package for your OS from **Releases**.
@@ -23,30 +34,22 @@ Get the package for your OS from **Releases**.
 | Windows | `.msi` or `.exe` |
 | Linux | binary |
 
-### 2. Run
+### 2. First-run workflow (remote template library)
 
-A built-in demo program is ready on first launch — just run (egui starts fastest):
+The primary way to get programs is the **template library**: browse → import → run. No need to hand-write config.
 
-```bash
-cargo run -p app-egui
-```
+1. Open **Template library** (tab in the sidebar).
+2. Click **Refresh** to fetch the library.
+   > **Network note**: refreshing hits GitHub directly. If GitHub is unreachable in your region or times out, configure the network settings under **Settings** (accelerate prefix and/or proxy) first, then refresh again.
+3. **Import** the programs you need — they are installed and managed automatically (SHA256-verified downloads, no manual config).
 
-Or launch the installed app and point it at your own config file:
+That's it. Picked templates become instances you can **Start / Stop** right away.
 
-```bash
-cargo run -p app-egui -- /path/to/shell.json
-```
+> Alternatively, you can skip the library and manage programs by hand in `shell.json` (see [Config](#config)).
 
-### 3. Configure
+### 3. Use
 
-Load a `shell.json` (see [Config](#config)). Then in the UI:
-
-- **Browse templates** → pick a program → import → it installs & manages itself.
-- Or add a program manually via the config file.
-
-### 4. Use
-
-Set the fields, enable autostart if you want, and press **Start**. The program runs in the background and shows under a tray icon.
+Set the fields if needed, enable autostart if you want, and press **Start**. The program runs in the background and shows under a tray icon.
 
 ## Config (`shell.json`)
 
@@ -156,6 +159,17 @@ MIT — see [LICENSE](LICENSE).
 
 ## 快速上手
 
+### 0. 先选界面
+
+| | egui（`app-egui`） | Tauri（`app-tauri`） | CLI（`us-web`，`app-cli`） |
+|---|---|---|---|
+| 是什么 | 轻量原生 GUI | 完整桌面应用（系统 WebView） | 无窗口 Web 管理服务 |
+| 适合 | 托盘常驻轻工具，启动最快 | 界面精致 / 前端生态 | 树莓派 / NAS / 无桌面服务器 |
+| 渲染 | 原生绘制，无 WebView | 系统 WebView | 仅浏览器 |
+| 文件选择 | rfd | tauri dialog 插件 | 手填 / 网页上传 |
+
+三者共用同一份配置、数据目录和模板库，可随时切换。
+
 ### 1. 下载
 
 从 **Releases** 下载对应你系统的安装包/二进制。
@@ -166,26 +180,22 @@ MIT — see [LICENSE](LICENSE).
 | Windows | `.msi` 或 `.exe` |
 | Linux | 二进制 |
 
-### 2. 运行
+### 2. 首次使用（远程模板库流程）
 
-用示例配置直接体验（egui 启动最快）：
+获取程序的主要方式是**模板库**：浏览 → 导入 → 运行，全程无需手写配置。
 
-```bash
-cargo run -p app-egui
-```
+1. 打开侧栏的「**模板库**」页。
+2. 点击「**刷新**」拉取模板库。
+   > **网络提示**：刷新会直连 GitHub。如果你的网络访问 GitHub 不通或超时，先去「设置」里配置网络代理（加速地址和/或通用代理），再回来刷新。
+3. **导入**你需要的程序——自动下载安装并纳入管理（SHA256 校验，无需手动配置）。
 
-或启动已安装的应用，指向你自己的配置文件。
+完成。导入的模板会成为可立即「**启动 / 停止**」的实例。
 
-### 3. 配置
+> 也可以不走模板库，直接在 `shell.json` 里手写程序（见下方 [配置格式](#配置格式-shelljson)）。
 
-加载你的 `shell.json`（见下方 [配置格式](#配置格式)）。然后在界面里：
+### 3. 使用
 
-- **浏览模板库** → 选一个程序 → 导入 → 自动安装与管理。
-- 或手动在配置文件里添加程序。
-
-### 4. 使用
-
-填好字段、按需勾选开机启动、点 **启动**。程序在后台运行，并出现在托盘图标下。
+需要时填好字段、按需勾选开机启动，点 **启动**。程序在后台运行，并出现在托盘图标下。
 
 ## 配置格式 (`shell.json`)
 
@@ -256,15 +266,14 @@ cargo run -p shared --example sign_registry
 ./scripts/build-release.sh 0.1.0
 ```
 
-### egui 与 Tauri 对比
+### 三端对比（egui / Tauri / CLI）
 
-| | egui (`app-egui`) | Tauri (`app-tauri`) |
-|---|---|---|
-| 渲染 | 原生绘制，无 WebView | 系统 WebView |
-| 体积 | ~20 MB，单二进制 | 依赖 webview |
-| 动态表单 | 纯代码遍历渲染 | JS 渲染 + 后端命令 |
-| 文件选择 | rfd | tauri dialog 插件 |
-| 适合 | 轻量托盘常驻工具 | 界面精致 / 前端生态 |
+| | egui (`app-egui`) | Tauri (`app-tauri`) | CLI (`us-web`，`app-cli`) |
+|---|---|---|---|
+| 渲染 | 原生绘制，无 WebView | 系统 WebView | 无界面（纯 Web 服务） |
+| 体积 | ~20 MB，单二进制 | 依赖 webview | 单二进制 |
+| 动态表单 | 纯代码遍历渲染 | JS 渲染 + 后端命令 | 同 Tauri（同一份 Web 前端） |
+| 文件选择 | rfd | tauri dialog 插件 | 手填 / 网页上传 |
 
 ## 安全说明
 
