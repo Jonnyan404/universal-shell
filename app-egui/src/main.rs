@@ -213,8 +213,6 @@ struct ShellApp {
     status_pending: std::collections::HashSet<String>,
     /// 当前下载进度：(程序 id, 完成比例 0.0..=1.0, 阶段文案)
     progress: Option<(String, f64, String)>,
-    /// 设置面板：加速前缀 / 通用代理 编辑框
-    settings_accel: String,
     /// 设置面板：加速地址预置列表 (id, url)
     settings_accel_list: Vec<(String, String)>,
     settings_selected_accel: String,
@@ -230,6 +228,10 @@ struct ShellApp {
     settings_proxy_host: String,
     settings_proxy_user: String,
     settings_proxy_pass: String,
+    /// 正在编辑的条目 id（None=新增模式；在哪个列表由 kind 决定）
+    settings_edit_id: Option<String>,
+    /// 配套 edit_id 的 kind："acc" 或 "proxy"
+    settings_edit_kind: String,
     /// 设置面板：壳自身开机自启（对齐 Tauri sett-shell-auto）
     settings_shell_auto: bool,
     /// 设置面板：内嵌 Web 管理监听设置（绑定 IP / 端口 / 自定义令牌）
@@ -360,7 +362,6 @@ impl ShellApp {
             .as_ref()
             .and_then(|id| programs.iter().find(|p| &p.id == id).map(|p| p.id.clone()))
             .or_else(|| programs.first().map(|p| p.id.clone()));
-        let settings_accel = String::new();
         let settings_accel_list = mgr
             .proxy
             .accelerate_presets
@@ -439,7 +440,6 @@ impl ShellApp {
             template_status: std::collections::HashMap::new(),
             status_pending: std::collections::HashSet::new(),
             progress: None,
-            settings_accel,
             settings_accel_list,
             settings_selected_accel,
             settings_proxy_list,
@@ -451,6 +451,8 @@ impl ShellApp {
             settings_proxy_host,
             settings_proxy_user,
             settings_proxy_pass,
+            settings_edit_id: None,
+            settings_edit_kind: String::new(),
             settings_shell_auto,
             settings_web_bind,
             settings_web_port,
@@ -1316,58 +1318,87 @@ cache,
     }
 
     /// 在设置面板添加一个新加速地址（预置或自定义）并选中
-    fn settle_accel_add(&mut self) {
-        let url = self.settings_accel.trim().to_string();
-        if url.is_empty() || !(url.starts_with("http://") || url.starts_with("https://")) {
-            self.show_toast(t!("sett.url_invalid").to_string());
-            return;
+    /// 在设置面板添加/更新一个条目（统一入口：类型选择 acc/http/socks5）
+    fn settle_net_submit(&mut self) {
+        let ty = self.settings_proxy_type.clone();
+        let host = self.settings_proxy_host.trim().to_string();
+        let user = self.settings_proxy_user.trim().to_string();
+        let pass = self.settings_proxy_pass.clone();
+        let is_acc = ty == "acc";
+        let url = if is_acc {
+            if host.is_empty() || !(host.starts_with("http://") || host.starts_with("https://")) {
+                self.show_toast(t!("sett.url_invalid").to_string());
+                return;
+            }
+            host.clone()
+        } else {
+            let built = build_proxy(&ty, &host, &user, &pass);
+            if built.is_empty() {
+                self.show_toast(t!("sett.proxy_placeholder").to_string());
+                return;
+            }
+            built
+        };
+        // 编辑模式
+        if let Some(ref edit_id) = self.settings_edit_id.clone() {
+            let kind = self.settings_edit_kind.clone();
+            if kind == "acc" {
+                if self.settings_accel_list.iter().any(|(i, u)| i != edit_id && *u == url) {
+                    self.show_toast(t!("sett.dup").to_string());
+                    return;
+                }
+                if let Some(entry) = self.settings_accel_list.iter_mut().find(|(i, _)| i == edit_id) {
+                    entry.1 = url.clone();
+                }
+            } else {
+                if self.settings_proxy_list.iter().any(|(i, u)| i != edit_id && *u == url) {
+                    self.show_toast(t!("sett.dup").to_string());
+                    return;
+                }
+                if let Some(entry) = self.settings_proxy_list.iter_mut().find(|(i, _)| i == edit_id) {
+                    entry.1 = url.clone();
+                }
+            }
+            self.settings_edit_id = None;
+        } else {
+            // 新增模式
+            if is_acc {
+                if self.settings_accel_list.iter().any(|(_, u)| *u == url) {
+                    self.show_toast(t!("sett.dup").to_string());
+                    return;
+                }
+                let id = format!("a{}", shared::short_id());
+                self.settings_accel_list.push((id.clone(), url));
+                self.settings_selected_accel = id;
+                self.settings_selected_proxy.clear();
+            } else {
+                if self.settings_proxy_list.iter().any(|(_, u)| *u == url) {
+                    self.show_toast(t!("sett.dup").to_string());
+                    return;
+                }
+                let id = format!("p{}", shared::short_id());
+                self.settings_proxy_list.push((id.clone(), url));
+                self.settings_selected_proxy = id;
+                self.settings_selected_accel.clear();
+            }
         }
-        if self.settings_accel_list.iter().any(|(_, u)| *u == url) {
-            self.show_toast(t!("sett.dup").to_string());
-            return;
-        }
-        let id = format!("a{}", shared::short_id());
-        self.settings_accel_list.push((id.clone(), url));
-        self.settings_selected_accel = id;
-        self.settings_accel.clear();
-        self.measure_net_pings(false);
-    }
-
-    /// 在设置面板添加一个新代理并选中
-    fn settle_proxy_add(&mut self) {
-        let proxy = build_proxy(
-            &self.settings_proxy_type,
-            self.settings_proxy_host.trim(),
-            self.settings_proxy_user.trim(),
-            &self.settings_proxy_pass,
-        );
-        if proxy.is_empty() {
-            self.show_toast(t!("sett.proxy_placeholder").to_string());
-            return;
-        }
-        if self.settings_proxy_list.iter().any(|(_, u)| *u == proxy) {
-            self.show_toast(t!("sett.dup").to_string());
-            return;
-        }
-        let id = format!("p{}", shared::short_id());
-        self.settings_proxy_list.push((id.clone(), proxy));
-        self.settings_selected_proxy = id;
         self.settings_proxy_host.clear();
         self.settings_proxy_user.clear();
         self.settings_proxy_pass.clear();
-        self.measure_net_pings(true);
+        self.measure_net_pings();
     }
 
-    /// 后台测速：proxy_only=true 测代理列表，false 测加速地址列表；结果经 Msg::PingsDone 回 UI
-    fn measure_net_pings(&mut self, proxy_only: bool) {
+    /// 后台测速：同时测加速地址和代理列表；结果经 Msg::PingsDone 回 UI
+    fn measure_net_pings(&mut self) {
         if self.settings_ping_busy {
             return;
         }
-        let targets: Vec<(String, bool)> = if proxy_only {
-            self.settings_proxy_list.iter().map(|(u, _)| (u.clone(), true)).collect()
-        } else {
-            self.settings_accel_list.iter().map(|(u, _)| (u.clone(), false)).collect()
-        };
+        let targets: Vec<(String, bool)> = self
+            .settings_accel_list
+            .iter()
+            .map(|(u, _)| (u.clone(), false))
+            .chain(self.settings_proxy_list.iter().map(|(u, _)| (u.clone(), true)))
+            .collect();
         if targets.is_empty() {
             return;
         }
@@ -1405,149 +1436,195 @@ cache,
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut self.settings_proxy_enabled, t!("sett.proxy_on"));
                 });
-                // 加速地址 / 代理列表：收进可折叠区减少挤占
-                egui::CollapsingHeader::new(t!("sett.collapse_head"))
+                // 当前生效预览条
+                {
+                    let enabled = self.settings_proxy_enabled;
+                    let eff: Option<(String, String)> = if enabled {
+                        let proxy_id = self.settings_selected_proxy.clone();
+                        let accel_id = self.settings_selected_accel.clone();
+                        if !proxy_id.is_empty() {
+                            self.settings_proxy_list
+                                .iter()
+                                .find(|(i, _)| *i == proxy_id)
+                                .map(|(_, u)| ("proxy".into(), u.clone()))
+                        } else if !accel_id.is_empty() {
+                            self.settings_accel_list
+                                .iter()
+                                .find(|(i, _)| *i == accel_id)
+                                .map(|(_, u)| ("acc".into(), u.clone()))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    ui.horizontal(|ui| {
+                        ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.net_list")));
+                        match eff {
+                            Some((kind, url)) => {
+                                let kind_label = if kind == "proxy" { t!("sett.kind_proxy") } else { t!("sett.kind_acc") };
+                                let icon = if kind == "proxy" { "🚀" } else { "⚡" };
+                                let ping = self.settings_pings.get(&url).and_then(|p| *p);
+                                let suffix = match ping {
+                                    Some(ms) => format!(" · {ms} ms"),
+                                    None => {
+                                        if self.settings_pings.contains_key(&url) {
+                                            format!(" · {}", t!("sett.ping_fail"))
+                                        } else {
+                                            String::new()
+                                        }
+                                    }
+                                };
+                                ui.label(format!("{icon} {kind_label} · {url}{suffix}"));
+                            }
+                            None => {
+                                let hint = if enabled { t!("sett.eff_none") } else { t!("sett.eff_off") };
+                                ui.label(hint);
+                            }
+                        }
+                    });
+                }
+                // 加速 & 代理：收进可折叠区减少挤占
+                egui::CollapsingHeader::new(t!("sett.net_list"))
                     .default_open(false)
                     .id_salt("sett_net_collapse")
                     .show(ui, |ui| {
-                        // 加速地址预置列表：单选 + 测速 + 删除；下方输入框添加新项
                         ui.horizontal(|ui| {
-                            ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.accelerate")));
-                            ui.horizontal(|ui| {
-                                if ui
-                                    .small_button(format!("🔄 {}", t!("sett.ping")))
-                                    .clicked()
-                                {
-                                    self.measure_net_pings(false);
-                                }
-                                if ui.small_button(format!("+ {}", t!("act.add"))).clicked() {
-                                    self.settle_accel_add();
-                                }
-                            });
-                        });
-                        ui.add_enabled_ui(self.settings_proxy_enabled, |ui| {
-                            let mut accel_to_del: Option<String> = None;
-                            let items: Vec<(String, String)> = self.settings_accel_list.clone();
-                            let selected = self.settings_selected_accel.clone();
-                            let mut sel_change: Option<String> = None;
-                            for (id, url) in &items {
-                                ui.horizontal(|ui| {
-                                    ui.add_space(100.0);
-                                    let is_sel = selected == *id;
-                                    if ui
-                                        .radio(is_sel, "")
-                                        .on_hover_text(url)
-                                        .clicked()
-                                    {
-                                        sel_change = Some(id.clone());
-                                    }
-                                    let ping = self.settings_pings.get(url);
-                                    let ping_text = match ping {
-                                        Some(Some(ms)) => format!("  {ms} ms"),
-                                        Some(None) => format!("  {}", t!("sett.ping_fail")),
-                                        None => String::new(),
-                                    };
-                                    ui.label(format!("{url}{ping_text}"));
-                                    if ui.small_button("🗑").clicked() {
-                                        accel_to_del = Some(id.clone());
-                                    }
-                                });
+                            if ui
+                                .small_button(format!("🔄 {}", t!("sett.ping")))
+                                .clicked()
+                            {
+                                self.measure_net_pings();
                             }
-                            if let Some(id) = sel_change {
-                                self.settings_selected_accel = id;
-                            }
-                            ui.horizontal(|ui| {
-                                ui.add_space(100.0);
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.settings_accel)
-                                        .hint_text(t!("sett.acc_placeholder"))
-                                        .desired_width(f32::INFINITY),
-                                );
-                            });
-                            if let Some(id) = accel_to_del {
-                                self.settings_accel_list
-                                    .retain(|(i, _)| *i != id);
-                                if self.settings_selected_accel == id {
-                                    self.settings_selected_accel =
-                                        self.settings_accel_list.first().map(|(i, _)| i.clone()).unwrap_or_default();
-                                }
-                            }
-                        });
-                        ui.add_space(8.0);
-                        // 通用代理：已保存列表（单选 + 测速 + 删除）+ 添加表单
-                        ui.horizontal(|ui| {
-                            ui.add_sized([100.0, 0.0], egui::Label::new(t!("sett.proxy")));
-                            if ui.small_button(format!("🔄 {}", t!("sett.ping"))).clicked() {
-                                self.measure_net_pings(true);
+                            if ui.small_button(format!("+ {}", t!("act.add"))).clicked() {
+                                self.settings_edit_id = None;
+                                self.settings_proxy_type = "http".into();
+                                self.settings_proxy_host.clear();
+                                self.settings_proxy_user.clear();
+                                self.settings_proxy_pass.clear();
                             }
                         });
                         ui.add_enabled_ui(self.settings_proxy_enabled, |ui| {
-                            let mut proxy_to_del: Option<String> = None;
-                            let items: Vec<(String, String)> = self.settings_proxy_list.clone();
-                            let selected = self.settings_selected_proxy.clone();
-                            let mut sel_change: Option<String> = None;
-                            for (id, url) in &items {
+                            // 构建合并列表（加速 + 代理），支持单选
+                            #[derive(Clone)]
+                            struct NetItem { id: String, url: String, kind: String }
+                            let mut items: Vec<NetItem> = Vec::new();
+                            for (id, url) in &self.settings_accel_list {
+                                items.push(NetItem { id: id.clone(), url: url.clone(), kind: "acc".into() });
+                            }
+                            for (id, url) in &self.settings_proxy_list {
+                                items.push(NetItem { id: id.clone(), url: url.clone(), kind: "proxy".into() });
+                            }
+                            let mut to_del: Option<(String, String)> = None; // (kind, id)
+                            let mut sel_change: Option<(String, String)> = None; // (kind, id)
+                            for it in &items {
+                                let is_sel = (it.kind == "proxy" && self.settings_selected_proxy == it.id)
+                                    || (it.kind == "acc" && self.settings_selected_accel == it.id);
+                                let ping = self.settings_pings.get(&it.url);
+                                let ping_text = match ping {
+                                    Some(Some(ms)) => format!(" {ms} ms"),
+                                    Some(None) => format!(" {}", t!("sett.ping_fail")),
+                                    None => String::new(),
+                                };
+                                let kind_label = if it.kind == "proxy" { t!("sett.kind_proxy") } else { t!("sett.kind_acc") };
+                                let icon = if it.kind == "proxy" { "🚀" } else { "⚡" };
                                 ui.horizontal(|ui| {
                                     ui.add_space(100.0);
-                                    let is_sel = selected == *id;
-                                    if ui.radio(is_sel, "").on_hover_text(url).clicked() {
-                                        sel_change = Some(id.clone());
+                                    if ui.radio(is_sel, "").on_hover_text(&it.url).clicked() {
+                                        sel_change = Some((it.kind.clone(), it.id.clone()));
                                     }
-                                    let ping = self.settings_pings.get(url);
-                                    let ping_text = match ping {
-                                        Some(Some(ms)) => format!("  {ms} ms"),
-                                        Some(None) => format!("  {}", t!("sett.ping_fail")),
-                                        None => String::new(),
-                                    };
-                                    ui.label(format!("{url}{ping_text}"));
+                                    ui.label(format!("{icon} {kind_label}"));
+                                    ui.label(format!("{}{ping_text}", it.url));
+                                    if ui.small_button(format!("✎ {}", t!("sett.edit"))).clicked() {
+                                        // 进入编辑模式
+                                        self.settings_edit_id = Some(it.id.clone());
+                                        self.settings_edit_kind = it.kind.clone();
+                                        if it.kind == "acc" {
+                                            self.settings_proxy_type = "acc".into();
+                                            self.settings_proxy_host = it.url.clone();
+                                            self.settings_proxy_user.clear();
+                                            self.settings_proxy_pass.clear();
+                                        } else {
+                                            let (ty, host, user, pass) = parse_proxy(&it.url);
+                                            self.settings_proxy_type = ty;
+                                            self.settings_proxy_host = host;
+                                            self.settings_proxy_user = user;
+                                            self.settings_proxy_pass = pass;
+                                        }
+                                    }
                                     if ui.small_button("🗑").clicked() {
-                                        proxy_to_del = Some(id.clone());
+                                        to_del = Some((it.kind.clone(), it.id.clone()));
                                     }
                                 });
                             }
-                            if let Some(id) = sel_change {
-                                self.settings_selected_proxy = id;
+                            if let Some((kind, id)) = sel_change {
+                                // 单选：清除另一侧
+                                if kind == "proxy" {
+                                    self.settings_selected_proxy = id;
+                                    self.settings_selected_accel.clear();
+                                } else {
+                                    self.settings_selected_accel = id;
+                                    self.settings_selected_proxy.clear();
+                                }
                             }
-                            // 添加代理表单：类型 + 地址 + 用户名/密码（对齐 Tauri sett-proxy）
+                            if let Some((kind, id)) = to_del {
+                                if kind == "proxy" {
+                                    self.settings_proxy_list.retain(|(i, _)| *i != id);
+                                    if self.settings_selected_proxy == id {
+                                        self.settings_selected_proxy = self.settings_proxy_list
+                                            .first().map(|(i, _)| i.clone()).unwrap_or_default();
+                                    }
+                                } else {
+                                    self.settings_accel_list.retain(|(i, _)| *i != id);
+                                    if self.settings_selected_accel == id {
+                                        self.settings_selected_accel = self.settings_accel_list
+                                            .first().map(|(i, _)| i.clone()).unwrap_or_default();
+                                    }
+                                }
+                                if self.settings_edit_id.as_deref() == Some(&id) {
+                                    self.settings_edit_id = None;
+                                }
+                            }
+                            // 统一添加/编辑表单
                             ui.horizontal(|ui| {
                                 ui.add_space(100.0);
-                                egui::ComboBox::from_id_salt("sett_proxy_type")
+                                egui::ComboBox::from_id_salt("sett_net_type")
                                     .selected_text(&self.settings_proxy_type)
                                     .width(90.0)
                                     .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut self.settings_proxy_type, "http".to_string(), "HTTP");
-                                        ui.selectable_value(&mut self.settings_proxy_type, "socks5".to_string(), "SOCKS5");
+                                        ui.selectable_value(&mut self.settings_proxy_type, "acc".into(), t!("sett.kind_acc"));
+                                        ui.selectable_value(&mut self.settings_proxy_type, "http".into(), "HTTP");
+                                        ui.selectable_value(&mut self.settings_proxy_type, "socks5".into(), "SOCKS5");
                                     });
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.settings_proxy_host)
-                                        .hint_text(t!("sett.proxy_placeholder"))
+                                        .hint_text(if self.settings_proxy_type == "acc" { t!("sett.acc_placeholder") } else { t!("sett.proxy_placeholder") })
                                         .desired_width(f32::INFINITY),
                                 );
-                                if ui.button(format!("+ {}", t!("act.add"))).clicked() {
-                                    self.settle_proxy_add();
+                                let btn_label = if self.settings_edit_id.is_some() {
+                                    t!("act.save").to_string()
+                                } else {
+                                    format!("+ {}", t!("act.add"))
+                                };
+                                if ui.button(btn_label).clicked() {
+                                    self.settle_net_submit();
                                 }
                             });
-                            ui.horizontal(|ui| {
-                                ui.add_space(100.0);
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.settings_proxy_user)
-                                        .hint_text(t!("sett.proxy_user"))
-                                        .desired_width(f32::INFINITY),
-                                );
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.settings_proxy_pass)
-                                        .password(true)
-                                        .hint_text(t!("sett.proxy_pass"))
-                                        .desired_width(f32::INFINITY),
-                                );
-                            });
-                            if let Some(id) = proxy_to_del {
-                                self.settings_proxy_list
-                                    .retain(|(i, _)| *i != id);
-                                if self.settings_selected_proxy == id {
-                                    self.settings_selected_proxy =
-                                        self.settings_proxy_list.first().map(|(i, _)| i.clone()).unwrap_or_default();
-                                }
+                            if self.settings_proxy_type != "acc" {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(100.0);
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.settings_proxy_user)
+                                            .hint_text(t!("sett.proxy_user"))
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                    ui.add(
+                                        egui::TextEdit::singleline(&mut self.settings_proxy_pass)
+                                            .password(true)
+                                            .hint_text(t!("sett.proxy_pass"))
+                                            .desired_width(f32::INFINITY),
+                                    );
+                                });
                             }
                         });
                     });

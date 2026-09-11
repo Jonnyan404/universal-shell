@@ -592,6 +592,16 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .sett-add-line { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .sett-add-line .op-btn { flex: 0 0 auto; padding: 6px 12px; font-size: 12px; }
 .sett-proxy-empty { color: var(--muted); font-size: 12px; padding: 4px 2px; }
+.sett-effective { display: flex; align-items: center; gap: 6px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; min-height: 32px; }
+.sett-effective:empty::after { content: "—"; color: var(--muted); }
+.sett-effective .eff-ico { font-size: 14px; flex: 0 0 auto; }
+.sett-effective .eff-kind { font-size: 11px; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 0 5px; flex: 0 0 auto; }
+.sett-effective .eff-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sett-effective .eff-ping { flex: 0 0 auto; color: var(--ok); font-size: 11px; }
+.sett-item .kind-tag { font-size: 10px; border: 1px solid var(--accent); border-radius: 4px; padding: 0 5px; flex: 0 0 auto; white-space: nowrap; color: var(--text); }
+.sett-item .kind-tag.kind-proxy { border-color: var(--muted); }
+.sett-item .op-edit { flex: 0 0 auto; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 13px; }
+.sett-item .op-edit:hover { color: var(--accent); }
 .sett-collapsible { margin-top: 8px; }
 .sett-collapsible summary {
   cursor: pointer; color: var(--accent); font-size: 13px; padding: 2px 0 6px;
