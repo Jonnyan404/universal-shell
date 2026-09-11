@@ -9,6 +9,20 @@ use anyhow::{anyhow, Context};
 use log::info;
 use rust_i18n::t;
 
+/// 让子进程不弹出控制台窗口（黑窗）。
+/// Rust 的 Command::spawn 在 Windows 默认会为控制台子系统程序创建/继承一个
+/// 控制台窗口——壳是 GUI 进程，启动 CLI 程序（如 tasklist、被管理的控制台应用）
+/// 时就会闪现黑色窗口。用 CREATE_NO_WINDOW 让派生进程不占用可见控制台。
+#[cfg(windows)]
+fn suppress_console(cmd: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn suppress_console(_cmd: &mut std::process::Command) {}
+
 /// 把一路字节流逐行写入共享日志。`is_stderr` 时行首加 \x1F 标记(供前端着色)。
 /// 写满一定行数后检查体积，超限就地截末一半：程序跑几小时日志不再无限增长。
 fn copy_stream_lines<R: std::io::BufRead>(
@@ -163,10 +177,10 @@ impl Runner {
             return Vec::new();
         };
         let mut pids = Vec::new();
-        let Ok(out) = std::process::Command::new("tasklist")
-            .args(["/FI", &format!("IMAGENAME eq {name}"), "/FO", "CSV", "/NH"])
-            .output()
-        else {
+        let mut cmd = std::process::Command::new("tasklist");
+        cmd.args(["/FI", &format!("IMAGENAME eq {name}"), "/FO", "CSV", "/NH"]);
+        suppress_console(&mut cmd);
+        let Ok(out) = cmd.output() else {
             return pids;
         };
         let text = String::from_utf8_lossy(&out.stdout);
@@ -210,9 +224,10 @@ impl Runner {
     pub fn kill_orphan_by_path(&self, bin_path: &Path) -> bool {
         let pids = self.pids_by_path(bin_path);
         for &pid in &pids {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/F", "/T"])
-                .status();
+            let mut cmd = std::process::Command::new("taskkill");
+            cmd.args(["/PID", &pid.to_string(), "/F", "/T"]);
+            suppress_console(&mut cmd);
+            let _ = cmd.status();
         }
         !pids.is_empty()
     }
@@ -275,6 +290,10 @@ impl Runner {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .stdin(std::process::Stdio::null());
+        // Windows「无黑窗」：壳是 GUI 进程，直接 spawn 控制台程序会闪黑窗，
+        // 派生前设 CREATE_NO_WINDOW；受管程序的 stdout/stderr 已重定向到日志文件，
+        // 无需可见控制台，不影响其功能。unix 上为 no-op。
+        suppress_console(&mut cmd);
         #[cfg(unix)]
         {
             // 子进程忽略 SIGPIPE：壳退出后管道读端关闭，残留孤儿再写日志只会 EPIPE，

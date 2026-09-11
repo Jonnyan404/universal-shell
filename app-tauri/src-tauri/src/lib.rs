@@ -1497,9 +1497,11 @@ fn open_in_file_manager(path: PathBuf) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn open_in_file_manager(path: PathBuf) -> Result<(), String> {
-    std::process::Command::new("explorer")
-        .arg(&path)
-        .spawn()
+    let mut cmd = std::process::Command::new("explorer");
+    cmd.arg(&path);
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW，避免黑窗闪烁
+    cmd.spawn()
         .map(|_| ())
         .map_err(|e| format!("{e:#}"))
 }

@@ -1164,9 +1164,7 @@ impl ShellApp {
                 .on_hover_text(t!("ui.github"))
                 .clicked()
             {
-                let _ = std::process::Command::new(open_cmd())
-                    .arg(format!("https://github.com/{}", shared::SHELL_REPO))
-                    .spawn();
+                spawn_open(&format!("https://github.com/{}", shared::SHELL_REPO));
             }
         });
         ui.separator();
@@ -1572,9 +1570,7 @@ impl ShellApp {
                 });
             });
         if goto_download {
-            let _ = std::process::Command::new(open_cmd())
-                .arg(&u.release_url)
-                .spawn();
+            spawn_open(&u.release_url);
             open = false;
         }
         if dismissed {
@@ -1721,7 +1717,7 @@ impl ShellApp {
                 && ui.button("🗁").on_hover_text(t!("act.open_app_dir")).clicked()
             {
                 let app_dir = self.m().app_dir(&p);
-                let _ = std::process::Command::new(open_cmd()).arg(&app_dir).spawn();
+                spawn_open(&app_dir.to_string_lossy());
             }
             if url.is_some() {
                 if ui.button("📋").on_hover_text(t!("act.copy_addr")).clicked() {
@@ -1729,8 +1725,7 @@ impl ShellApp {
                     self.show_toast(t!("toast.addr_copied").to_string());
                 }
                 if ui.button("↗").on_hover_text(t!("act.open_site")).clicked() {
-                    let cmd = open_cmd();
-                    let _ = std::process::Command::new(&cmd).arg(url.as_deref().unwrap()).spawn();
+                    spawn_open(url.as_deref().unwrap());
                 }
             }
         });
@@ -2763,7 +2758,7 @@ impl ShellApp {
                             .clicked()
                     {
                         let d = self.m().app_dir(p);
-                        let _ = std::process::Command::new(open_cmd()).arg(&d).spawn();
+                        spawn_open(&d.to_string_lossy());
                     }
                     if ui.small_button(t!("act.edit")).clicked() {
                         self.open_edit(&p.id);
@@ -2816,7 +2811,7 @@ impl ShellApp {
                     }
                     if ui.small_button("🗁").on_hover_text(t!("act.open_log_dir")).clicked() {
                         let d = self.m().data_dir.join("logs");
-                        let _ = std::process::Command::new(open_cmd()).arg(&d).spawn();
+                        spawn_open(&d.to_string_lossy());
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("×").on_hover_text(t!("act.close")).clicked() {
@@ -3657,6 +3652,18 @@ fn open_cmd() -> String {
     } else {
         "xdg-open".into()
     }
+}
+
+/// 用系统默认方式打开路径/URL，Windows 下避免控制台黑窗闪烁。
+fn spawn_open(target: &str) {
+    let mut cmd = std::process::Command::new(open_cmd());
+    cmd.arg(target);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    let _ = cmd.spawn();
 }
 
 /// FieldKind 的字符串名（对齐 Tauri edit 的 kind 下拉选项）。

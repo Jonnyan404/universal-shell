@@ -1471,10 +1471,24 @@ fn open_external(url: &str) -> anyhow::Result<()> {
 
 #[cfg(target_os = "windows")]
 fn open_in_file_manager(path: PathBuf) -> anyhow::Result<()> {
-    std::process::Command::new("explorer").arg(&path).spawn().map(|_| ()).map_err(Into::into)
+    let mut cmd = std::process::Command::new("explorer");
+    cmd.arg(&path);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW，避免黑窗闪烁
+    }
+    cmd.spawn().map(|_| ()).map_err(Into::into)
 }
 
 #[cfg(target_os = "windows")]
 fn open_external(url: &str) -> anyhow::Result<()> {
-    std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn().map(|_| ()).map_err(Into::into)
+    let mut cmd = std::process::Command::new("cmd");
+    cmd.args(["/C", "start", "", url]);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW，避免黑窗闪烁
+    }
+    cmd.spawn().map(|_| ()).map_err(Into::into)
 }

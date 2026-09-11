@@ -474,5 +474,9 @@ fn open_url(url: &str) -> std::io::Result<()> {
 
 #[cfg(target_os = "windows")]
 fn open_url(url: &str) -> std::io::Result<()> {
-    std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn().map(|_| ())
+    let mut cmd = std::process::Command::new("cmd");
+    cmd.args(["/C", "start", "", url]);
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW，避免黑窗闪烁
+    cmd.spawn().map(|_| ())
 }
