@@ -1637,6 +1637,7 @@ cache,
                             let web_token = self.settings_web_token.trim().to_string();
                             let was_running = self.web_on && self.web_handle.is_some();
                             // 网络：代理优先于加速地址；未选中任何项时二者均不生效但保留配置
+                            let old_proxy = self.m().proxy.clone();
                             self.m().proxy.proxy_enabled = Some(self.settings_proxy_enabled);
                             self.m().proxy.accelerate_presets = self
                                 .settings_accel_list
@@ -1657,18 +1658,24 @@ cache,
                                 .collect();
                             self.m().proxy.selected_accelerate = self.settings_selected_accel.clone();
                             self.m().proxy.selected_proxy = self.settings_selected_proxy.clone();
-                            let accel = self.m().proxy.effective_accelerate_prefix().to_string();
-                            let eff_proxy = self.m().proxy.effective_http_proxy().to_string();
-                            self.m().github.apply_network(&accel, &eff_proxy);
+                            let changed_proxy = self.m().proxy != old_proxy;
+                            if changed_proxy {
+                                let accel = self.m().proxy.effective_accelerate_prefix().to_string();
+                                let eff_proxy = self.m().proxy.effective_http_proxy().to_string();
+                                self.m().github.apply_network(&accel, &eff_proxy);
+                            }
                             let shell_auto = self.settings_shell_auto;
-                            let autostart_r = self
-                                .m()
-                                .autostart
-                                .set_shell_enabled(shell_auto);
-                            self.m().set_web_settings(&web_bind, web_port, Some(&web_token));
-                            // 在跑的服务按新监听设置重启（仅当确实变更时）
-                            if changed_web && was_running {
-                                self.web_restart = true;
+                            let autostart_r = if self.m().autostart.shell_is_enabled() == shell_auto {
+                                Ok(())
+                            } else {
+                                self.m().autostart.set_shell_enabled(shell_auto)
+                            };
+                            if changed_web {
+                                self.m().set_web_settings(&web_bind, web_port, Some(&web_token));
+                                // 在跑的服务按新监听设置重启（仅当确实变更时）
+                                if was_running {
+                                    self.web_restart = true;
+                                }
                             }
                             let save_r = self.m().save_config(&self.config_path);
                             if let Err(e) = save_r {
@@ -1680,6 +1687,25 @@ cache,
                                     t!("toast.shell_autostart_fail", err = format!("{e:#}")).as_ref(),
                                 );
                             } else {
+                                if changed_web {
+                                    let bind_show = if web_bind.is_empty() {
+                                        "127.0.0.1".to_string()
+                                    } else {
+                                        web_bind
+                                    };
+                                    self.m().log_op(&t!(
+                                        "op.web_update",
+                                        bind = bind_show,
+                                        port = web_port.to_string()
+                                    ));
+                                }
+                                if changed_proxy {
+                                    self.m().log_op(&t!(
+                                        "op.proxy_update",
+                                        accel_n = self.m().proxy.accelerate_presets.len().to_string(),
+                                        proxy_n = self.m().proxy.saved_proxies.len().to_string()
+                                    ));
+                                }
                                 self.show_toast(t!("toast.saved").to_string());
                             }
                         }

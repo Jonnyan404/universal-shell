@@ -937,6 +937,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         }
         "set_proxy" => {
             let mut mgr = state.manager.lock().unwrap();
+            let old_proxy = mgr.proxy.clone();
             // 新格式：预置列表 + 代理列表 + 选择
             mgr.proxy.proxy_enabled = Some(arg_bool(args, "proxyEnabled"));
             // 解析列表（前端以 JSON 字符串或数组传给 RPC）
@@ -980,6 +981,12 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             };
             mgr.proxy.accelerate_prefix = acc_old;
             mgr.proxy.http_proxy = hp_old;
+            // 值未变化时跳过（保存设置会无条件调用），避免刷无意义日志/无效刷新
+            let changed = mgr.proxy != old_proxy;
+            if !changed {
+                mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
+                return Ok(json!({}));
+            }
             // 应用到客户端：代理优先于加速地址
             let acc = mgr.proxy.effective_accelerate_prefix().to_string();
             let hp = mgr.proxy.effective_http_proxy().to_string();
@@ -988,6 +995,11 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let reg_cache = mgr.data_dir.join("cache/registry");
             let _ = std::fs::remove_dir_all(&reg_cache);
             mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!(
+                "op.proxy_update",
+                accel_n = mgr.proxy.accelerate_presets.len().to_string(),
+                proxy_n = mgr.proxy.saved_proxies.len().to_string()
+            ));
             Ok(json!({}))
         }
 
@@ -1049,6 +1061,10 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         "set_shell_autostart" => {
             let enabled = arg_bool(args, "enabled");
             let mut mgr = state.manager.lock().unwrap();
+            // 值未变化时跳过（保存设置会无条件调用），避免刷无意义日志
+            if mgr.autostart.shell_is_enabled() == enabled {
+                return Ok(json!({}));
+            }
             let r = mgr.autostart.set_shell_enabled(enabled).map_err(|e| format!("{e:#}"));
             if r.is_ok() {
                 mgr.log_op(t!(
@@ -1186,6 +1202,21 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 None => None,
             };
             let mut mgr = state.manager.lock().unwrap();
+// 值未变化时跳过（保存设置会无条件调用），避免刷无意义日志。
+            // token 缺省=保持原值；空串=重新生成随机令牌（视为变更）。
+            let web_s = mgr.web_settings();
+            let bind_effective = if bind.is_empty() { "127.0.0.1" } else { bind.as_str() };
+            let token_changed = match &token {
+                None => false,
+                Some(t) => t.as_str() != web_s.token,
+            };
+            let changed = web_s.effective_bind() != bind_effective
+                || web_s.port != port
+                || token_changed;
+            if !changed {
+                mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
+                return Ok(json!({}));
+            }
             mgr.set_web_settings(&bind, port, token.as_deref());
             mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
             let bind_show = if bind.is_empty() { "127.0.0.1".to_string() } else { bind };

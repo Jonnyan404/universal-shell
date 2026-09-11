@@ -676,6 +676,10 @@ fn set_autostart(
 #[tauri::command]
 fn set_shell_autostart(state: State<AppState>, enabled: bool) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
+    // 值未变化时跳过（保存设置会无条件调用），避免刷无意义日志
+    if mgr.autostart.shell_is_enabled() == enabled {
+        return Ok(());
+    }
     let r = mgr
         .autostart
         .set_shell_enabled(enabled)

@@ -378,6 +378,7 @@ op.delete: Delete program "%{name}"
 op.toggle_visibility: '%{showhide} program "%{name}"'
 op.update_sources: 'Updated template sources: %{list}'
 op.web_update: 'Updated web listening settings: %{bind}:%{port}'
+op.proxy_update: 'Updated network acceleration/proxy settings: %{accel_n} acceleration, %{proxy_n} proxies'
 op.import_overwrite: '%{desc} overwrote import "%{id}"'
 op.import: '%{desc} imported "%{name}"'
 op.export: Exported program "%{name}" template to local

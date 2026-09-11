@@ -378,6 +378,7 @@ op.delete: 删除程序「%{name}」
 op.toggle_visibility: '%{showhide}程序「%{name}」'
 op.update_sources: '更新模板源列表：%{list}'
 op.web_update: '更新 Web 监听设置：%{bind}:%{port}'
+op.proxy_update: '更新网络加速/代理设置：加速 %{accel_n} 项、代理 %{proxy_n} 项'
 op.import_overwrite: '%{desc} 覆盖导入「%{id}」'
 op.import: '%{desc} 导入「%{name}」'
 op.export: 导出程序「%{name}」模板到本地
