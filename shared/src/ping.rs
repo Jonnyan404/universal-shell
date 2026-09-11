@@ -6,7 +6,7 @@ use reqwest::blocking::Client;
 /// 任何网络/超时错误返回 None。
 pub fn ping_url(url: &str) -> Option<u64> {
     let client = Client::builder()
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(3))
         .build()
         .ok()?;
     let start = Instant::now();
@@ -24,7 +24,7 @@ pub fn ping_proxy(proxy_url: &str) -> Option<u64> {
     let proxy = reqwest::Proxy::all(proxy_url).ok()?;
     let client = Client::builder()
         .proxy(proxy)
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(3))
         .build()
         .ok()?;
     let start = Instant::now();

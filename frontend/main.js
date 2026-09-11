@@ -1832,20 +1832,33 @@ function measureNetPings() {
   settProxyPings = {};
   renderSettNet();
   showNotice(t("sett.ping_start"));
-  const targets = items.map((e) => ({ url: e.url, kind: e.kind === "proxy" ? "proxy" : "url" }));
-  invoke("check_pings", { targets })
-    .then((list) => {
-      const arr = (list && list.pings) || [];
-      items.forEach((it, i) => {
-        const v = arr[i] != null ? arr[i] : null;
+  let done = 0;
+  const total = items.length;
+  // 每个目标单独发起，完成后即逐行展示，不等最慢的超时目标
+  items.forEach((it) => {
+    const kind = it.kind === "proxy" ? "proxy" : "url";
+    invoke("check_pings", { targets: [{ url: it.url, kind }] })
+      .then((list) => {
+        const arr = (list && list.pings) || [];
+        const v = arr[0] != null ? arr[0] : null;
         if (it.kind === "proxy") settProxyPings[it.url] = v;
         else settAccelPings[it.url] = v;
+        renderSettNet();
+      })
+      .catch(() => {
+        if (it.kind === "proxy") settProxyPings[it.url] = null;
+        else settAccelPings[it.url] = null;
+        renderSettNet();
+      })
+      .finally(() => {
+        done += 1;
+        if (done >= total) {
+          const ok = Object.values(settProxyPings).filter((v2) => v2 != null).length
+            + Object.values(settAccelPings).filter((v2) => v2 != null).length;
+          showNotice(t("sett.ping_done", { ok, total }));
+        }
       });
-      renderSettNet();
-      const ok = arr.filter((v) => v != null).length;
-      showNotice(t("sett.ping_done", { ok, total: arr.length }));
-    })
-    .catch((e) => showNotice(String(e), true));
+  });
 }
 
 async function saveSettings() {

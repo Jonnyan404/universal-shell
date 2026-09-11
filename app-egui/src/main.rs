@@ -102,8 +102,10 @@ enum Msg {
     TrayAutoToggle,
     /// 壳自身更新检查完成：(是否手动触发, 有新版时携带版本信息)
     ShellUpdateChecked(bool, Result<Option<shared::ShellUpdate>, String>),
-    /// 加速/代理列表测速完成：(urls → ms)
-    PingsDone(Vec<String>, Vec<Option<u64>>),
+    /// 加速/代理列表测速：单目标完成 (url → ms)
+    PingDone(String, Option<u64>),
+    /// 加速/代理列表测速：全部结束，携带目标数
+    PingsFinished(usize),
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -927,13 +929,12 @@ cache,
                         }
                     }
                 }
-                Msg::PingsDone(urls, pings) => {
+                Msg::PingDone(url, ms) => {
+                    self.settings_pings.insert(url, ms);
+                }
+                Msg::PingsFinished(total) => {
                     self.settings_ping_busy = false;
-                    let total = urls.len();
-                    let ok = pings.iter().filter(|m| m.is_some()).count();
-                    for (u, ms) in urls.into_iter().zip(pings) {
-                        self.settings_pings.insert(u, ms);
-                    }
+                    let ok = self.settings_pings.values().filter(|m| m.is_some()).count();
                     self.show_toast(t!("sett.ping_done", ok = ok, total = total).to_string());
                 }
             }
@@ -1388,7 +1389,7 @@ cache,
         self.measure_net_pings();
     }
 
-    /// 后台测速：同时测加速地址和代理列表；结果经 Msg::PingsDone 回 UI
+    /// 后台测速：同时测加速地址和代理列表，单个完成即回 UI（不全等超时）
     fn measure_net_pings(&mut self) {
         if self.settings_ping_busy {
             return;
@@ -1403,25 +1404,27 @@ cache,
             return;
         }
         self.settings_ping_busy = true;
+        self.settings_pings.clear();
         self.show_toast(t!("sett.ping_start").to_string());
         let tx = self.tx.clone();
-        std::thread::scope(|s| {
-            let handles: Vec<_> = targets
-                .iter()
-                .map(|(u, is_proxy)| {
-                    s.spawn(move || {
-                        if *is_proxy {
-                            shared::ping::ping_proxy(u)
-                        } else {
-                            shared::ping::ping_url(u)
-                        }
-                    })
-                })
-                .collect();
-            let pings: Vec<Option<u64>> = handles.into_iter().map(|h| h.join().ok().flatten()).collect();
-            let urls: Vec<String> = targets.iter().map(|(u, _)| u.clone()).collect();
-            let _ = tx.send(Msg::PingsDone(urls, pings));
-        });
+        let total = targets.len();
+        let remaining = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(total));
+        for (u, is_proxy) in targets {
+            let tx = tx.clone();
+            let remaining = remaining.clone();
+            std::thread::spawn(move || {
+                let ms = if is_proxy {
+                    shared::ping::ping_proxy(&u)
+                } else {
+                    shared::ping::ping_url(&u)
+                };
+                let _ = tx.send(Msg::PingDone(u, ms));
+                // 最后一个完成者发汇总（其余线程到 0 后直接返回）
+                if remaining.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) == 1 {
+                    let _ = tx.send(Msg::PingsFinished(total));
+                }
+            });
+        }
     }
 
     /// 全局设置弹窗
