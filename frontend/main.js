@@ -103,7 +103,20 @@ function showNotice(msg, isError) {
   box.textContent = msg;
   document.querySelector("#toast-container").appendChild(box);
   requestAnimationFrame(() => box.classList.add("show"));
-  setTimeout(() => box.remove(), 3200);
+  setTimeout(() => box.remove(), 10000);
+}
+
+// 网络类错误的明确提示：这两个按钮（检查更新 / 刷新模板库）失败只会是
+// 代理网络错误或普通网络错误两种。读当前代理配置，有代理 → 提示代理问题，
+// 无代理 → 提示网络问题。
+async function netErrorNotice(err, n) {
+  let hasProxy = false;
+  try {
+    hasProxy = !!((await invoke("get_proxy")).http_proxy || "").trim();
+  } catch {}
+  const key = hasProxy ? (n ? "err.net_proxy_n" : "err.net_proxy") : (n ? "err.network_n" : "err.network");
+  showNotice(n ? t(key, { count: n }) : t(key), true);
+  if (err) console.warn("net error detail:", err);
 }
 
 async function openExternal(url) {
@@ -806,9 +819,9 @@ async function checkUpdates() {
     statuses = full;
     renderSidebar();
     renderBatch();
-    // 代理/网络不通等场景：有远程源的程序查不到最新版本 → 提示失败而非一律「检查完成」
+    // 代理/网络不通等场景：有远程源的程序查不到最新版本 → 分类提示失败
     const failed = statuses.filter((it) => hasRemoteSource(it) && !it.status?.latest_version).length;
-    if (failed > 0) showNotice(t("dl.partial_fail", { count: failed }), true);
+    if (failed > 0) await netErrorNotice(null, failed);
     else showNotice(t("dl.done"));
   } catch (e) {
     showNotice(String(e), true);
@@ -1130,7 +1143,7 @@ async function refreshLibrary() {
   } catch (e) {
     const msg = t("toast.manifest_fail", { err: e });
     el.libStatus.textContent = msg;
-    showNotice(msg, true);
+    await netErrorNotice(e);
   }
 }
 
