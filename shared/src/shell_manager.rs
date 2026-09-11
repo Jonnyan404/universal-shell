@@ -177,7 +177,9 @@ impl ShellManager {
     /// 加载配置文件(JSON)。支持 `--config` 路径，默认从数据目录读 shell.json
     pub fn load_config(&mut self, path: &Path) -> anyhow::Result<()> {
         info!("{}", t!("log.config.load", path = path.display()));
-        let cfg = ShellConfig::load(&path.to_path_buf())?;
+        let mut cfg = ShellConfig::load(&path.to_path_buf())?;
+        // 迁移旧代理配置结构（accelerate_prefix / http_proxy → preset / saved_proxies）
+        cfg.proxy.fixup();
         self.programs = cfg.programs;
         // 未显式配置注册表时使用内置 GitHub 源（附 demo 公钥签名校验）
         self.template_registries = if cfg.template_registries.is_empty() {
@@ -193,13 +195,13 @@ impl ShellManager {
             pubkeys.insert(DEFAULT_REGISTRY.to_string(), DEFAULT_REGISTRY_PUBKEY.to_string());
         }
         self.registry_pubkeys = pubkeys;
-        // 应用网络代理设置到 GitHub 客户端
+        // 应用网络代理设置到 GitHub 客户端（代理优先于加速地址）
         self.github.apply_network(
-            &cfg.proxy.accelerate_prefix,
+            cfg.proxy.effective_accelerate_prefix(),
             cfg.proxy.effective_http_proxy(),
         );
         self.http.apply_network(
-            &cfg.proxy.accelerate_prefix,
+            cfg.proxy.effective_accelerate_prefix(),
             cfg.proxy.effective_http_proxy(),
         );
         self.proxy = cfg.proxy;
@@ -599,11 +601,16 @@ impl ShellManager {
         // 若存在 shell.json，则读取并应用其网络代理设置
         let cfg_path = data_dir.join("shell.json");
         if cfg_path.exists() {
-            if let Ok(cfg) = crate::config::ShellConfig::load(&cfg_path) {
-                mgr.github
-                    .apply_network(&cfg.proxy.accelerate_prefix, cfg.proxy.effective_http_proxy());
-                mgr.http
-                    .apply_network(&cfg.proxy.accelerate_prefix, cfg.proxy.effective_http_proxy());
+            if let Ok(mut cfg) = crate::config::ShellConfig::load(&cfg_path) {
+                cfg.proxy.fixup();
+                mgr.github.apply_network(
+                    cfg.proxy.effective_accelerate_prefix(),
+                    cfg.proxy.effective_http_proxy(),
+                );
+                mgr.http.apply_network(
+                    cfg.proxy.effective_accelerate_prefix(),
+                    cfg.proxy.effective_http_proxy(),
+                );
             }
         }
         let (version, _) = mgr.install_or_update(program, on_progress)?;

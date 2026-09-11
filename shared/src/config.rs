@@ -598,37 +598,139 @@ impl WebSettings {
 /// 网络代理/加速设置。
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ProxySettings {
+    // ── 旧字段（迁移后用于向后兼容，新配置由 preset 列表驱动）──
     /// 加速前缀（重写 GitHub API / 下载 URL），如 "https://gh-proxy.com/"
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub accelerate_prefix: String,
     /// 通用代理（HTTP/SOCKS5），如 "http://127.0.0.1:7890"
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub http_proxy: String,
-    /// 代理开关：是否启用通用代理。
-    /// 旧配置（无此字段）→ None，按「http_proxy 非空即启用」兼容；
-    /// 显式设为 Some(false) 时即使填了地址也不生效（配置保留，随时可恢复）。
+    /// 代理/加速总开关：同时控制加速地址和代理的生效
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy_enabled: Option<bool>,
+
+    // ── 新字段：预置列表 + 用户代理列表 + 激活选择 ──
+    /// 预置加速地址列表
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accelerate_presets: Vec<PresetEntry>,
+    /// 用户保存的代理列表
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub saved_proxies: Vec<SavedProxy>,
+    /// 当前选中的预置加速地址 ID（空串 = 未选）
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub selected_accelerate: String,
+    /// 当前选中的用户代理 ID（空串 = 未选）
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub selected_proxy: String,
+}
+
+/// 加速地址预置条目
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PresetEntry {
+    pub id: String,
+    pub url: String,
+}
+
+/// 用户保存的代理条目
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SavedProxy {
+    pub id: String,
+    /// 代理完整 URL，如 "http://127.0.0.1:7890"
+    pub url: String,
+    /// 显示名称（可选）
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
 }
 
 impl ProxySettings {
     pub fn is_empty(&self) -> bool {
-        self.accelerate_prefix.is_empty() && self.http_proxy.is_empty()
+        self.accelerate_presets.is_empty()
+            && self.saved_proxies.is_empty()
+            && self.accelerate_prefix.is_empty()
+            && self.http_proxy.is_empty()
     }
 
-    /// 通用代理是否生效：未显式设置时按「填了地址即启用」。
+    /// 总开关是否生效：旧配置无此字段时按「任一地址非空即启用」兼容。
     pub fn proxy_effective(&self) -> bool {
-        self.proxy_enabled.unwrap_or(!self.http_proxy.is_empty())
+        self.proxy_enabled
+            .unwrap_or(!self.accelerate_prefix.is_empty() || !self.http_proxy.is_empty())
     }
 
-    /// 生效的通用代理地址：开关关闭（或未填）时为空串，调用方无需再判开关。
+    /// 生效的通用代理地址：开关关闭或未选代理时为空串。
     pub fn effective_http_proxy(&self) -> &str {
-        if self.proxy_effective() {
-            &self.http_proxy
-        } else {
-            ""
+        if self.proxy_effective() && !self.selected_proxy.is_empty() {
+            // 找到选中的代理 URL
+            if let Some(entry) = self.saved_proxies.iter().find(|p| p.id == self.selected_proxy) {
+                return &entry.url;
+            }
+        }
+        ""
+    }
+
+    /// 生效的加速地址：开关开启、未选代理、有选中的加速预置时返回 URL。
+    pub fn effective_accelerate_prefix(&self) -> &str {
+        if self.proxy_effective() && self.selected_proxy.is_empty() {
+            if let Some(entry) = self
+                .accelerate_presets
+                .iter()
+                .find(|p| p.id == self.selected_accelerate)
+            {
+                return &entry.url;
+            }
+        }
+        ""
+    }
+
+    /// 迁移旧配置：若新字段全空但旧字段有值，从旧字段生成初始列表。
+    /// 全新配置则注入默认加速地址预置供选择。
+    pub fn fixup(&mut self) {
+        let has_new = !self.accelerate_presets.is_empty() || !self.saved_proxies.is_empty();
+        if has_new {
+            return; // 已有新格式，无需迁移
+        }
+        // 旧 accelerate_prefix → 加入预置列表并选中
+        if !self.accelerate_prefix.is_empty() {
+            let id = "default".to_string();
+            self.accelerate_presets.push(PresetEntry {
+                id: id.clone(),
+                url: self.accelerate_prefix.clone(),
+            });
+            self.selected_accelerate = id;
+        }
+        // 旧 http_proxy → 加入用户代理列表并选中
+        if !self.http_proxy.is_empty() {
+            let id = "default".to_string();
+            self.saved_proxies.push(SavedProxy {
+                id: id.clone(),
+                url: self.http_proxy.clone(),
+                name: String::new(),
+            });
+            self.selected_proxy = id;
+        }
+        // 全新配置（无旧值无新列表）：注入默认加速地址预置
+        if self.accelerate_presets.is_empty() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            for (i, url) in default_accelerate_urls().iter().enumerate() {
+                self.accelerate_presets.push(PresetEntry {
+                    id: format!("preset-{now}-{i}"),
+                    url: url.to_string(),
+                });
+            }
         }
     }
+}
+
+/// 内置默认加速地址预置（用户可增删改）
+pub fn default_accelerate_urls() -> &'static [&'static str] {
+    &[
+        "https://gh-proxy.com/",
+        "https://ghfast.top/",
+        "https://ghproxy.net/",
+        "https://mirror.ghproxy.com/",
+    ]
 }
 
 impl ShellConfig {
@@ -643,38 +745,74 @@ impl ShellConfig {
 mod proxy_tests {
     use super::*;
 
-    /// 旧配置无 proxy_enabled 字段：按「填了地址即启用」兼容。
+    /// 旧配置无新字段：按「填了地址即启用」兼容。
     #[test]
-    fn old_config_missing_toggle_defaults_to_enabled() {
-        let p: ProxySettings =
-            serde_json::from_str(r#"{"http_proxy":"socks5://127.0.0.1:7890"}"#)
-                .unwrap();
-        assert!(p.proxy_effective());
+    fn old_config_migration() {
+        let mut p: ProxySettings = serde_json::from_str(
+            r#"{"accelerate_prefix":"https://gh-proxy.com/","http_proxy":"socks5://127.0.0.1:7890"}"#,
+        )
+        .unwrap();
+        // fixup 前新字段为空
+        assert!(p.accelerate_presets.is_empty());
+        assert!(p.saved_proxies.is_empty());
+        // fixup 后从旧字段生成列表
+        p.fixup();
+        assert_eq!(p.accelerate_presets.len(), 1);
+        assert_eq!(p.accelerate_presets[0].url, "https://gh-proxy.com/");
+        assert_eq!(p.saved_proxies.len(), 1);
+        assert_eq!(p.saved_proxies[0].url, "socks5://127.0.0.1:7890");
+        assert_eq!(p.selected_accelerate, "default");
+        assert_eq!(p.selected_proxy, "default");
+        // 代理优先于加速
         assert_eq!(p.effective_http_proxy(), "socks5://127.0.0.1:7890");
+        assert_eq!(p.effective_accelerate_prefix(), ""); // proxy selected → accelerate suppressed
     }
 
-    /// 显式关闭开关：地址保留但不生效；重新打开恢复。
+    /// 新格式配置直接反序列化。
     #[test]
-    fn toggle_off_keeps_config_but_disables() {
+    fn new_config_roundtrip() {
+        let p: ProxySettings = serde_json::from_str(
+            r#"{"proxy_enabled":true,"accelerate_presets":[{"id":"a","url":"https://gh-proxy.com/"}],"saved_proxies":[{"id":"b","url":"http://127.0.0.1:7890","name":"本地"}],"selected_accelerate":"a","selected_proxy":"b"}"#,
+        )
+        .unwrap();
+        assert!(p.proxy_effective());
+        assert_eq!(p.effective_http_proxy(), "http://127.0.0.1:7890");
+        assert_eq!(p.effective_accelerate_prefix(), "");
+    }
+
+    /// 关闭开关：即使有选择也不生效。
+    #[test]
+    fn toggle_off_disables() {
         let mut p: ProxySettings = serde_json::from_str(
-            r#"{"accelerate_prefix":"https://gh-proxy.com/","http_proxy":"http://127.0.0.1:7890","proxy_enabled":false}"#,
+            r#"{"proxy_enabled":false,"accelerate_presets":[{"id":"a","url":"https://gh-proxy.com/"}],"selected_accelerate":"a"}"#,
         )
         .unwrap();
         assert!(!p.proxy_effective());
-        assert_eq!(p.effective_http_proxy(), "");
+        assert_eq!(p.effective_accelerate_prefix(), "");
+        // 重新打开
         p.proxy_enabled = Some(true);
-        assert_eq!(p.effective_http_proxy(), "http://127.0.0.1:7890");
+        assert_eq!(p.effective_accelerate_prefix(), "https://gh-proxy.com/");
     }
 
-    /// 关闭时对象序列化仍带 proxy_enabled=false（保证持久化）。
+    /// 仅选加速、未选代理：走加速前缀。
     #[test]
-    fn toggled_off_persists_enabled_flag() {
-        let p = ProxySettings {
-            accelerate_prefix: String::new(),
-            http_proxy: String::new(),
-            proxy_enabled: Some(false),
-        };
-        let s = serde_json::to_string(&p).unwrap();
-        assert!(s.contains("proxy_enabled"));
+    fn only_accelerate_selected() {
+        let p: ProxySettings = serde_json::from_str(
+            r#"{"proxy_enabled":true,"accelerate_presets":[{"id":"a","url":"https://gh-proxy.com/"}],"selected_accelerate":"a"}"#,
+        )
+        .unwrap();
+        assert_eq!(p.effective_accelerate_prefix(), "https://gh-proxy.com/");
+        assert_eq!(p.effective_http_proxy(), "");
+    }
+
+    /// 全新配置：fixup 注入默认加速预置，未选中任何。
+    #[test]
+    fn fresh_config_seeds_default_presets() {
+        let mut p: ProxySettings = ProxySettings::default();
+        p.fixup();
+        assert!(!p.accelerate_presets.is_empty());
+        assert!(p.selected_accelerate.is_empty());
+        // 默认不启用（无选择、无代理）
+        assert!(!p.proxy_effective());
     }
 }

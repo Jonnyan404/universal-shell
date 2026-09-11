@@ -113,7 +113,7 @@ async function netErrorNotice(err, n) {
   let hasProxy = false;
   try {
     const p = await invoke("get_proxy");
-    hasProxy = p.proxy_enabled !== false && !!(p.http_proxy || "").trim();
+    hasProxy = !!p.effective_http_proxy || !!p.effective_accelerate_prefix;
   } catch {}
   const key = hasProxy ? (n ? "err.net_proxy_n" : "err.net_proxy") : (n ? "err.network_n" : "err.network");
   showNotice(n ? t(key, { count: n }) : t(key), true);
@@ -1585,30 +1585,41 @@ function buildProxy(type, host, user, pass) {
   return `${type}://${cred}${host}`;
 }
 
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
 const settingsModal = document.querySelector("#settings-modal");
+// 设置面板缓存的网络配置（格与 web-server rpc 一致）
+let settAccel = []; // {id,url}
+let settProxies = []; // {id,url}
+let settSelectedAccel = "";
+let settSelectedProxy = "";
+let settAccelPings = {}; // url -> ms | null
+let settProxyPings = {}; // url -> ms | null
+
 function openSettings() {
-  const acc = document.querySelector("#sett-accelerate");
-  const hostEl = document.querySelector("#sett-proxy-host");
   const typeEl = document.querySelector("#sett-proxy-type");
+  const hostEl = document.querySelector("#sett-proxy-host");
   const userEl = document.querySelector("#sett-proxy-user");
   const passEl = document.querySelector("#sett-proxy-pass");
+  const newAcc = document.querySelector("#sett-accel-new");
   const onEl = document.querySelector("#sett-proxy-enabled");
-  const proxyBox = document.querySelector(".sett-proxy");
-  acc.value = "";
+  typeEl.value = "http";
   hostEl.value = "";
   userEl.value = "";
   passEl.value = "";
-  typeEl.value = "http";
+  newAcc.value = "";
   invoke("get_proxy")
     .then((p) => {
-      acc.value = p.accelerate_prefix || "";
       onEl.checked = p.proxy_enabled !== false;
-      proxyBox.classList.toggle("off", !onEl.checked);
-      const parsed = parseProxy(p.http_proxy || "");
-      typeEl.value = parsed.type;
-      hostEl.value = parsed.host;
-      userEl.value = parsed.user;
-      passEl.value = parsed.pass;
+      settAccel = (p.accelerate_presets || []).map((e) => ({ id: e.id, url: e.url }));
+      settProxies = (p.saved_proxies || []).map((e) => ({ id: e.id, url: e.url }));
+      settSelectedAccel = p.selected_accelerate || "";
+      settSelectedProxy = p.selected_proxy || "";
+      renderSettNet();
+      measureAccelPings();
+      measureProxyPings();
     })
     .catch((e) => showNotice(String(e), true));
   invoke("shell_autostart_enabled")
@@ -1630,20 +1641,109 @@ function openSettings() {
   settingsModal.hidden = false;
 }
 
-async function saveSettings() {
-  const acc = document.querySelector("#sett-accelerate").value;
+function renderSettNet() {
+  renderSettList("#sett-accel-list", settAccel, settSelectedAccel, settAccelPings, "sett-accel-choice", (id) => { settSelectedAccel = id; }, (id) => { settAccel = settAccel.filter((e) => e.id !== id); settAccelPings = {}; renderSettNet(); measureAccelPings(); });
+  renderSettList("#sett-proxy-list", settProxies, settSelectedProxy, settProxyPings, "sett-proxy-choice", (id) => { settSelectedProxy = id; }, (id) => { settProxies = settProxies.filter((e) => e.id !== id); settProxyPings = {}; renderSettNet(); measureProxyPings(); });
+}
+
+function renderSettList(boxSel, items, selectedId, pings, radioName, onSelect, onRemove) {
+  const box = document.querySelector(boxSel);
+  if (!box) return;
+  if (!items.length) {
+    box.innerHTML = `<div class="sett-proxy-empty">${t("sett.empty")}</div>`;
+    return;
+  }
+  box.innerHTML = items
+    .map((e) => {
+      const ms = pings[e.url];
+      const pingHtml = ms === undefined
+        ? `<span class="ping measuring" data-url="${escHtml(e.url)}">…</span>`
+        : ms === null
+          ? `<span class="ping fail" data-url="${escHtml(e.url)}">${t("sett.ping_fail")}</span>`
+          : `<span class="ping" data-url="${escHtml(e.url)}">${ms} ms</span>`;
+      return `<div class="sett-item ${e.id === selectedId ? "selected" : ""}" data-id="${escHtml(e.id)}">
+        <input type="radio" name="${radioName}" ${e.id === selectedId ? "checked" : ""} data-id="${escHtml(e.id)}" />
+        <span class="url" title="${escHtml(e.url)}">${escHtml(e.url)}</span>
+        ${pingHtml}
+        <button type="button" class="op-danger" data-del="${escHtml(e.id)}" title="${t("sett.remove")}" data-i18n-aria="sett.remove">×</button>
+      </div>`;
+    })
+    .join("");
+  box.querySelectorAll("input[type=radio]").forEach((r) => r.addEventListener("change", () => onSelect(r.dataset.id)));
+  box.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => onRemove(b.dataset.del)));
+}
+
+function measureAccelPings() {
+  const targets = settAccel.map((e) => ({ url: e.url, kind: "url" }));
+  if (!targets.length) return;
+  invoke("check_pings", { targets })
+    .then((list) => {
+      const map = {};
+      targets.forEach((tg, i) => { map[tg.url] = list ? list[i] : null; });
+      settAccelPings = map;
+      renderSettNet();
+    })
+    .catch(() => {});
+}
+
+function measureProxyPings() {
+  const targets = settProxies.map((e) => ({ url: e.url, kind: "proxy" }));
+  if (!targets.length) return;
+  invoke("check_pings", { targets })
+    .then((list) => {
+      const map = {};
+      targets.forEach((tg, i) => { map[tg.url] = list ? list[i] : null; });
+      settProxyPings = map;
+      renderSettNet();
+    })
+    .catch(() => {});
+}
+
+function settAddAccel() {
+  const url = document.querySelector("#sett-accel-new").value.trim();
+  if (!url) return;
+  if (!/^https?:\/\//i.test(url)) { showNotice(t("sett.url_invalid"), true); return; }
+  if (settAccel.some((e) => e.url === url)) { showNotice(t("sett.dup"), true); return; }
+  const id = "a" + (+new Date()).toString(36) + Math.random().toString(36).slice(2, 6);
+  settAccel.push({ id, url });
+  settSelectedAccel = id;
+  document.querySelector("#sett-accel-new").value = "";
+  renderSettNet();
+  measureAccelPings();
+}
+
+function settAddProxy() {
   const type = document.querySelector("#sett-proxy-type").value;
   const host = document.querySelector("#sett-proxy-host").value.trim();
   const user = document.querySelector("#sett-proxy-user").value.trim();
   const pass = document.querySelector("#sett-proxy-pass").value;
-  const hp = buildProxy(type, host, user, pass);
+  const url = buildProxy(type, host, user, pass);
+  if (!url) { showNotice(t("sett.proxy_placeholder"), true); return; }
+  if (settProxies.some((e) => e.url === url)) { showNotice(t("sett.dup"), true); return; }
+  const id = "p" + (+new Date()).toString(36) + Math.random().toString(36).slice(2, 6);
+  settProxies.push({ id, url });
+  settSelectedProxy = id;
+  document.querySelector("#sett-proxy-host").value = "";
+  document.querySelector("#sett-proxy-user").value = "";
+  document.querySelector("#sett-proxy-pass").value = "";
+  renderSettNet();
+  measureProxyPings();
+}
+
+async function saveSettings() {
   const proxyEnabled = document.querySelector("#sett-proxy-enabled").checked;
   const shellAuto = document.querySelector("#sett-shell-auto").checked;
   const webPort = Number(document.querySelector("#sett-web-port").value) || 0;
   const webBind = document.querySelector("#sett-lan").checked ? "0.0.0.0" : "";
   const webToken = document.querySelector("#sett-token").value.trim();
   try {
-    await invoke("set_proxy", { acceleratePrefix: acc, httpProxy: hp, proxyEnabled });
+    await invoke("set_proxy", {
+      proxyEnabled,
+      acceleratePresets: settAccel,
+      savedProxies: settProxies,
+      selectedAccelerate: settSelectedAccel,
+      selectedProxy: settSelectedProxy,
+    });
     try {
       await invoke("set_shell_autostart", { enabled: shellAuto });
     } catch (e) {
@@ -2580,6 +2680,10 @@ document.querySelector("#settings-form").onsubmit = (e) => {
 document.querySelector("#sett-proxy-enabled").onchange = (e) => {
   document.querySelector(".sett-proxy").classList.toggle("off", !e.target.checked);
 };
+document.querySelector("#sett-accel-add").onclick = settAddAccel;
+document.querySelector("#sett-accel-refresh").onclick = () => measureAccelPings();
+document.querySelector("#sett-proxy-add").onclick = settAddProxy;
+document.querySelector("#sett-proxy-ping-all").onclick = () => measureProxyPings();
 document.querySelector("#sett-check-update").onclick = () => checkShellUpdate(true);
 document.querySelector("#sett-update-link").onclick = (e) => {
   e.preventDefault();

@@ -71,13 +71,20 @@ edit.http_regex: '版本正则（version_regex，可选）'
 edit.http_sha256_url: 'sha256 URL（sha256_url，可为 {version} 模板，留空=免检）'
 edit.http_urls: '直链下载 URL（assets.*.urls，每行一个，支持 {version} {arch} {os} {name} {ext}）'
 sett.title: 全局设置
+sett.network: 网络加速/代理
 sett.accelerate: 加速地址
-sett.acc_placeholder: '如 https://gh-proxy.com/（GitHub API/下载前缀）'
+sett.acc_placeholder: 'https://自建加速前缀/（可增删多个，选中一项生效）'
 sett.proxy: 通用代理
-sett.proxy_on: 启用（关闭时代理不生效但保留配置）
-sett.proxy_placeholder: '如 127.0.0.1:7890（HTTP/SOCKS5 地址:端口）'
+sett.proxy_on: 开启网络加速与代理（关闭时不生效但保留配置；代理优先于加速地址）
+sett.proxy_placeholder: '地址:端口，如 127.0.0.1:7890'
 sett.proxy_user: 用户名（可选）
 sett.proxy_pass: 密码（可选）
+sett.ping: 测速
+sett.ping_fail: 不可用
+sett.empty: 暂无，添加一个吧
+sett.remove: 移除
+sett.url_invalid: 地址需以 http(s):// 开头
+sett.dup: 已存在相同配置
 sett.shell_auto: 壳开机自启
 sett.shell_auto_label: 开机时自动启动本壳（并拉起开启了自启的程序）
 sett.web_bind: 绑定 IP

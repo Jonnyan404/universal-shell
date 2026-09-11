@@ -71,13 +71,20 @@ edit.http_regex: 'Version regex (version_regex, optional)'
 edit.http_sha256_url: 'sha256 URL (sha256_url; {version} allowed; empty = no check)'
 edit.http_urls: 'Direct-download URLs (assets.*.urls, one per line; supports {version} {arch} {os} {name} {ext})'
 sett.title: Global settings
-sett.accelerate: Accelerate prefix
-sett.acc_placeholder: 'e.g. https://gh-proxy.com/ (GitHub API/download prefix)'
+sett.network: Network accel / proxy
+sett.accelerate: Accelerate prefixes
+sett.acc_placeholder: 'https://your-accel-prefix/ (add several; select one to use)'
 sett.proxy: General proxy
-sett.proxy_on: 'Enabled (when off, proxy is inactive but configuration is kept)'
-sett.proxy_placeholder: 'e.g. 127.0.0.1:7890 (HTTP/SOCKS5 host:port)'
+sett.proxy_on: 'Enable network accel & proxy (inactive when off, config kept; proxy wins over accel)'
+sett.proxy_placeholder: 'host:port, e.g. 127.0.0.1:7890'
 sett.proxy_user: Username (optional)
 sett.proxy_pass: Password (optional)
+sett.ping: Test
+sett.ping_fail: Unreachable
+sett.empty: None yet — add one
+sett.remove: Remove
+sett.url_invalid: URL must start with http(s)://
+sett.dup: Already added
 sett.shell_auto: Shell autostart
 sett.shell_auto_label: 'Start this shell at login (and launch autostart programs)'
 sett.web_bind: Bind address

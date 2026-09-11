@@ -545,11 +545,8 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   color: var(--text); border-radius: 6px; padding: 7px 10px;
 }
 .sett-proxy { flex: 1; min-width: 0; }
-.sett-proxy-line { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
-.sett-proxy-line:last-child { margin-bottom: 0; }
+.sett-proxy.off .sett-section { opacity: 0.45; pointer-events: none; }
 .sett-proxy-toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
-.sett-proxy.off .sett-proxy-line { opacity: 0.45; pointer-events: none; }
-.sett-proxy.off .sett-proxy-toggle { color: var(--muted); opacity: 0.6; }
 .sett-proxy .switch { position: relative; display: inline-block; width: 34px; height: 20px; flex: 0 0 auto; }
 .sett-proxy .switch input { opacity: 0; width: 0; height: 0; }
 .sett-proxy .slider {
@@ -570,6 +567,31 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   flex: 1; min-width: 0; background: var(--panel-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px;
 }
+.sett-section { border-top: 1px dashed var(--border); padding-top: 8px; margin-top: 8px; }
+.sett-section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: 13px; color: var(--text); font-weight: 600; }
+.sett-section-head .op-btn { font-weight: 400; padding: 2px 10px; font-size: 12px; }
+.sett-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; max-height: 180px; overflow-y: auto; }
+.sett-item {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+  font-size: 12px;
+}
+.sett-item.selected { border-color: var(--accent); }
+.sett-item input[type="radio"] { flex: 0 0 auto; margin: 0; }
+.sett-item .url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.sett-item .ping {
+  flex: 0 0 auto; font-family: var(--mono, ui-monospace, Menlo, monospace);
+  color: #4caf50; font-size: 11px;
+}
+.sett-item .ping.fail { color: var(--danger); }
+.sett-item .ping.measuring { color: var(--muted); }
+.sett-item .op-danger {
+  flex: 0 0 auto; background: none; border: none; color: var(--danger);
+  cursor: pointer; padding: 0 4px; font-size: 13px;
+}
+.sett-add-line { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.sett-add-line .op-btn { flex: 0 0 auto; padding: 6px 12px; font-size: 12px; }
+.sett-proxy-empty { color: var(--muted); font-size: 12px; padding: 4px 2px; }
 .sett-token { display: flex; gap: 6px; align-items: center; }
 .sett-token input { flex: 1; min-width: 0; width: auto; }
 .edit-fields { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }

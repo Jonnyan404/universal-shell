@@ -266,15 +266,6 @@ cargo run -p shared --example sign_registry
 ./scripts/build-release.sh 0.1.0
 ```
 
-### 三端对比（egui / Tauri / CLI）
-
-| | egui (`app-egui`) | Tauri (`app-tauri`) | CLI (`us-web`，`app-cli`) |
-|---|---|---|---|
-| 渲染 | 原生绘制，无 WebView | 系统 WebView | 无界面（纯 Web 服务） |
-| 体积 | ~20 MB，单二进制 | 依赖 webview | 单二进制 |
-| 动态表单 | 纯代码遍历渲染 | JS 渲染 + 后端命令 | 同 Tauri（同一份 Web 前端） |
-| 文件选择 | rfd | tauri dialog 插件 | 手填 / 网页上传 |
-
 ## 安全说明
 
 - **信任模型**：远程模板会引导下载并执行第三方二进制。默认 `bind=127.0.0.1` + 高位端口；模板记录 `template_source`/`imported_at`。

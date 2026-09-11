@@ -142,12 +142,32 @@ struct LocaleView {
     available: Vec<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct ProxyEntryView {
+    id: String,
+    url: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    name: String,
+}
+
 #[derive(Serialize)]
 struct ProxyView {
+    /// 旧字段（向后兼容）：当前加速前缀 / 通用代理原始值
     accelerate_prefix: String,
     http_proxy: String,
-    /// 通用代理开关：false 时不生效（配置保留）
+    /// 总开关
     proxy_enabled: bool,
+    /// 已保存加速地址预置列表（含用户添加的）
+    accelerate_presets: Vec<ProxyEntryView>,
+    /// 用户保存的代理列表
+    saved_proxies: Vec<ProxyEntryView>,
+    /// 当前选中加速地址 ID（空=未选）
+    selected_accelerate: String,
+    /// 当前选中代理 ID（空=未选）
+    selected_proxy: String,
+    /// 实际生效值（代理优先于加速地址）
+    effective_accelerate_prefix: String,
+    effective_http_proxy: String,
 }
 
 #[derive(Serialize)]
@@ -345,13 +365,13 @@ fn program_not_found(id: &str) -> String {
 /// 用当前网络设置(加速前缀 + 通用代理)构建 GitHub 客户端
 fn proxied_github(proxy: &shared::ProxySettings) -> shared::GitHub {
     let mut gh = shared::GitHub::default();
-    gh.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
+    gh.apply_network(proxy.effective_accelerate_prefix(), proxy.effective_http_proxy());
     gh
 }
 
 fn proxied_http(proxy: &shared::ProxySettings) -> shared::source_http::HttpSource {
     let mut hs = shared::source_http::HttpSource::default();
-    hs.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
+    hs.apply_network(proxy.effective_accelerate_prefix(), proxy.effective_http_proxy());
     hs
 }
 
@@ -364,7 +384,7 @@ fn registry_client(
         registry_url,
         mgr.data_dir.join("cache/registry"),
         mgr.registry_pubkeys.clone(),
-        Some(&mgr.proxy.accelerate_prefix),
+        Some(mgr.proxy.effective_accelerate_prefix()),
         Some(mgr.proxy.effective_http_proxy()),
     )
 }
@@ -883,19 +903,85 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
 
         // ---------- 代理 ----------
         "get_proxy" => {
-            let mgr = state.manager.lock().unwrap();
+            let mut mgr = state.manager.lock().unwrap();
+            mgr.proxy.fixup();
             Ok(json!(ProxyView {
                 accelerate_prefix: mgr.proxy.accelerate_prefix.clone(),
                 http_proxy: mgr.proxy.http_proxy.clone(),
                 proxy_enabled: mgr.proxy.proxy_effective(),
+                accelerate_presets: mgr
+                    .proxy
+                    .accelerate_presets
+                    .iter()
+                    .map(|e| ProxyEntryView {
+                        id: e.id.clone(),
+                        url: e.url.clone(),
+                        name: String::new(),
+                    })
+                    .collect(),
+                saved_proxies: mgr
+                    .proxy
+                    .saved_proxies
+                    .iter()
+                    .map(|e| ProxyEntryView {
+                        id: e.id.clone(),
+                        url: e.url.clone(),
+                        name: e.name.clone(),
+                    })
+                    .collect(),
+                selected_accelerate: mgr.proxy.selected_accelerate.clone(),
+                selected_proxy: mgr.proxy.selected_proxy.clone(),
+                effective_accelerate_prefix: mgr.proxy.effective_accelerate_prefix().to_string(),
+                effective_http_proxy: mgr.proxy.effective_http_proxy().to_string(),
             }))
         }
         "set_proxy" => {
             let mut mgr = state.manager.lock().unwrap();
-            mgr.proxy.accelerate_prefix = arg_str(args, "acceleratePrefix").trim().to_string();
-            mgr.proxy.http_proxy = arg_str(args, "httpProxy").trim().to_string();
+            // 新格式：预置列表 + 代理列表 + 选择
             mgr.proxy.proxy_enabled = Some(arg_bool(args, "proxyEnabled"));
-            let acc = mgr.proxy.accelerate_prefix.clone();
+            // 解析列表（前端以 JSON 字符串或数组传给 RPC）
+            let parse_list = |v: &Value| -> Vec<ProxyEntryView> {
+                serde_json::from_value(v.clone()).unwrap_or_default()
+            };
+            if let Some(v) = args.get("acceleratePresets") {
+                mgr.proxy.accelerate_presets = parse_list(v)
+                    .into_iter()
+                    .map(|e| shared::config::PresetEntry { id: e.id, url: e.url })
+                    .collect();
+            }
+            if let Some(v) = args.get("savedProxies") {
+                mgr.proxy.saved_proxies = parse_list(v)
+                    .into_iter()
+                    .map(|e| shared::config::SavedProxy {
+                        id: e.id,
+                        url: e.url,
+                        name: e.name,
+                    })
+                    .collect();
+            }
+            let sel_acc = arg_str(args, "selectedAccelerate");
+            if !sel_acc.is_empty() {
+                mgr.proxy.selected_accelerate = sel_acc;
+            }
+            let sel_px = arg_str(args, "selectedProxy");
+            if !sel_px.is_empty() {
+                mgr.proxy.selected_proxy = sel_px;
+            }
+            // 旧字段：向后兼容（前端不再传这两个，保留原始值）
+            let acc_old = if arg_str(args, "acceleratePrefix").is_empty() {
+                mgr.proxy.accelerate_prefix.clone()
+            } else {
+                arg_str(args, "acceleratePrefix").trim().to_string()
+            };
+            let hp_old = if arg_str(args, "httpProxy").is_empty() {
+                mgr.proxy.http_proxy.clone()
+            } else {
+                arg_str(args, "httpProxy").trim().to_string()
+            };
+            mgr.proxy.accelerate_prefix = acc_old;
+            mgr.proxy.http_proxy = hp_old;
+            // 应用到客户端：代理优先于加速地址
+            let acc = mgr.proxy.effective_accelerate_prefix().to_string();
             let hp = mgr.proxy.effective_http_proxy().to_string();
             mgr.github.apply_network(&acc, &hp);
             shared::clear_github_cache();
@@ -903,6 +989,35 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let _ = std::fs::remove_dir_all(&reg_cache);
             mgr.save_config(&state.config_path).map_err(|e| format!("{e:#}"))?;
             Ok(json!({}))
+        }
+
+        // 测速：对加速地址（url）和代理（proxy）做往返探测，返回毫秒；超时/失败返回 null。
+        "check_pings" => {
+            #[derive(Deserialize)]
+            struct PingTarget {
+                url: String,
+                /// "url" 直接测 / "proxy" 走代理测
+                #[serde(default = "default_kind")]
+                kind: String,
+            }
+            fn default_kind() -> String {
+                "url".to_string()
+            }
+            let targets: Vec<PingTarget> = serde_json::from_value(
+                args.get("targets").cloned().unwrap_or(Value::Null),
+            )
+            .unwrap_or_default();
+            let pings: Vec<Option<u64>> = targets
+                .iter()
+                .map(|t| {
+                    if t.kind == "proxy" {
+                        shared::ping::ping_proxy(&t.url)
+                    } else {
+                        shared::ping::ping_url(&t.url)
+                    }
+                })
+                .collect();
+            Ok(json!({ "pings": pings }))
         }
 
         // ---------- 自启 ----------
@@ -1255,7 +1370,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         "check_shell_update" => {
             let (accel, proxy) = {
                 let mgr = state.manager.lock().unwrap();
-                (mgr.proxy.accelerate_prefix.clone(), mgr.proxy.effective_http_proxy().to_string())
+                (mgr.proxy.effective_accelerate_prefix().to_string(), mgr.proxy.effective_http_proxy().to_string())
             };
             let current = shared::version::build_version().to_string();
             match shared::check_shell_update(&current, &accel, &proxy).map_err(|e| format!("{e:#}")) {
@@ -1339,7 +1454,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 &bases,
                 cache,
                 pubkeys,
-                Some(&proxy.accelerate_prefix),
+                Some(proxy.effective_accelerate_prefix()),
                 Some(proxy.effective_http_proxy()),
                 true,
             );

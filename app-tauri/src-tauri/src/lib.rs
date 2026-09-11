@@ -248,13 +248,13 @@ fn get_programs(state: State<AppState>) -> Vec<ProgramView> {
 /// 用当前网络设置(加速前缀 + 通用代理)构建 GitHub 客户端
 fn proxied_github(proxy: &shared::ProxySettings) -> shared::GitHub {
     let mut gh = shared::GitHub::default();
-    gh.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
+    gh.apply_network(proxy.effective_accelerate_prefix(), proxy.effective_http_proxy());
     gh
 }
 
 fn proxied_http(proxy: &shared::ProxySettings) -> shared::source_http::HttpSource {
     let mut hs = shared::source_http::HttpSource::default();
-    hs.apply_network(&proxy.accelerate_prefix, proxy.effective_http_proxy());
+    hs.apply_network(proxy.effective_accelerate_prefix(), proxy.effective_http_proxy());
     hs
 }
 
@@ -726,40 +726,108 @@ fn reveal_app_dir(state: State<AppState>, program_id: String) -> Result<(), Stri
 // ---------- 本地实例管理（编辑/删除/隐藏/日志） ----------
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct ProxyEntryView {
+    id: String,
+    url: String,
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(serde::Serialize)]
 struct ProxyView {
+    /// 旧字段（向后兼容）：当前加速前缀 / 通用代理原始值
     accelerate_prefix: String,
     http_proxy: String,
-    /// 通用代理开关：false 时不生效（配置保留）
+    /// 总开关
     proxy_enabled: bool,
+    /// 已保存加速地址预置列表（含用户添加的）
+    accelerate_presets: Vec<ProxyEntryView>,
+    /// 用户保存的代理列表
+    saved_proxies: Vec<ProxyEntryView>,
+    /// 当前选中加速地址 ID（空=未选）
+    selected_accelerate: String,
+    /// 当前选中代理 ID（空=未选）
+    selected_proxy: String,
 }
 
 /// 读取当前网络代理/加速设置
 #[tauri::command]
 fn get_proxy(state: State<AppState>) -> ProxyView {
-    let mgr = state.manager.lock().unwrap();
+    let mut mgr = state.manager.lock().unwrap();
+    mgr.proxy.fixup();
     ProxyView {
         accelerate_prefix: mgr.proxy.accelerate_prefix.clone(),
         http_proxy: mgr.proxy.http_proxy.clone(),
         proxy_enabled: mgr.proxy.proxy_effective(),
+        accelerate_presets: mgr
+            .proxy
+            .accelerate_presets
+            .iter()
+            .map(|e| ProxyEntryView {
+                id: e.id.clone(),
+                url: e.url.clone(),
+                name: String::new(),
+            })
+            .collect(),
+        saved_proxies: mgr
+            .proxy
+            .saved_proxies
+            .iter()
+            .map(|e| ProxyEntryView {
+                id: e.id.clone(),
+                url: e.url.clone(),
+                name: e.name.clone(),
+            })
+            .collect(),
+        selected_accelerate: mgr.proxy.selected_accelerate.clone(),
+        selected_proxy: mgr.proxy.selected_proxy.clone(),
     }
 }
 
 /// 保存网络代理/加速设置：持久化到 shell.json 并立即应用到请求客户端。
 /// 同时清空通用/版本缓存，使新代理对后续请求即时生效。
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn set_proxy(
     state: State<AppState>,
-    accelerate_prefix: String,
-    http_proxy: String,
     proxy_enabled: bool,
+    accelerate_presets: Vec<ProxyEntryView>,
+    saved_proxies: Vec<ProxyEntryView>,
+    selected_accelerate: String,
+    selected_proxy: String,
+    accelerate_prefix: Option<String>,
+    http_proxy: Option<String>,
 ) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
-    mgr.proxy.accelerate_prefix = accelerate_prefix.trim().to_string();
-    mgr.proxy.http_proxy = http_proxy.trim().to_string();
     mgr.proxy.proxy_enabled = Some(proxy_enabled);
-    // 应用到 GitHub 客户端（版本查询/下载）——先复制值再避免借用冲突
+    mgr.proxy.accelerate_presets = accelerate_presets
+        .into_iter()
+        .map(|e| shared::config::PresetEntry { id: e.id, url: e.url })
+        .collect();
+    mgr.proxy.saved_proxies = saved_proxies
+        .into_iter()
+        .map(|e| shared::config::SavedProxy {
+            id: e.id,
+            url: e.url,
+            name: e.name,
+        })
+        .collect();
+    mgr.proxy.selected_accelerate = selected_accelerate;
+    mgr.proxy.selected_proxy = selected_proxy;
+    // 旧字段（向后兼容，通常不再传）
+    if let Some(acc) = accelerate_prefix {
+        if !acc.trim().is_empty() {
+            mgr.proxy.accelerate_prefix = acc.trim().to_string();
+        }
+    }
+    if let Some(hp) = http_proxy {
+        if !hp.trim().is_empty() {
+            mgr.proxy.http_proxy = hp.trim().to_string();
+        }
+    }
+    // 应用到 GitHub 客户端（版本查询/下载）：代理优先于加速地址
     let (acc, hp) = (
-        mgr.proxy.accelerate_prefix.clone(),
+        mgr.proxy.effective_accelerate_prefix().to_string(),
         mgr.proxy.effective_http_proxy().to_string(),
     );
     mgr.github.apply_network(&acc, &hp);
@@ -771,6 +839,26 @@ fn set_proxy(
     mgr.save_config(&state.config_path)
         .map_err(|e| format!("{e:#}"))?;
     Ok(())
+}
+
+/// 测速：对加速地址（kind="url"）和代理（kind="proxy"）做往返探测，返回毫秒；失败返回 None。
+#[tauri::command]
+fn check_pings(targets: Vec<ProxyEntryView>) -> Result<Vec<Option<u64>>, String> {
+    let tmp: Vec<(String, String)> = targets
+        .iter()
+        .map(|t| (t.url.clone(), t.name.clone()))
+        .collect();
+    // 复用 name 字段传 kind：约定 'url' / 'proxy'
+    Ok(tmp
+        .iter()
+        .map(|(url, kind)| {
+            if kind == "proxy" {
+                shared::ping::ping_proxy(url)
+            } else {
+                shared::ping::ping_url(url)
+            }
+        })
+        .collect())
 }
 
 #[derive(serde::Serialize)]
@@ -806,7 +894,7 @@ fn check_shell_update(state: State<AppState>) -> Result<ShellUpdateView, String>
     let (accel, proxy) = {
         let mgr = state.manager.lock().unwrap();
         (
-            mgr.proxy.accelerate_prefix.clone(),
+            mgr.proxy.effective_accelerate_prefix().to_string(),
             mgr.proxy.effective_http_proxy().to_string(),
         )
     };
@@ -1166,7 +1254,7 @@ fn get_manifest(
         &registry_url,
         cache,
         mgr.registry_pubkeys.clone(),
-        Some(&mgr.proxy.accelerate_prefix),
+        Some(mgr.proxy.effective_accelerate_prefix()),
         Some(mgr.proxy.effective_http_proxy()),
     );
     let (offline, _fetched_at, manifest) = client
@@ -1212,7 +1300,7 @@ fn get_merged_manifest(state: State<AppState>, registry_url: String) -> Result<M
         &bases,
         cache,
         pubkeys,
-        Some(&proxy.accelerate_prefix),
+        Some(proxy.effective_accelerate_prefix()),
         Some(proxy.effective_http_proxy()),
         true,
     );
@@ -1365,7 +1453,7 @@ fn template_status(
         &registry_url,
         cache,
         mgr.registry_pubkeys.clone(),
-        Some(&mgr.proxy.accelerate_prefix),
+        Some(mgr.proxy.effective_accelerate_prefix()),
         Some(mgr.proxy.effective_http_proxy()),
     );
     let (_offline, program) = client
@@ -1397,7 +1485,7 @@ fn template_diff(
         &registry_url,
         cache,
         mgr.registry_pubkeys.clone(),
-        Some(&mgr.proxy.accelerate_prefix),
+        Some(mgr.proxy.effective_accelerate_prefix()),
         Some(mgr.proxy.effective_http_proxy()),
     );
     let (_offline, program) = client
@@ -1424,7 +1512,7 @@ fn import_template(
         &registry_url,
         cache,
         mgr.registry_pubkeys.clone(),
-        Some(&mgr.proxy.accelerate_prefix),
+        Some(mgr.proxy.effective_accelerate_prefix()),
         Some(mgr.proxy.effective_http_proxy()),
     );
     let (_offline, mut program) = client
@@ -1735,6 +1823,7 @@ pub fn run() {
             template_diff,
             get_proxy,
             set_proxy,
+            check_pings,
             get_locale,
             set_locale,
             get_shell_log,
