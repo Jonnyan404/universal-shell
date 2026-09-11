@@ -89,6 +89,12 @@ sett.empty: 暂无，添加一个吧
 sett.remove: 移除
 sett.url_invalid: 地址需以 http(s):// 开头
 sett.dup: 已存在相同配置
+sett.net_list: 加速 & 代理
+sett.eff_off: 网络未启用
+sett.eff_none: 未选择生效项
+sett.kind_acc: 加速
+sett.kind_proxy: 代理
+sett.edit: 编辑
 sett.shell_auto: 壳开机自启
 sett.shell_auto_label: 开机时自动启动本壳（并拉起开启了自启的程序）
 sett.web_bind: 绑定 IP
