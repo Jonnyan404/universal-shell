@@ -1,7 +1,7 @@
 //! 受管子进程的启停。每个程序只允许一个存活实例，用 HashMap 跟踪。
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
 
@@ -142,102 +142,6 @@ impl Runner {
         exited
     }
 
-    /// 按可执行文件路径查找系统上匹配的进程 PID。
-    /// 壳重启后子进程句柄丢失，用路径探测残留进程以恢复运行态。
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    fn pids_by_path(&self, bin_path: &Path) -> Vec<u32> {
-        let mut pids = Vec::new();
-        let Ok(out) = std::process::Command::new("pgrep")
-            .arg("-f")
-            .arg(bin_path.display().to_string())
-            .output()
-        else {
-            return pids;
-        };
-        let Ok(text) = String::from_utf8(out.stdout) else {
-            return pids;
-        };
-        for line in text.lines() {
-            let pid = line.trim();
-            if pid.is_empty() || !pid.chars().all(|c| c.is_ascii_digit()) {
-                continue;
-            }
-            if let Ok(p) = pid.parse::<u32>() {
-                pids.push(p);
-            }
-        }
-        pids
-    }
-
-    /// Windows：用 tasklist 按镜像名(可执行文件名) 匹配进程 PID
-    #[cfg(target_os = "windows")]
-    fn pids_by_path(&self, bin_path: &Path) -> Vec<u32> {
-        let Some(name) = bin_path.file_name().map(|n| n.to_string_lossy().into_owned())
-        else {
-            return Vec::new();
-        };
-        let mut pids = Vec::new();
-        let mut cmd = std::process::Command::new("tasklist");
-        cmd.args(["/FI", &format!("IMAGENAME eq {name}"), "/FO", "CSV", "/NH"]);
-        suppress_console(&mut cmd);
-        let Ok(out) = cmd.output() else {
-            return pids;
-        };
-        let text = String::from_utf8_lossy(&out.stdout);
-        for line in text.lines() {
-            // CSV 列: "name","pid","session"...  取第二列
-            let cols: Vec<&str> = line.split('"').collect();
-            if cols.len() >= 4 && cols[3].trim().chars().all(|c| c.is_ascii_digit()) {
-                if let Ok(p) = cols[3].trim().parse::<u32>() {
-                    pids.push(p);
-                }
-            }
-        }
-        pids
-    }
-
-    /// 系统上是否有该可执行文件的进程在运行（含残留孤儿）
-    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
-    pub fn is_process_alive(&self, bin_path: &Path) -> bool {
-        !self.pids_by_path(bin_path).is_empty()
-    }
-
-    /// 其它平台兜底：无检测能力，返回 false
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    pub fn is_process_alive(&self, _bin_path: &Path) -> bool {
-        false
-    }
-
-    /// 按可执行文件路径杀死遗留的孤儿进程（壳重启后子进程句柄已丢失，
-    /// 若该程序仍存活在系统上则会占用端口，导致无法再次启动）。
-    /// 返回是否杀掉了进程。
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    pub fn kill_orphan_by_path(&self, bin_path: &Path) -> bool {
-        let pids = self.pids_by_path(bin_path);
-        for &pid in &pids {
-            let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
-        }
-        !pids.is_empty()
-    }
-
-    #[cfg(target_os = "windows")]
-    pub fn kill_orphan_by_path(&self, bin_path: &Path) -> bool {
-        let pids = self.pids_by_path(bin_path);
-        for &pid in &pids {
-            let mut cmd = std::process::Command::new("taskkill");
-            cmd.args(["/PID", &pid.to_string(), "/F", "/T"]);
-            suppress_console(&mut cmd);
-            let _ = cmd.status();
-        }
-        !pids.is_empty()
-    }
-
-    /// 其它平台兜底：尽力而为（暂无实现），返回 false
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    pub fn kill_orphan_by_path(&self, _bin_path: &Path) -> bool {
-        false
-    }
-
     /// 前台启动(窗口应用用这个)：stdout/stderr 合并写入同一日志文件，
     /// 其中 stderr 行以记录分隔符 `\x1F` 开头，供前端着色区分。
     /// 日志采用「会话追加」语义：不截断历史，逐会话写入一条分隔标记
@@ -297,7 +201,8 @@ impl Runner {
         #[cfg(unix)]
         {
             // 子进程忽略 SIGPIPE：壳退出后管道读端关闭，残留孤儿再写日志只会 EPIPE，
-            // 不会被信号杀死，重启后 pgrep 才能认出它（Go 等程序默认会被 SIGPIPE 杀死）。
+            // 不会被信号杀死（Go 等程序默认会被 SIGPIPE 杀死）。生命周期已由壳接管，
+            // 壳退出时会 stop_all 杀掉全部子进程，此处保留 SIG_IGN 作防御性兜底。
             use std::os::unix::process::CommandExt;
             unsafe {
                 cmd.pre_exec(|| {
@@ -334,6 +239,11 @@ impl Runner {
 
         self.children.insert(id.to_string(), child);
         Ok(())
+    }
+
+    /// 壳持有的子进程 PID（未持有或已退出返回 None）。
+    pub fn child_pid(&self, id: &str) -> Option<u32> {
+        self.children.get(id).map(|c| c.id())
     }
 
     /// 停止指定程序。等待几秒优雅退出，超时强杀。

@@ -658,9 +658,14 @@ impl ShellManager {
     }
 
     /// 壳是否仍持有该程序的子进程句柄（try_wait 轮询回收，无进程派生，
-    /// 可在 UI 线程每帧调用；路径存活探测必须走后台线程）。
+    /// 可在 UI 线程每帧调用）。
     pub fn is_held(&mut self, id: &str) -> bool {
         self.runner.is_running(id)
+    }
+
+    /// 壳持有的该程序子进程 PID（未持有或已退出返回 None）。
+    pub fn child_pid(&self, id: &str) -> Option<u32> {
+        self.runner.child_pid(id)
     }
 
     /// 清扫已退出的子进程并返回 id 列表（F-3/F10：事件推送前端，供 watcher 定时调用）。
@@ -668,11 +673,11 @@ impl ShellManager {
         self.runner.sweep_exited()
     }
 
-    /// 该程序是否在运行：壳持有子进程句柄，或系统上仍有该程序的进程
-    /// （壳上次退出后残留、仍在后台运行）。避免只查句柄而漏判孤儿进程。
-    /// 注意：含 pgrep/tasklist 派生，禁止在 UI 渲染路径逐帧调用。
+    /// 该程序是否在运行：仅以壳持有的子进程句柄为准（try_wait 回收僵尸）。
+    /// 生命周期完全由壳接管，不再派生 pgrep/tasklist 探测残留进程，
+    /// 因此 UI 渲染路径可直接调用（无进程派生）。
     pub fn is_program_running(&mut self, program: &Program) -> bool {
-        self.runner.is_running(&program.id) || self.runner.is_process_alive(&self.bin_path(program))
+        self.runner.is_running(&program.id)
     }
 
     /// 仅本地状态（不发网络请求）：安装、运行、本地版本。
@@ -702,19 +707,9 @@ impl ShellManager {
         if !bin.exists() {
             return Err(anyhow::anyhow!(t!("err.not_installed", name = &program.name)));
         }
-        // 若壳持有句柄 → 已在运行，直接报错
-        // 若壳无句柄但系统仍有该程序进程（壳上次退出后残留、仍在后台运行）→
-        // 不杀不重启，提示已在运行，避免误杀用户保留的常驻进程。
-        let held = self.runner.is_running(&program.id);
-        let orphan = !held && self.runner.is_process_alive(&bin);
-        if held {
+        // 若壳持有句柄 → 该程序已在运行（生命周期由壳接管，无孤儿残留概念）。
+        if self.runner.is_running(&program.id) {
             return Err(anyhow::anyhow!(t!("err.already_running", name = &program.name)));
-        }
-        if orphan {
-            return Err(anyhow::anyhow!(t!(
-                "err.running_bg",
-                name = &program.name
-            )));
         }
         let missing: Vec<&str> = program
             .fields
@@ -750,28 +745,14 @@ impl ShellManager {
     }
 
     pub fn stop(&mut self, id: &str) -> anyhow::Result<()> {
-        // 优先停掉壳持有的子进程句柄；若壳无句柄（如上次退出后该程序仍在后台
-        // 运行），则按可执行文件路径杀掉残留进程，确保能真正停掉、可再重启。
+        // 生命周期由壳接管：仅停止壳持有的子进程句柄。壳重启后残留进程
+        // 无从探测（不再派生 tasklist/pgrep），由用户手动处理或重新启动覆盖。
         match self.runner.stop(id) {
             Ok(()) => {
                 crate::events::emit(crate::events::Event::ProgramStopped(id.to_string()));
                 Ok(())
             }
-            Err(e1) => {
-                let bin = self
-                    .all_programs()
-                    .iter()
-                    .find(|p| p.id == id)
-                    .map(|p| self.bin_path(p));
-                if let Some(bin) = bin {
-                    if self.runner.kill_orphan_by_path(&bin) {
-                        log::info!("{}", t!("log.stale_killed", id = id));
-                        crate::events::emit(crate::events::Event::ProgramStopped(id.to_string()));
-                        return Ok(());
-                    }
-                }
-                Err(e1)
-            }
+            Err(e1) => Err(e1),
         }
     }
 
@@ -849,11 +830,8 @@ impl ShellManager {
                 continue;
             }
             let values = self.load_field_values(p);
-            let bin = self.bin_path(p);
-            let held = self.runner.is_running(&p.id);
-            let orphan = !held && self.runner.is_process_alive(&bin);
-            if held || orphan {
-                // 已在运行/残留进程在跑，不重复拉起（落盘，方便在壳日志里确认跳过）
+            if self.runner.is_running(&p.id) {
+                // 已在运行，不重复拉起（落盘，方便在壳日志里确认跳过）
                 log::info!("{}", t!("log.autostart.skip", name = &p.name));
                 self.log_op(&t!("log.autostart.skip", name = &p.name));
                 continue;
@@ -1763,16 +1741,9 @@ mod tests {
         assert!(mgr.is_program_running(&prog));
 
         // 外部 kill -9（不经过壳的 stop）
-        let out = std::process::Command::new("pgrep")
-            .args(["-f", "31771"])
-            .output()
-            .unwrap();
-        let pid: u32 = String::from_utf8_lossy(&out.stdout)
-            .split_whitespace()
-            .next()
-            .unwrap()
-            .parse()
-            .unwrap();
+        let pid = mgr
+            .child_pid("sleeper")
+            .expect("shell should hold the child handle");
         let st = std::process::Command::new("kill")
             .args(["-9", &pid.to_string()])
             .status()

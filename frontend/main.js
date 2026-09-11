@@ -2644,7 +2644,8 @@ async function boot() {
   checkShellUpdate(false);
   connectWS();
 
-  // F-3/F10：运行状态改由 WS 事件推送；此处仅作 WS 断线兜底
+  // F-3/F10：运行状态由 WS 事件推送为主；此定时器仅作 WS 断线兜底。
+  // 该兜底查的是本地句柄状态（批处理 RPC 无进程派生），保持低频即可。
   setInterval(refreshAllStatuses, 15000);
   setInterval(() => {
     if (current) refreshManageLog();

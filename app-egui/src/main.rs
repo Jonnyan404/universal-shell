@@ -4,7 +4,7 @@
 //! string=文本框 / file=文件选择(rfd) / directory=目录选择(rfd) /
 //! boolean=复选框 / autostart=开机启动(立即生效)。
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -100,8 +100,6 @@ enum Msg {
     StatusRefreshed(Vec<(String, Option<String>, String)>),
     /// 托盘菜单「开机自启」被点击：请求主线程切换壳自身自启
     TrayAutoToggle,
-    /// 后台存活轮询结果：(程序 id, 路径探测是否存活)，约每 3s 一次
-    RunningPolled(Vec<(String, bool)>),
     /// 壳自身更新检查完成：(是否手动触发, 有新版时携带版本信息)
     ShellUpdateChecked(bool, Result<Option<shared::ShellUpdate>, String>),
 }
@@ -280,11 +278,6 @@ struct ShellApp {
     checking_updates: bool,
     /// 最近一次「检查更新」完成时间（unix 秒），用于「上次检查更新」提示
     latest_checked_at: Option<i64>,
-    /// 各程序的路径存活探测结果（后台线程约每 3s 轮询；渲染只读缓存，
-    /// 避免 UI 线程 fork pgrep/tasklist 造成切换卡顿）。key = 程序 id
-    path_alive: HashMap<String, bool>,
-    /// 存活轮询线程的监听列表通道（程序增删后刷新监听对象）
-    running_watch_tx: Option<Sender<Vec<(String, PathBuf)>>>,
     /// 托盘图标（保持存活）
     tray: Option<tray_icon::TrayIcon>,
     /// 托盘菜单「开机自启」CheckMenuItem 句柄（用于同步勾选状态）
@@ -459,8 +452,6 @@ impl ShellApp {
             sidebar_ctx: None,
             sidebar_ctx_pos: None,
             latest_checked_at,
-            path_alive: HashMap::new(),
-            running_watch_tx: None,
             tray: None,
             tray_auto: None,
             shell_update_checking: false,
@@ -468,7 +459,6 @@ impl ShellApp {
             show_shell_update: false,
             quit: Arc::new(AtomicBool::new(false)),
         };
-        app.spawn_running_poller();
         // 启动即后台检查壳自身更新（静默：无新版不打扰，断网失败也不弹）
         app.spawn_check_shell_update(false);
         app
@@ -841,11 +831,6 @@ impl ShellApp {
                     self.m().save_version_check(&vc);
                     self.show_toast(t!("dl.done").to_string());
                 }
-                Msg::RunningPolled(list) => {
-                    for (id, alive) in list {
-                        self.path_alive.insert(id, alive);
-                    }
-                }
                 Msg::ShellUpdateChecked(manual, result) => {
                     self.shell_update_checking = false;
                     match result {
@@ -932,53 +917,10 @@ impl ShellApp {
         });
     }
 
-    /// UI 线程运行态：句柄持有（try_wait，无派生）OR 后台路径探测缓存。
-    /// 渲染路径禁止调用 manager.is_program_running（内含 pgrep 派生，会卡 UI）。
+    /// UI 线程运行态：仅以壳持有的子进程句柄为准（try_wait，无派生）。
+    /// 生命周期由壳完全接管，无孤儿探测，同类方法可在渲染路径直接调用。
     fn ui_running(&mut self, p: &shared::config::Program) -> bool {
-        self.m().is_held(&p.id) || self.path_alive.get(&p.id).copied().unwrap_or(false)
-    }
-
-    /// 存活轮询的监听列表：(程序 id, 可执行文件路径)
-    /// 必须覆盖全部实例（含内置）：只看 self.m().programs 会漏掉内置程序，
-    /// 重启后内置的孤儿进程永远认不出，一直显示已停止。
-    fn running_watch_list(&self) -> Vec<(String, PathBuf)> {
-        let all = self.m().all_programs();
-        all.iter()
-            .map(|p| (p.id.clone(), self.m().bin_path(p)))
-            .collect()
-    }
-
-    /// 程序增删后刷新后台轮询的监听对象
-    fn refresh_running_watch(&self) {
-        if let Some(tx) = &self.running_watch_tx {
-            let _ = tx.send(self.running_watch_list());
-        }
-    }
-
-    /// 后台存活轮询线程：约每 3s 用路径探测刷新各程序存活态，经 Msg 回主线程。
-    /// pgrep/tasklist 派生全部发生在工作线程，UI 线程只读 path_alive 缓存。
-    fn spawn_running_poller(&mut self) {
-        let (list_tx, list_rx) = mpsc::channel::<Vec<(String, PathBuf)>>();
-        let _ = list_tx.send(self.running_watch_list());
-        self.running_watch_tx = Some(list_tx);
-        let tx = self.tx.clone();
-        std::thread::spawn(move || {
-            let runner = shared::runner::Runner::new();
-            let mut list: Vec<(String, PathBuf)> = Vec::new();
-            loop {
-                while let Ok(l) = list_rx.try_recv() {
-                    list = l;
-                }
-                let out: Vec<(String, bool)> = list
-                    .iter()
-                    .map(|(id, bin)| (id.clone(), runner.is_process_alive(bin)))
-                    .collect();
-                if tx.send(Msg::RunningPolled(out)).is_err() {
-                    break;
-                }
-                std::thread::sleep(Duration::from_secs(3));
-            }
-        });
+        self.m().is_held(&p.id)
     }
 
     /// 渲染用状态：本地状态 + 后台缓存的最新版本（不在渲染时联网，
@@ -1033,7 +975,6 @@ impl ShellApp {
             }
             self.m().programs.push(program.clone());
         }
-        self.refresh_running_watch();
         self.m().save_config(&self.config_path)
     }
 
@@ -1698,8 +1639,6 @@ impl ShellApp {
                 let stop_r = self.m().stop(&p.id);
                 match stop_r {
                     Ok(()) => {
-                        // 立刻失效存活缓存，否则 ui_running 会沿用上次轮询的 true 到下个 3s 周期
-                        self.path_alive.insert(p.id.clone(), false);
                         self.log_op(&t!("op.stop", name = &p.name));
                     }
                     Err(e) => {
@@ -1825,7 +1764,6 @@ impl ShellApp {
             self.log_op(t!("toast.restart_fail", err = format!("{e:#}")).as_ref());
             return false;
         }
-        self.path_alive.insert(p.id.clone(), false);
         self.m().save_field_values(p, values);
         let start_r = self.m().start(p, values);
         if let Err(e) = start_r {
@@ -2580,8 +2518,6 @@ impl ShellApp {
                 }
                 if ui.button(t!("batch.stop_all")).clicked() {
                     self.m().stop_all();
-                    // 存活缓存清零即时生效，3s 轮询会重新填充
-                    self.path_alive.clear();
                     self.log_op(&t!("op.stop_all"));
                 }
             });
@@ -2741,7 +2677,6 @@ impl ShellApp {
                         if let Err(e) = stop_r {
                             self.log_op(t!("toast.stop_fail", err = format!("{e:#}")).as_ref());
                         } else {
-                            self.path_alive.insert(p.id.clone(), false);
                             self.log_op(&t!("op.stop", name = &p.name));
                             self.show_toast(t!("batch.stopped", name = &p.name).to_string());
                         }
@@ -3535,8 +3470,6 @@ impl ShellApp {
                         }
                         self.values.remove(&id);
                         self.latest_versions.remove(&id);
-                        self.path_alive.remove(&id);
-                        self.refresh_running_watch();
                         self.show_toast(
                             t!("toast.deleted", name = name.unwrap_or(id.clone())).to_string(),
                         );
