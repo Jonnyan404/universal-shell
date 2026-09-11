@@ -271,6 +271,14 @@ impl Runner {
     }
 }
 
+/// 生命周期由壳接管：壳对象销毁（正常退出 / 崩溃 / panic 退出）时，
+/// 强制终止所有仍持有的子进程，避免残留孤儿在后台继续占用端口。
+impl Drop for Runner {
+    fn drop(&mut self) {
+        self.stop_all();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
