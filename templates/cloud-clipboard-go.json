@@ -7,17 +7,17 @@
   "category": "clipboard",
   "assets": {
     "darwin": {
-      "candidates": ["{name}_Darwin_{arch}.tar.gz"],
+      "candidates": ["CCG_server-{os}-{arch}-v{version}.{ext}", "{name}_Darwin_{arch}.{ext}"],
       "format": "tar.gz",
       "member": "cloud-clipboard-go"
     },
     "linux": {
-      "candidates": ["{name}_Linux_{arch}.tar.gz"],
+      "candidates": ["CCG_server-{os}-{arch}-v{version}.{ext}", "{name}_Linux_{arch}.{ext}"],
       "format": "tar.gz",
       "member": "cloud-clipboard-go"
     },
     "windows": {
-      "candidates": ["{name}_Windows_{arch}.zip"],
+      "candidates": ["CCG_server-{os}-{arch}-v{version}.{ext}", "{name}_Windows_{arch}.{ext}"],
       "format": "zip",
       "member": "cloud-clipboard-go.exe"
     }
