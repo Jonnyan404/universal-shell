@@ -1,6 +1,6 @@
 {
   "id": "x-tunnel",
-  "name": "x-tunnel",
+  "name": "x-tunnel 客户端",
   "description": "x-tunnel — ECH/WebSocket 加密隧道（客户端：本地 SOCKS5/HTTP/TCP 代理；服务端：WSS 监听），多 IP 预连接。默认只监听 127.0.0.1。",
   "repo": "Jonnyan404/tunnel",
   "binary": "x-tunnel",
@@ -27,10 +27,13 @@
     "aarch64": "arm64"
   },
   "fields": [
-    { "key": "listen", "kind": "string", "label": "监听地址", "default": "proxy://127.0.0.1:1080", "placeholder": "客户端: proxy://127.0.0.1:1080；服务端: wss://0.0.0.0:8443/tunnel", "required": true },
-    { "key": "forward", "kind": "string", "label": "转发地址", "default": "", "placeholder": "客户端: wss://host:port/tunnel；服务端: socks5://user:pass@host:port", "required": true },
+    { "key": "forward", "kind": "string", "label": "服务端地址", "default": "", "placeholder": "客户端: host:port/tunnel", "required": true },
+    { "key": "listen", "kind": "string", "label": "本地监听地址", "default": "127.0.0.1:1080", "placeholder": "客户端: socks5://127.0.0.1:1080", "required": true },
+    { "key": "token", "kind": "string", "label": "身份令牌", "default": "", "placeholder": "与服务端一致的 token（可留空）" },
     { "key": "channels", "kind": "string", "label": "预连接通道数", "default": "3", "placeholder": "每个 IP 的预连接通道数量" },
-    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-token 认证令牌 -ip 1.1.1.1,2.2.2.2 -fallback -cidr 192.168.0.0/16 -dns doh.pub/dns-query -ech cloudflare.com …" }
+    { "key": "ip", "kind": "string", "label": "优选IP/域名", "default": "", "placeholder": "多个 IP 用逗号分隔" },
+    { "key": "ips", "kind": "string", "label": "IP偏好", "default": "4,6", "placeholder": "" },
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-fallback -dns doh.pub/dns-query -ech cloudflare.com …" }
   ],
-  "args": ["-l", "{listen}", "-f", "{forward}", "-n", "{channels}", "{args_extra}"]
+  "args": ["-l", "socks5://{listen}", "-f", "wss://{forward}", "-n", "{channels}", "-token", "{token}", "-ip", "{ip}", "-ips", "{ips}", "{args_extra}"]
 }

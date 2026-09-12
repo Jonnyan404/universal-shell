@@ -1,5 +1,5 @@
 {
-  "revision": "rev-1789196518",
+  "revision": "rev-1789198653",
   "categories": [
     "file-sharing",
     "sync",
@@ -137,7 +137,7 @@
     },
     {
       "id": "x-tunnel",
-      "name": "x-tunnel",
+      "name": "x-tunnel 客户端",
       "category": "proxy",
       "description": "x-tunnel — ECH/WebSocket 加密隧道（客户端：本地 SOCKS5/HTTP/TCP 代理；服务端：WSS 监听），多 IP 预连接。默认只监听 127.0.0.1。",
       "repo": "Jonnyan404/tunnel"
