@@ -22,7 +22,6 @@ permissions:
 
 env:
   REGISTRY_GHCR: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
   # Docker Hub 凭据转成 job 级 env，`if:` 里才能引用（secrets 不能出现在 if 表达式）
   DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
   DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -35,7 +34,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Resolve version
+      - name: Resolve version and image name
         id: version
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then
@@ -44,7 +43,10 @@ jobs:
             V="${{ github.event.inputs.version }}"
           fi
           V="${V#v}"
+          # ghcr 要求仓库名（含 owner）全小写；GitHub 表达式无 lower()，在 shell 里转
+          IMG="$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
           echo "value=$V" >> "$GITHUB_OUTPUT"
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
         shell: bash
 
       - name: Set up Docker Buildx
@@ -81,8 +83,8 @@ jobs:
             VERSION=${{ steps.version.outputs.value }}
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.value }}
+            ${{ env.REGISTRY_GHCR }}/${{ steps.version.outputs.image }}:latest
+            ${{ env.REGISTRY_GHCR }}/${{ steps.version.outputs.image }}:${{ steps.version.outputs.value }}
 
       # Docker Hub 与 ghcr 用同一份多架构构件；仅当配置了 Docker Hub 凭据时才推送
       - name: Log in to Docker Hub
