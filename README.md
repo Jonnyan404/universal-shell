@@ -233,7 +233,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## 数据目录
 
-默认 `~/Library/Application Support/universal-shell/`（Windows: `%APPDATA%/universal-shell/`）。每个受管程序：
+默认 `~/Library/Application Support/universal-shell/`（macOS）、`~/.local/share/universal-shell/`（Linux，遵循 `$XDG_DATA_HOME`）、`%APPDATA%/universal-shell/`（Windows）。每个受管程序：
 
 - `<data>/<binary>` — 可执行文件
 - `<data>/<id>.version` — 本地版本号
