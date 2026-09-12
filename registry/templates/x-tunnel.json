@@ -1,0 +1,36 @@
+{
+  "id": "x-tunnel",
+  "name": "x-tunnel",
+  "description": "x-tunnel — ECH/WebSocket 加密隧道（客户端：本地 SOCKS5/HTTP/TCP 代理；服务端：WSS 监听），多 IP 预连接。默认只监听 127.0.0.1。",
+  "repo": "Jonnyan404/tunnel",
+  "binary": "x-tunnel",
+  "category": "proxy",
+  "assets": {
+    "darwin": {
+      "candidates": ["x-tunnel-darwin-{arch}", "x-tunnel-darwin-arm64"],
+      "format": "raw",
+      "mode": "raw"
+    },
+    "linux": {
+      "candidates": ["x-tunnel-linux-{arch}", "x-tunnel-linux-armv7", "x-tunnel-linux-arm64"],
+      "format": "raw",
+      "mode": "raw"
+    },
+    "windows": {
+      "candidates": ["x-tunnel-windows-{arch}.exe", "x-tunnel-windows-arm64.exe"],
+      "format": "raw",
+      "mode": "raw"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "listen", "kind": "string", "label": "监听地址", "default": "proxy://127.0.0.1:1080", "placeholder": "客户端: proxy://127.0.0.1:1080；服务端: wss://0.0.0.0:8443/tunnel", "required": true },
+    { "key": "forward", "kind": "string", "label": "转发地址", "default": "", "placeholder": "客户端: wss://host:port/tunnel；服务端: socks5://user:pass@host:port", "required": true },
+    { "key": "channels", "kind": "string", "label": "预连接通道数", "default": "3", "placeholder": "每个 IP 的预连接通道数量" },
+    { "key": "args_extra", "kind": "string", "label": "附加参数", "default": "", "placeholder": "-token 认证令牌 -ip 1.1.1.1,2.2.2.2 -fallback -cidr 192.168.0.0/16 -dns doh.pub/dns-query -ech cloudflare.com …" }
+  ],
+  "args": ["-l", "{listen}", "-f", "{forward}", "-n", "{channels}", "{args_extra}"]
+}

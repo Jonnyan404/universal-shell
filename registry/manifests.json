@@ -1,5 +1,5 @@
 {
-  "revision": "rev-1788928603",
+  "revision": "rev-1789196518",
   "categories": [
     "file-sharing",
     "sync",
@@ -134,6 +134,13 @@
       "category": "sync",
       "description": "syncthing — 开源、去中心化的文件同步工具（不依赖云）。整包含 config/脚本，使用 whole 解包模式。",
       "repo": "syncthing/syncthing"
+    },
+    {
+      "id": "x-tunnel",
+      "name": "x-tunnel",
+      "category": "proxy",
+      "description": "x-tunnel — ECH/WebSocket 加密隧道（客户端：本地 SOCKS5/HTTP/TCP 代理；服务端：WSS 监听），多 IP 预连接。默认只监听 127.0.0.1。",
+      "repo": "Jonnyan404/tunnel"
     }
   ]
 }
