@@ -1,0 +1,103 @@
+name: Publish Docker images
+
+on:
+  # GitHub Release 发布（含前置 release 资产）时推送最新版镜像
+  release:
+    types: [published]
+  # 手动触发：指定版本号（需该版本 release 资产已存在）
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: 0.1.0)'
+        required: true
+        default: '0.2.2'
+
+concurrency:
+  group: docker-${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY_GHCR: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  publish:
+    name: Publish multi-arch image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            V="${{ github.event.release.tag_name }}"
+          else
+            V="${{ github.event.inputs.version }}"
+          fi
+          V=$(echo "$V" | sed 's/^v//')
+          echo "value=$V" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 先确认 release 资产可用，避免发布空镜像
+      - name: Check release assets exist
+        run: |
+          V="${{ steps.version.outputs.value }}"
+          for a in x86_64 arm64; do
+            url="https://github.com/${{ github.repository }}/releases/download/v${V}/universal-shell-cli-${V}-linux-${a}"
+            code=$(curl -sL -o /dev/null -w '%{http_code}' -I "$url")
+            if [ "$code" != "200" ]; then
+              echo "Missing asset: $url (HTTP $code)"
+              exit 1
+            fi
+            echo "OK: $url"
+          done
+        shell: bash
+
+      - name: Build and push (GHCR)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY_GHCR }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.value }}
+
+      # Docker Hub 与 ghcr 用同一份多架构构件；仅当配置了 Docker Hub 凭据时才推送
+      - name: Log in to Docker Hub
+        if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push (Docker Hub)
+        if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/universal-shell:latest
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/universal-shell:${{ steps.version.outputs.value }}
