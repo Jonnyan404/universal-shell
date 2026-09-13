@@ -59,19 +59,31 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 先确认 release 资产可用，避免发布空镜像
-      - name: Check release assets exist
+      # 先确认 release 资产可用。release 触发时 release.yml（构建+上传）与本工作流
+      # 并发启动，资产可能尚未传完——轮询等待上限 20 分钟，避免 404 误失败。
+      - name: Wait for release assets
         run: |
           V="${{ steps.version.outputs.value }}"
+          urls=""
           for a in x86_64 arm64; do
-            url="https://github.com/${{ github.repository }}/releases/download/v${V}/universal-shell-cli-${V}-linux-${a}"
-            code=$(curl -sL -o /dev/null -w '%{http_code}' -I "$url")
-            if [ "$code" != "200" ]; then
-              echo "Missing asset: $url (HTTP $code)"
-              exit 1
-            fi
-            echo "OK: $url"
+            urls="$urls https://github.com/${{ github.repository }}/releases/download/v${V}/universal-shell-cli-${V}-linux-${a}"
           done
+          for i in $(seq 1 120); do
+            missing=""
+            for url in $urls; do
+              code=$(curl -sL -o /dev/null -w '%{http_code}' -I "$url")
+              if [ "$code" != "200" ]; then missing="$missing $url(HTTP $code)"; fi
+            done
+            if [ -z "$missing" ]; then
+              echo "All assets ready:"
+              echo "$urls" | tr ' ' '\n' | sed '/^$/d' | while read -r u; do echo "  OK: $u"; done
+              exit 0
+            fi
+            echo "[$i/120] waiting for release assets:$missing"
+            sleep 10
+          done
+          echo "Timed out waiting for release assets"
+          exit 1
         shell: bash
 
       - name: Build and push (GHCR)
