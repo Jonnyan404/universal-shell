@@ -1,10 +1,8 @@
-name: Publish Docker images
+name: Publish Docker images (manual)
 
 on:
-  # GitHub Release 发布（含前置 release 资产）时推送最新版镜像
-  release:
-    types: [published]
-  # 手动触发：指定版本号（需该版本 release 资产已存在）
+  # 仅手动触发：release 事件已由 release.yml 内的 docker job 负责。
+  # 手动触发适合「构建产物已就绪、补发/重发镜像」的场景。
   workflow_dispatch:
     inputs:
       version:
@@ -13,7 +11,7 @@ on:
         default: '0.2.2'
 
 concurrency:
-  group: docker-${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.version }}
+  group: docker-manual-${{ github.event.inputs.version }}
   cancel-in-progress: true
 
 permissions:
@@ -37,11 +35,7 @@ jobs:
       - name: Resolve version and image name
         id: version
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            V="${{ github.event.release.tag_name }}"
-          else
-            V="${{ github.event.inputs.version }}"
-          fi
+          V="${{ github.event.inputs.version }}"
           V="${V#v}"
           # ghcr 要求仓库名（含 owner）全小写；GitHub 表达式无 lower()，在 shell 里转
           IMG="$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"

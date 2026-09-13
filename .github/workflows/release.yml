@@ -98,7 +98,7 @@ jobs:
           else
             V="${{ github.event.release.tag_name }}"
           fi
-          V=$(echo "$V" | sed 's/^v//')
+          V="${V#v}"
           echo "value=$V" >> "$GITHUB_OUTPUT"
         shell: bash
 
@@ -167,7 +167,10 @@ jobs:
           if command -v candle >/dev/null 2>&1; then
             WIX_ARGS=(--bin-path "$(dirname "$(command -v candle)")")
           else
-            WIXBIN="$(ls -d "/c/Program Files"*/WiX\ Toolset\ v*/bin 2>/dev/null | head -1)"
+            WIXBIN=""
+            for p in /c/Program\ Files*/WiX\ Toolset\ v*/bin; do
+              if [ -d "$p" ]; then WIXBIN="$p"; break; fi
+            done
             if [ -n "$WIXBIN" ]; then
               WIX_ARGS=(--bin-path "$WIXBIN")
             fi
@@ -353,3 +356,89 @@ jobs:
             dist/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Publish multi-arch Docker image
+    needs: release
+    runs-on: ubuntu-latest
+    # 仅 release 事件自动发布镜像；手动发布走 docker-publish.yml（workflow_dispatch）
+    if: github.event_name == 'release'
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REGISTRY_GHCR: ghcr.io
+      # Docker Hub 凭据转成 job 级 env，`if:` 里才能引用（secrets 不能出现在 if 表达式）
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Resolve version and image name
+        id: version
+        run: |
+          V="${{ github.event.release.tag_name }}"
+          V="${V#v}"
+          # ghcr 要求仓库名（含 owner）全小写；GitHub 表达式无 lower()，在 shell 里转
+          IMG="$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+          echo "value=$V" >> "$GITHUB_OUTPUT"
+          echo "image=$IMG" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - name: Check release assets exist
+        run: |
+          V="${{ steps.version.outputs.value }}"
+          for a in x86_64 arm64; do
+            url="https://github.com/${{ github.repository }}/releases/download/v${V}/universal-shell-cli-${V}-linux-${a}"
+            code=$(curl -sL -o /dev/null -w '%{http_code}' -I "$url")
+            if [ "$code" != "200" ]; then
+              echo "Missing asset: $url (HTTP $code)"
+              exit 1
+            fi
+            echo "OK: $url"
+          done
+        shell: bash
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (GHCR)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.REGISTRY_GHCR }}/${{ steps.version.outputs.image }}:latest
+            ${{ env.REGISTRY_GHCR }}/${{ steps.version.outputs.image }}:${{ steps.version.outputs.value }}
+
+      # Docker Hub 与 ghcr 用同一份多架构构件；仅当配置了 Docker Hub 凭据时才推送
+      - name: Log in to Docker Hub
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      - name: Build and push (Docker Hub)
+        if: env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != ''
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.value }}
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            docker.io/${{ env.DOCKERHUB_USERNAME }}/universal-shell:latest
+            docker.io/${{ env.DOCKERHUB_USERNAME }}/universal-shell:${{ steps.version.outputs.value }}
