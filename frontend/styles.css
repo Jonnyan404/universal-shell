@@ -502,6 +502,9 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .edit-row input, .edit-row select { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-2); color: var(--text); font-size: 12px; }
 .edit-row .req { display: flex; align-items: center; justify-content: center; flex: 0 0 auto; }
 .edit-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+.del-desc { margin: 0 0 6px; font-size: 13px; line-height: 1.6; color: var(--text); }
+.del-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.del-danger:hover { filter: brightness(1.08); }
 .edit-save { background: var(--accent); border-color: var(--accent); color: #fff; }
 .edit-save:hover { filter: brightness(1.08); }
 .import-drop { border: 1px dashed var(--border); border-radius: 8px; padding: 18px; text-align: center; color: var(--muted); font-size: 13px; cursor: pointer; }

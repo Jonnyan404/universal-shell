@@ -1209,6 +1209,21 @@ fn delete_program(state: State<AppState>, program_id: String) -> Result<(), Stri
 }
 
 #[tauri::command]
+fn delete_program_entirely(state: State<AppState>, program_id: String) -> Result<(), String> {
+    let mut mgr = state.manager.lock().unwrap();
+    let name = mgr
+        .programs
+        .iter()
+        .find(|p| p.id == program_id)
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| program_id.clone());
+    mgr.delete_program_entirely(&program_id, &state.config_path)
+        .map_err(|e| format!("{e:#}"))?;
+    mgr.log_op(&t!("op.delete_entirely", name = &name));
+    Ok(())
+}
+
+#[tauri::command]
 fn clear_program_data(state: State<AppState>, program_id: String) -> Result<(), String> {
     let mut mgr = state.manager.lock().unwrap();
     let opt = mgr
@@ -1833,6 +1848,7 @@ pub fn run() {
             add_program,
             duplicate_program,
             delete_program,
+            delete_program_entirely,
             clear_program_data,
             set_program_hidden,
             get_registries,

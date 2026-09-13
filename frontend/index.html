@@ -161,6 +161,25 @@
     <button class="mob-tab" data-mtab="log"><span class="mob-tab-ic">📜</span><span data-i18n="ui.log_center">日志</span></button>
   </nav>
 
+  <!-- 模态：删除确认（软删除保留数据 / 连带数据彻底删除） -->
+  <div id="del-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span data-i18n="del.title">删除程序</span>
+        <span class="spacer"></span>
+        <button id="del-modal-close" class="modal-close" data-i18n-title="act.close">✕</button>
+      </div>
+      <div class="edit-scroll">
+        <p id="del-modal-desc" class="del-desc"></p>
+        <div class="edit-footer">
+          <button id="del-modal-cancel" data-i18n="act.cancel">取消</button>
+          <button id="del-modal-keep" class="op-btn" data-i18n="del.keep_data">删除（保留数据）</button>
+          <button id="del-modal-purge" class="op-btn del-danger" data-i18n="del.purge">删除并清空数据</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 模态：程序编辑 -->
   <div id="edit-modal" class="modal" hidden>
     <div class="modal-box wide">

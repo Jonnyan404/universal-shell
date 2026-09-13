@@ -326,11 +326,27 @@ async function toggleProgramHidden(p) {
   }
 }
 
-async function confirmAndDelete(p) {
-  if (!confirm(t("confirm.delete", { name: p.name }))) return;
+// 删除：弹窗二选一（保留数据 / 连带数据彻底删除）
+let delTarget = null;
+function confirmAndDelete(p) {
+  delTarget = p;
+  document.querySelector("#del-modal-desc").textContent = t("del.desc", {
+    name: p.name,
+    id: p.id,
+  });
+  document.querySelector("#del-modal").hidden = false;
+}
+function closeDelModal() {
+  document.querySelector("#del-modal").hidden = true;
+  delTarget = null;
+}
+async function applyDelete(entirely) {
+  const p = delTarget;
+  closeDelModal();
+  if (!p) return;
   try {
-    await invoke("delete_program", { programId: p.id });
-    showNotice(t("toast.deleted", { name: p.name }));
+    await invoke(entirely ? "delete_program_entirely" : "delete_program", { programId: p.id });
+    showNotice(t(entirely ? "toast.deleted_purge" : "toast.deleted", { name: p.name }));
     await reloadPrograms();
     if (current && current.id === p.id) {
       const next = programs[0];
@@ -2862,6 +2878,12 @@ document.querySelector("#edit-add-env").onclick = () => {
 };
 document.querySelector("#import-modal-close").onclick = () => (document.querySelector("#import-modal").hidden = true);
 document.querySelector("#import-modal-cancel").onclick = () => (document.querySelector("#import-modal").hidden = true);
+
+// 删除确认弹窗：软删除（保留数据） / 连带数据彻底删除
+document.querySelector("#del-modal-close").onclick = closeDelModal;
+document.querySelector("#del-modal-cancel").onclick = closeDelModal;
+document.querySelector("#del-modal-keep").onclick = () => applyDelete(false);
+document.querySelector("#del-modal-purge").onclick = () => applyDelete(true);
 
 // 批量 / 模板库 / 设置 入口
 document.querySelector("#batch-link").onclick = () => switchView("batch");

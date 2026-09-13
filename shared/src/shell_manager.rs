@@ -1058,11 +1058,8 @@ impl ShellManager {
         self.save_config(path)
     }
 
-    /// 删除实例（软删除）：从配置移除程序，仅清理壳管理的可再生文件
-    /// （二进制/解包/版本/字段值），保留用户运行时数据目录。
-    /// 彻底清空见 [`ShellManager::clear_program_data`]。
-    pub fn delete_program(&mut self, id: &str, path: &Path) -> anyhow::Result<()> {
-        // 防御：id 必须是单段安全标识，杜绝 ".." / 路径分隔符 等导致清理目录越权
+    /// 防御：id 必须是单段安全标识，杜绝 ".." / 路径分隔符 等导致清理目录越权。
+    fn validate_program_id(&self, id: &str) -> anyhow::Result<()> {
         if id.is_empty()
             || id == ".."
             || id.contains('/')
@@ -1071,6 +1068,14 @@ impl ShellManager {
         {
             anyhow::bail!(t!("err.program_not_found", id = &id));
         }
+        Ok(())
+    }
+
+    /// 删除实例（软删除）：从配置移除程序，仅清理壳管理的可再生文件
+    /// （二进制/解包/版本/字段值），保留用户运行时数据目录。
+    /// 彻底清空见 [`ShellManager::clear_program_data`]。
+    pub fn delete_program(&mut self, id: &str, path: &Path) -> anyhow::Result<()> {
+        self.validate_program_id(id)?;
         let is_builtin = if self.programs.iter().any(|p| p.id == id) {
             false
         } else if self.builtin_programs.iter().any(|p| p.id == id) {
@@ -1101,29 +1106,29 @@ impl ShellManager {
         self.save_config(path)
     }
 
-    /// 彻底清空某程序的数据目录（含用户运行时数据）。
+    /// 清空程序数据目录（重置用户数据）：删除 app_dir 中除壳管理文件
+    /// （bin/、pkg/、version、values.json）之外的一切，保留已下载的程序本体，
+    /// 无需重新下载即可回到全新安装状态。
     /// 只按 id 定位 `data_dir/<id>`：即便该程序已在软删除时从配置移除，
     /// 残留的应用数据目录也能被一并清除。
     /// 与 [`ShellManager::delete_program`] 的软删除形成双层：
-    /// 删除 = 移除模板+应用，保留数据；清空 = 物理删除 app_dir。
+    /// 删除 = 移除模板+应用，保留数据；清空 = 只清用户数据，保留软件。
     pub fn clear_program_data(&mut self, id: &str) -> anyhow::Result<()> {
-        if id.is_empty()
-            || id == ".."
-            || id.contains('/')
-            || id.contains('\\')
-            || id.contains('\0')
-        {
-            anyhow::bail!(t!("err.program_not_found", id = &id));
-        }
+        self.validate_program_id(id)?;
         if let Err(e) = self.runner.stop(id) {
             log::warn!("{}", t!("log.stop_failed", id = id, err = format!("{e:#}")));
         }
         let dir = self.data_dir.join(id);
         if dir.exists() {
-            std::fs::remove_dir_all(&dir)
-                .with_context(|| format!("clear data dir: {}", dir.display()))?;
+            clear_keeping_managed(&dir).with_context(|| format!("clear data dir: {}", dir.display()))?;
         }
         Ok(())
+    }
+
+    /// 彻底删除：软删除 + 清空用户数据，等价于旧版删除语义（连软件带数据一并移除）。
+    pub fn delete_program_entirely(&mut self, id: &str, path: &Path) -> anyhow::Result<()> {
+        self.delete_program(id, path)?;
+        self.clear_program_data(id)
     }
 
     /// 新增一个程序（新建模板/导入用）。id 冲突时报错，绝不覆盖。
@@ -1275,6 +1280,28 @@ pub fn latest_remote(
         })
         .map(Some)
         .map_err(|e| format!("{e:#}"))
+}
+
+/// 删除目录内除壳管理文件（bin/、pkg/、version、values.json）外的一切，
+/// 用于「清空用户数据、保留已下载程序本体」。
+fn clear_keeping_managed(dir: &Path) -> anyhow::Result<()> {
+    let managed: &[&str] = &["bin", "pkg", "version", "values.json"];
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if managed.contains(&name.as_str()) {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            std::fs::remove_dir_all(&path)?;
+        } else {
+            std::fs::remove_file(&path)?;
+        }
+    }
+    // 清理后若不再有任何内容（软删除已移除了壳文件），把空目录一并移除
+    let _ = std::fs::remove_dir(dir);
+    Ok(())
 }
 
 /// 在解包目录内以 member(可能含前缀) 匹配真实文件路径；找不到回退直接拼接
@@ -2180,23 +2207,34 @@ mod tests {
         mgr.install_or_update(&p, &|_| {}).unwrap();
         mgr.add_program(&p, &cfg).unwrap();
         let app_dir = mgr.app_dir(&p);
-        assert!(mgr.bin_path(&p).exists(), "安装后 bin 应存在");
+        let bin = mgr.bin_path(&p);
+        assert!(bin.exists(), "安装后 bin 应存在");
         // 模拟程序运行后写入的用户数据（working_dir="." → app_dir 内）
         std::fs::create_dir_all(app_dir.join("userdata")).unwrap();
         std::fs::write(app_dir.join("userdata").join("state.db"), b"keep-me").unwrap();
 
-        // 软删除：程序移除 + 壳文件清理，用户数据保留
+        // 清空数据目录：只清用户数据，保留已下载程序本体（bin/version 等）
+        mgr.clear_program_data("softtest").unwrap();
+        assert!(bin.exists(), "清空数据后 bin（程序本体）应保留");
+        assert!(app_dir.join("version").exists(), "清空数据后 version 应保留");
+        assert!(!app_dir.join("userdata").exists(), "清空数据后用户数据应被清除");
+
+        // 软删除：程序移除 + 壳文件清理，残留的用户数据目录保留
+        std::fs::create_dir_all(app_dir.join("userdata")).unwrap();
+        std::fs::write(app_dir.join("userdata").join("leftover.txt"), b"keep").unwrap();
         mgr.delete_program("softtest", &cfg).unwrap();
         assert!(!mgr.all_programs().iter().any(|x| x.id == "softtest"));
         assert!(app_dir.exists(), "软删除后 app_dir 应保留");
-        assert!(!mgr.bin_path(&p).exists(), "软删除后 bin 应被清理");
+        assert!(!bin.exists(), "软删除后 bin 应被清理");
         assert!(!app_dir.join("version").exists(), "软删除后 version 文件应被清理");
-        let kept = std::fs::read_to_string(app_dir.join("userdata").join("state.db")).unwrap();
-        assert_eq!(kept, "keep-me", "软删除应保留用户数据");
+        let kept = std::fs::read_to_string(app_dir.join("userdata").join("leftover.txt")).unwrap();
+        assert_eq!(kept, "keep", "软删除应保留用户数据");
 
-        // 清空数据目录：整个 app_dir 物理删除
-        mgr.clear_program_data("softtest").unwrap();
-        assert!(!app_dir.exists(), "清空数据目录后 app_dir 应整体删除");
+        // delete_program_entirely：软删 + 清空，残留数据也一并抹除
+        mgr.add_program(&p, &cfg).unwrap();
+        std::fs::write(app_dir.join("userdata").join("state.db"), b"again").unwrap();
+        mgr.delete_program_entirely("softtest", &cfg).unwrap();
+        assert!(!app_dir.exists(), "彻底删除后 app_dir 应整体删除");
         h.join().unwrap();
 
         let _ = std::fs::remove_dir_all(&dir);

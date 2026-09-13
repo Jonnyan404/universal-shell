@@ -1151,6 +1151,20 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             mgr.log_op(&t!("op.delete", name = &name));
             Ok(json!({}))
         }
+        "delete_program_entirely" => {
+            let program_id = arg_str(args, "programId");
+            let mut mgr = state.manager.lock().unwrap();
+            let name = mgr
+                .programs
+                .iter()
+                .find(|p| p.id == program_id)
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| program_id.clone());
+            mgr.delete_program_entirely(&program_id, &state.config_path)
+                .map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!("op.delete_entirely", name = &name));
+            Ok(json!({}))
+        }
         "clear_program_data" => {
             let program_id = arg_str(args, "programId");
             let mut mgr = state.manager.lock().unwrap();

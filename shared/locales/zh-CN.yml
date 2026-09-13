@@ -164,7 +164,7 @@ act.browse: 浏览…
 act.upload: 上传
 act.edit: 编辑
 act.delete: 删除
-act.clear_data: 清空数据目录
+act.clear_data: 重置数据（保留程序）
 act.hide: 隐藏
 act.unhide: 显示
 menu.new: 新建程序
@@ -272,7 +272,8 @@ toast.autostart_updated: '已更新「%{name}」开机启动'
 toast.hidden: '已隐藏「%{name}」'
 toast.unhidden: '已取消隐藏「%{name}」'
 toast.deleted: '已删除「%{name}」（数据目录已保留）'
-toast.data_cleared: '已清空「%{name}」数据目录'
+toast.deleted_purge: '已删除并清空「%{name}」数据'
+toast.data_cleared: '已重置「%{name}」数据（程序保留）'
 toast.added: '已新增「%{name}」'
 toast.duplicated: '已复制为「%{name}」'
 toast.imported: '已导入「%{name}」'
@@ -299,8 +300,12 @@ check.last_checked: '上次检查更新：%{ago}'
 check.not_checked: 尚未检查更新
 check.last_online: '最近一次联网检查：%{date}'
 log.title_fmt: '日志 · %{name}'
-confirm.delete: '确定删除程序「%{name}」？\n将移除其配置与已下载文件，数据目录保留；如需连同数据彻底删除，请改用「清空数据目录」。'
-confirm.clear_data: '确定清空程序「%{name}」的数据目录？\n该程序运行产生的数据将被永久删除，且不可恢复。'
+confirm.delete: '确定删除程序「%{name}」？\n将移除其配置与已下载文件，数据目录保留；如需连同数据彻底删除，请改用「删除并清空数据」。'
+confirm.clear_data: '确定重置程序「%{name}」的数据？\n程序运行产生的数据将被永久删除（已下载的程序本体保留），且不可恢复。'
+del.title: 删除程序
+del.desc: '选择如何删除「%{name}」（%{id}）：\n删除（保留数据）：移除程序配置与已下载文件，数据目录不动，便于日后重新安装。\n删除并清空数据：连同程序运行产生的数据一并永久删除。'
+del.keep_data: 删除（保留数据）
+del.purge: 删除并清空数据
 confirm.overwrite_import: '本地已存在程序「%{id}」，是否用远程模板更新？\n更新会同步其模板配置（仅覆盖结构，保留你自定义的字段值），若已在运行请先停止。'
 time.min_ago: '%{n} 分钟前'
 time.hour_ago: '%{n} 小时前'
@@ -385,8 +390,9 @@ op.toggle_shell_autostart: '%{onoff}壳自身开机自启动'
 op.edit_template: 编辑程序「%{name}」模板
 op.add_template: 新增程序「%{name}」
 op.duplicate: 复制程序「%{name}」
-op.delete: 删除程序「%{name}」（保留数据目录）
-op.clear_data: 清空程序「%{name}」数据目录
+op.delete: 删除程序「%{name}」（保留数据）
+op.delete_entirely: 删除并清空程序「%{name}」数据
+op.clear_data: 重置程序「%{name}」数据（保留程序）
 op.toggle_visibility: '%{showhide}程序「%{name}」'
 op.update_sources: '更新模板源列表：%{list}'
 op.web_update: '更新 Web 监听设置：%{bind}:%{port}'
