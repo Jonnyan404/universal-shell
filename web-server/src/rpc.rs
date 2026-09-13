@@ -1151,6 +1151,24 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             mgr.log_op(&t!("op.delete", name = &name));
             Ok(json!({}))
         }
+        "clear_program_data" => {
+            let program_id = arg_str(args, "programId");
+            let mut mgr = state.manager.lock().unwrap();
+            let opt = mgr
+                .programs
+                .iter()
+                .chain(mgr.builtin_programs.iter())
+                .find(|p| p.id == program_id)
+                .cloned();
+            let name = opt
+                .as_ref()
+                .map(|p| p.name.clone())
+                .unwrap_or_else(|| program_id.clone());
+            mgr.clear_program_data(&program_id)
+                .map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!("op.clear_data", name = &name));
+            Ok(json!({}))
+        }
         "set_program_hidden" => {
             let program_id = arg_str(args, "programId");
             let hidden = arg_bool(args, "hidden");

@@ -152,7 +152,7 @@ st.never: Never
 st.just: Just now
 st.local_ver: 'Local version: %{ver}'
 ui.not_imported: No programs imported
-ui.confirm_delete: 'Delete "%{name}"? This cannot be undone.'
+ui.confirm_delete: 'Delete "%{name}"? Its data directory will be kept.'
 ui.import_overwrite: Overwrite existing program with same id
 ui.import_choose: Choose a template JSON file (.json)
 act.start: Start
@@ -164,6 +164,7 @@ act.browse: Browse…
 act.upload: Upload
 act.edit: Edit
 act.delete: Delete
+act.clear_data: Clear data directory
 act.hide: Hide
 act.unhide: Show
 menu.new: 'New program'
@@ -270,7 +271,8 @@ toast.updated_short: 'Downloaded/updated, current version %{ver}'
 toast.autostart_updated: 'Updated autostart for "%{name}"'
 toast.hidden: 'Hidden "%{name}"'
 toast.unhidden: 'Unhidden "%{name}"'
-toast.deleted: 'Deleted "%{name}"'
+toast.deleted: 'Deleted "%{name}" (data directory kept)'
+toast.data_cleared: 'Cleared "%{name}" data directory'
 toast.added: 'Added "%{name}"'
 toast.duplicated: 'Duplicated as "%{name}"'
 toast.imported: 'Imported "%{name}"'
@@ -297,7 +299,8 @@ check.last_checked: 'Last checked: %{ago}'
 check.not_checked: Not checked yet
 check.last_online: 'Last online check: %{date}'
 log.title_fmt: 'Log · %{name}'
-confirm.delete: 'Delete program "%{name}"?\nThis removes its config, downloaded binaries and logs. This cannot be undone.'
+confirm.delete: 'Delete program "%{name}"?\nThis removes its config and downloaded files, keeping the data directory; use "Clear data" to remove everything.'
+confirm.clear_data: 'Clear the data directory of "%{name}"?\nData produced by this program will be permanently deleted. This cannot be undone.'
 confirm.overwrite_import: 'Program "%{id}" already exists locally. Update from remote template?\nThis syncs its template config (structure only; keeps your custom field values). Stop it first if it is running.'
 time.min_ago: '%{n} min ago'
 time.hour_ago: '%{n} hr ago'
@@ -382,7 +385,8 @@ op.toggle_shell_autostart: '%{onoff} autostart for the shell'
 op.edit_template: Edit template for program "%{name}"
 op.add_template: Added program "%{name}"
 op.duplicate: 'Duplicated program "%{name}"'
-op.delete: Delete program "%{name}"
+op.delete: Delete program "%{name}" (keep data directory)
+op.clear_data: Clear "%{name}" data directory
 op.toggle_visibility: '%{showhide} program "%{name}"'
 op.update_sources: 'Updated template sources: %{list}'
 op.web_update: 'Updated web listening settings: %{bind}:%{port}'

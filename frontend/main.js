@@ -342,6 +342,17 @@ async function confirmAndDelete(p) {
   }
 }
 
+async function confirmAndClearData(p) {
+  if (!confirm(t("confirm.clear_data", { name: p.name }))) return;
+  try {
+    await invoke("clear_program_data", { programId: p.id });
+    showNotice(t("toast.data_cleared", { name: p.name }));
+    await refreshBatchLocal();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
+}
+
 // ---------- 主视图 ----------
 function switchView(v) {
   view = v;
@@ -977,6 +988,7 @@ const ICONS = {
   dir: '<path fill="#eab308" d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>',
   edit: '<path fill="#7c5cff" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>',
   del: '<path fill="#ff453a" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>',
+  clear: '<path fill="#ff9f0a" d="M6 7V6a2 2 0 0 1 2-2h1l.5-1h5L15 4h1a2 2 0 0 1 2 2v1H6zm.6 3h10.8l-1 10.4a2 2 0 0 1-2 1.85h-4.8a2 2 0 0 1-2-1.85L6.6 10z"/>',
   dl: '<path fill="#30d158" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>',
   ok: '<path fill="#34c759" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>',
 };
@@ -1051,6 +1063,7 @@ function batchOpButtons(item) {
     catch (e) { showNotice(String(e), true); }
   }));
   ops.appendChild(batchIconBtn("edit", "act.edit", "ops-edit", () => openEditModal(programs.find((x) => x.id === item.id))));
+  ops.appendChild(batchIconBtn("clear", "act.clear_data", "ops-clear", () => confirmAndClearData(programs.find((x) => x.id === item.id))));
   ops.appendChild(batchIconBtn("del", "act.delete", "ops-del", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
   return ops;
 }

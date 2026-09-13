@@ -1058,7 +1058,9 @@ impl ShellManager {
         self.save_config(path)
     }
 
-    /// 删除实例：从配置移除程序，并清理其二进制/版本/字段值文件。
+    /// 删除实例（软删除）：从配置移除程序，仅清理壳管理的可再生文件
+    /// （二进制/解包/版本/字段值），保留用户运行时数据目录。
+    /// 彻底清空见 [`ShellManager::clear_program_data`]。
     pub fn delete_program(&mut self, id: &str, path: &Path) -> anyhow::Result<()> {
         // 防御：id 必须是单段安全标识，杜绝 ".." / 路径分隔符 等导致清理目录越权
         if id.is_empty()
@@ -1089,14 +1091,39 @@ impl ShellManager {
         if let Err(e) = self.runner.stop(id) {
             log::warn!("{}", t!("log.stop_failed", id = id, err = format!("{e:#}")));
         }
-        // 清理该程序专属数据目录（二进制/版本/字段值/整包解压都在一处）
-        let removed = std::fs::remove_dir_all(self.app_dir(&p));
-        if removed.is_err() {
-            let _ = std::fs::remove_file(self.bin_path(&p));
-            let _ = std::fs::remove_file(self.app_dir(&p).join("version"));
-            let _ = std::fs::remove_file(self.app_dir(&p).join("values.json"));
-        }
+        // 软删除：仅清理壳管理的可再生文件（二进制/解包/版本/字段值），
+        // 保留 app_dir 内用户运行时数据（working_dir="." 时程序写在此目录下）。
+        let dir = self.app_dir(&p);
+        let _ = std::fs::remove_dir_all(dir.join("bin"));
+        let _ = std::fs::remove_dir_all(dir.join("pkg"));
+        let _ = std::fs::remove_file(dir.join("version"));
+        let _ = std::fs::remove_file(dir.join("values.json"));
         self.save_config(path)
+    }
+
+    /// 彻底清空某程序的数据目录（含用户运行时数据）。
+    /// 只按 id 定位 `data_dir/<id>`：即便该程序已在软删除时从配置移除，
+    /// 残留的应用数据目录也能被一并清除。
+    /// 与 [`ShellManager::delete_program`] 的软删除形成双层：
+    /// 删除 = 移除模板+应用，保留数据；清空 = 物理删除 app_dir。
+    pub fn clear_program_data(&mut self, id: &str) -> anyhow::Result<()> {
+        if id.is_empty()
+            || id == ".."
+            || id.contains('/')
+            || id.contains('\\')
+            || id.contains('\0')
+        {
+            anyhow::bail!(t!("err.program_not_found", id = &id));
+        }
+        if let Err(e) = self.runner.stop(id) {
+            log::warn!("{}", t!("log.stop_failed", id = id, err = format!("{e:#}")));
+        }
+        let dir = self.data_dir.join(id);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)
+                .with_context(|| format!("clear data dir: {}", dir.display()))?;
+        }
+        Ok(())
     }
 
     /// 新增一个程序（新建模板/导入用）。id 冲突时报错，绝不覆盖。
@@ -2106,7 +2133,74 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 直链全部失败时报错；sha256 与模板钉住不一致时拒绝安装。
+    /// 软删除保留数据目录，清空数据目录彻底删除：
+    /// 删除后壳文件（bin/version）被移除，但 working_dir="." 的用户数据仍在；
+    /// clear_program_data 之后整个 app_dir 消失。
+    #[test]
+    fn soft_delete_keeps_data_then_clear_wipes_app_dir() {
+        let dir = std::env::temp_dir().join("cc-soft-delete");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = dir.join("shell.json");
+
+        let asset_body: &[u8] = b"#!/bin/sh\necho soft\n";
+        let digest = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(asset_body);
+            h.finalize().to_vec()
+        };
+        let digest_hex: String = digest.iter().map(|b| format!("{b:02x}")).collect();
+        let arch = std::env::consts::ARCH;
+        let (port, h) = mock_server(vec![
+            (
+                "/v.json".to_string(),
+                br#"{"version":"1.0.0"}"#.to_vec(),
+            ),
+            (
+                format!("/app-1.0.0-{arch}.bin"),
+                asset_body.to_vec(),
+            ),
+            (
+                format!("/app-1.0.0-{arch}.bin.sha256"),
+                format!("{digest_hex}  app-1.0.0-{arch}.bin\n").into_bytes(),
+            ),
+        ]);
+
+        let p: Program = serde_json::from_str(&format!(
+            r#"{{
+                "id":"softtest","name":"softtest","repo":"","binary":"softtest",
+                "source":{{"kind":"http","version_url":"http://127.0.0.1:{port}/v.json","version_json_path":"version","sha256_url":"http://127.0.0.1:{port}/app-{{version}}-{{arch}}.bin.sha256"}},
+                "assets":{{"darwin":{{"urls":["http://127.0.0.1:{port}/app-{{version}}-{{arch}}.bin"],"format":"raw","mode":"raw"}}}},
+                "fields":[],"args":[]
+            }}"#
+        ))
+        .unwrap();
+
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        mgr.install_or_update(&p, &|_| {}).unwrap();
+        mgr.add_program(&p, &cfg).unwrap();
+        let app_dir = mgr.app_dir(&p);
+        assert!(mgr.bin_path(&p).exists(), "安装后 bin 应存在");
+        // 模拟程序运行后写入的用户数据（working_dir="." → app_dir 内）
+        std::fs::create_dir_all(app_dir.join("userdata")).unwrap();
+        std::fs::write(app_dir.join("userdata").join("state.db"), b"keep-me").unwrap();
+
+        // 软删除：程序移除 + 壳文件清理，用户数据保留
+        mgr.delete_program("softtest", &cfg).unwrap();
+        assert!(!mgr.all_programs().iter().any(|x| x.id == "softtest"));
+        assert!(app_dir.exists(), "软删除后 app_dir 应保留");
+        assert!(!mgr.bin_path(&p).exists(), "软删除后 bin 应被清理");
+        assert!(!app_dir.join("version").exists(), "软删除后 version 文件应被清理");
+        let kept = std::fs::read_to_string(app_dir.join("userdata").join("state.db")).unwrap();
+        assert_eq!(kept, "keep-me", "软删除应保留用户数据");
+
+        // 清空数据目录：整个 app_dir 物理删除
+        mgr.clear_program_data("softtest").unwrap();
+        assert!(!app_dir.exists(), "清空数据目录后 app_dir 应整体删除");
+        h.join().unwrap();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     #[test]
     fn http_source_all_urls_fail_without_secretly_degrading() {
         let dir = std::env::temp_dir().join("cc-http-fail");
