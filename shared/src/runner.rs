@@ -34,6 +34,9 @@ fn copy_stream_lines<R: std::io::BufRead>(
     use std::io::Write as _;
     let mut buf = String::new();
     let mut since_check = 0usize;
+    // log-tick 降频：只按「≥1行且距上次 ≥150ms」发射，避免 chatty 程序按行风暴式
+    // 推送事件，最小化后恢复时前端一次积压成千上万个 log-tick 导致假死。
+    let mut last_emit: Option<std::time::Instant> = None;
     loop {
         buf.clear();
         match r.read_line(&mut buf) {
@@ -53,7 +56,14 @@ fn copy_stream_lines<R: std::io::BufRead>(
                         since_check = 0;
                         trim_program_log(&mut w);
                     }
-                    crate::events::emit(crate::events::Event::LogWritten(id.to_string()));
+                    let due = match last_emit {
+                        None => true,
+                        Some(t) => t.elapsed() >= LOG_TICK_MIN_INTERVAL,
+                    };
+                    if due {
+                        last_emit = Some(std::time::Instant::now());
+                        crate::events::emit(crate::events::Event::LogWritten(id.to_string()));
+                    }
                 }
             }
         }
@@ -65,6 +75,9 @@ fn copy_stream_lines<R: std::io::BufRead>(
 const PROGRAM_LOG_MAX: u64 = 512 * 1024;
 /// 写满多少行检查一次体积
 const PROGRAM_LOG_CHECK_LINES: usize = 64;
+/// log-tick 事件最小发射间隔：日志按行写、按此降频广播，
+/// chatty 程序不再逐行推事件，最小化恢复时前端也不会积压事件风暴。
+const LOG_TICK_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
 
 /// 体积超限时保留末尾一半的完整行。调用方须已持有写锁、缓冲区已刷盘；
 /// 全程经同一句柄操作，写偏移始终有效。

@@ -770,6 +770,10 @@ async function completeInstall(id, error, version) {
 
 // WS 事件订阅：install 进度 / 将来其它广播
 let ws = null;
+// 页面隐藏（最小化/切后台）时暂停后台轮询与日志刷新；恢复可见时一次性补刷新。
+function pageHidden() {
+  return typeof document.hidden !== "undefined" && document.hidden;
+}
 function connectWS() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const q = globalThis.usToken ? "?token=" + encodeURIComponent(globalThis.usToken) : "";
@@ -785,16 +789,45 @@ function connectWS() {
       if (m && m.type === "install-progress") handleInstallProgress(m);
       else if (m && m.type === "status-change") {
         // F-3/F10：进程状态由服务端推送（无需轮询）；只刷新本地状态，不发网络请求
-        refreshAllStatuses();
-        if (current) refreshManageLog();
+        refreshAllStatusesCoalesced();
+        if (current) refreshManageLogCoalesced();
       } else if (m && m.type === "log-tick") {
-        // F-3/F11：日志增量推送提示 → 对当前程序做一次增量 tail 拉取
-        if (current && m.programId === current.id) refreshManageLog();
+        // F-3/F11：日志增量推送提示 → 对当前程序做一次增量 tail 拉取（合并刷新）
+        if (current && m.programId === current.id) refreshManageLogCoalesced();
       }
     } catch {}
   };
   ws.onclose = () => setTimeout(connectWS, 2000);
 }
+
+// 合并刷新：同一帧内多次事件只触发一次 RPC，避免最小化期间的积压事件风暴
+let mlogPending = false;
+function refreshManageLogCoalesced() {
+  if (pageHidden() || !current || mlogPending) return;
+  mlogPending = true;
+  requestAnimationFrame(() => {
+    mlogPending = false;
+    refreshManageLog();
+  });
+}
+let statusPending = false;
+function refreshAllStatusesCoalesced() {
+  if (pageHidden() || statusPending) return;
+  statusPending = true;
+  requestAnimationFrame(() => {
+    statusPending = false;
+    refreshAllStatuses();
+  });
+}
+// 页面重新可见：立即合并刷新一次（最小化期间积压的状态/日志）。
+// 后台时 rAF 被挂起、pending 可能残留为 true，这里强制归位并直刷。
+document.addEventListener("visibilitychange", () => {
+  if (pageHidden()) return;
+  mlogPending = false;
+  statusPending = false;
+  if (current) refreshManageLog();
+  refreshAllStatuses();
+});
 
 // ---------- 批量管理 ----------
 async function refreshBatchLocal() {
@@ -1935,6 +1968,15 @@ function fmtDate(secs) {
 }
 
 // ---------- 日志 ----------
+// 管理页小日志窗 DOM 行数上限：只保留末尾 N 条，防长时间运行 append 无界增长
+// （恢复界面时一次渲染数千条 div 是假死主因之一）。
+const MANAGE_LOG_MAX_LINES = 800;
+function trimContainerLines(container, max) {
+  while (container.childElementCount > max) {
+    container.firstChild && container.removeChild(container.firstChild);
+  }
+}
+
 // F-3 管理页小日志窗：整段重渲时直接滚到最新一屏
 // （日志按会话追加且只展示尾部 64KB，不滚到底会在中间开始，看不到最新输出）
 function renderLogBody(container, text) {
@@ -1946,6 +1988,9 @@ function renderLogBody(container, text) {
     div.className = isErr ? "log-err" : "";
     div.textContent = clean;
     container.appendChild(div);
+    if (container.childElementCount > MANAGE_LOG_MAX_LINES) {
+      container.firstChild && container.removeChild(container.firstChild);
+    }
   }
   container.scrollTop = container.scrollHeight;
 }
@@ -1963,6 +2008,7 @@ function appendLogText(container, delta) {
     div.textContent = clean;
     container.appendChild(div);
   }
+  if (container.childElementCount > MANAGE_LOG_MAX_LINES) trimContainerLines(container, MANAGE_LOG_MAX_LINES);
   const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 60;
   if (atBottom) container.scrollTop = container.scrollHeight;
 }
@@ -2014,6 +2060,8 @@ function startLogCenterTailing() {
   stopLogCenterTailing();
   if (view !== "log" || !logCenter.follow) return;
   logCenterTimer = setInterval(async () => {
+    // 页面隐藏时暂停尾随；恢复可见由 visibilitychange 一次性刷新
+    if (pageHidden()) return;
     try {
       await loadLogSource(logCenter.kind, logCenter.id, false);
     } catch {}
@@ -2076,6 +2124,7 @@ async function loadLogSource(kind, id, reset) {
     text = await invoke("get_shell_log");
     if (reset || !logCenterOffsets.shell) logCenterOffsets.shell = 0;
     logCenter.text = text;
+    capTextLines();
   } else {
     try {
       const args = { programId: id };
@@ -2084,6 +2133,8 @@ async function loadLogSource(kind, id, reset) {
       if (reset || res.reset) logCenter.text = res.text;
       else logCenter.text += res.text;
       logCenterOffsets[id] = res.offset;
+      // 封顶：日志中心文本只保留末尾 LOG_CENTER_MAX_LINES 行，防长时间运行 DOM 无限膨胀
+      capTextLines();
     } catch {
       if (reset) logCenter.text = t("shell_log.empty");
     }
@@ -2092,6 +2143,28 @@ async function loadLogSource(kind, id, reset) {
   logCenter.id = id;
   el.logClearSrcBtn.hidden = kind !== "shell";
   renderLogContent();
+}
+
+// 日志中心文本行数上限：仅保留末尾 N 行（含搜索），超限即截断。
+const LOG_CENTER_MAX_LINES = 3000;
+function capTextLines() {
+  let t = logCenter.text || "";
+  let idx = 0;
+  let count = 0;
+  let pos = 0;
+  while (count < LOG_CENTER_MAX_LINES && pos < t.length) {
+    const nl = t.indexOf("\n", pos);
+    if (nl < 0) {
+      count++;
+      idx = t.length;
+      pos = t.length;
+    } else {
+      count++;
+      idx = nl + 1;
+      pos = nl + 1;
+    }
+  }
+  if (count >= LOG_CENTER_MAX_LINES) logCenter.text = t.slice(idx);
 }
 
 function renderLogContent() {
@@ -2903,9 +2976,12 @@ async function boot() {
 
   // F-3/F10：运行状态由 WS 事件推送为主；此定时器仅作 WS 断线兜底。
   // 该兜底查的是本地句柄状态（批处理 RPC 无进程派生），保持低频即可。
-  setInterval(refreshAllStatuses, 15000);
+  // 页面隐藏（最小化/切后台）时暂停，避免恢复窗口时积压的定时任务风暴。
   setInterval(() => {
-    if (current) refreshManageLog();
+    if (!pageHidden()) refreshAllStatuses();
+  }, 15000);
+  setInterval(() => {
+    if (!pageHidden() && current) refreshManageLog();
   }, 3000);
 }
 
