@@ -103,7 +103,7 @@ function showNotice(msg, isError) {
   box.textContent = msg;
   document.querySelector("#toast-container").appendChild(box);
   requestAnimationFrame(() => box.classList.add("show"));
-  setTimeout(() => box.remove(), 10000);
+  setTimeout(() => box.remove(), 5000);
 }
 
 // 网络类错误的明确提示：这两个按钮（检查更新 / 刷新模板库）失败只会是
@@ -594,12 +594,28 @@ function renderActions() {
     dl.onclick = () => installProgram(current.id, dl);
   }
 
-  // 图标组（复制地址/打开网站）：仅在存在时插入分隔条
+  // 图标组（打开应用目录/复制地址/打开网站）：仅在存在时插入分隔条
   const group2 = document.createElement("span");
   group2.className = "act-group act-icons";
   const pushIcon = (b) => {
     group2.appendChild(b);
   };
+  // 本地程序无壳内数据目录，不显示「打开应用目录」
+  if (current.repo) {
+    const dirBtn = document.createElement("button");
+    dirBtn.className = "icon-btn";
+    dirBtn.title = t("act.open_app_dir");
+    dirBtn.textContent = "📂";
+    dirBtn.onclick = async () => {
+      try {
+        await invoke("reveal_app_dir", { programId: current.id });
+        showNotice(t("toast.opened_dir"));
+      } catch (e) {
+        showNotice(String(e), true);
+      }
+    };
+    pushIcon(dirBtn);
+  }
   const url = webUrl(current);
   if (url) {
     const copy = document.createElement("button");

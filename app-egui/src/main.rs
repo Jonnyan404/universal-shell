@@ -153,6 +153,7 @@ enum SidebarCtxAction {
     Edit(String),
     ToggleHide(String),
     Delete(String),
+    ClearData(String),
 }
 
 const TOAST_LIFETIME: f64 = 4.0;
@@ -285,8 +286,10 @@ struct ShellApp {
     /// 各程序的最新版本缓存（后台异步刷新，避免渲染时联网卡顿）
     /// key = 程序 id, value = (最新版本, 发布时间)
     latest_versions: BTreeMap<String, (Option<String>, String)>,
-    /// 待二次确认删除的程序 id（批量页「删除」按钮触发）
+    /// 待二次确认删除的程序 id（删除弹窗内含「删除（保留数据）/ 删除并清空数据」两个选项）
     confirm_delete: Option<String>,
+    /// 待二次确认「重置数据（保留程序）」的程序 id
+    confirm_clear: Option<String>,
     /// 侧栏右键菜单状态：None=无；New=空白区右键（新建）；Row=某程序行右键
     sidebar_ctx: Option<SidebarCtx>,
     /// 触发出菜单时定格的光标坐标（菜单不随鼠标移动）
@@ -487,6 +490,7 @@ impl ShellApp {
             prefs_saved_current: current_id,
             latest_versions,
             confirm_delete: None,
+            confirm_clear: None,
             checking_updates: false,
             sidebar_ctx: None,
             sidebar_ctx_pos: None,
@@ -3052,6 +3056,9 @@ cache,
                     if ui.small_button(t!("act.delete")).clicked() {
                         self.confirm_delete = Some(p.id.clone());
                     }
+                    if ui.small_button(t!("act.clear_data")).clicked() {
+                        self.confirm_clear = Some(p.id.clone());
+                    }
                 });
                 ui.separator();
             }
@@ -3263,6 +3270,10 @@ cache,
                             if ui.add(del).clicked() {
                                 act = Some(SidebarCtxAction::Delete(id.clone()));
                             }
+                            let clear_label = t!("act.clear_data");
+                            if ui.small_button(clear_label).clicked() {
+                                act = Some(SidebarCtxAction::ClearData(id.clone()));
+                            }
                         }
                     }
                 });
@@ -3329,6 +3340,9 @@ cache,
             }
             SidebarCtxAction::Delete(id) => {
                 self.confirm_delete = Some(id);
+            }
+            SidebarCtxAction::ClearData(id) => {
+                self.confirm_clear = Some(id);
             }
         }
     }
@@ -3773,11 +3787,11 @@ cache,
         }
     }
 
-    /// 删除确认弹窗：二次确认后真正删除程序并清理数据目录。
+    /// 删除确认弹窗：两个选项「删除（保留数据）」/「删除并清空数据」。
     fn show_delete_confirm(&mut self, ctx: &egui::Context, id: &str) {
         let title = t!("act.delete").to_string();
         let mut open = true;
-        let mut confirmed = false;
+        let mut action: Option<&str> = None; // Some("keep") / Some("purge")
         let mut closing = false;
         let name = self
             .m()
@@ -3792,48 +3806,122 @@ cache,
             .resizable(false)
             .open(&mut open)
             .show(ctx, |ui| {
-                ui.label(t!("confirm.delete", name = name));
+                ui.label(t!("del.desc", name = name, id = id));
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     if ui.button(t!("act.cancel")).clicked() {
                         closing = true;
                     }
-                    if ui.button(t!("act.delete")).clicked() {
+                    if ui.button(t!("del.keep_data")).clicked() {
+                        action = Some("keep");
+                        closing = true;
+                    }
+                    if ui.button(t!("del.purge")).clicked() {
+                        action = Some("purge");
+                        closing = true;
+                    }
+                });
+            });
+        match action {
+            Some("keep") => {
+                let name = self.perform_delete(id, false);
+                self.show_toast(t!("toast.deleted", name = name).to_string());
+            }
+            Some("purge") => {
+                let name = self.perform_delete(id, true);
+                self.show_toast(t!("toast.deleted_purge", name = name).to_string());
+            }
+            _ => {}
+        }
+        if !open || closing {
+            self.confirm_delete = None;
+        }
+    }
+
+    /// 重置数据（保留程序）确认弹窗。
+    fn show_clear_confirm(&mut self, ctx: &egui::Context, id: &str) {
+        let name = self
+            .m()
+            .all_programs()
+            .into_iter()
+            .find(|p| p.id == id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| id.to_string());
+        let mut open = true;
+        let mut closing = false;
+        let mut confirmed = false;
+        egui::Window::new(t!("act.clear_data").to_string())
+            .id(egui::Id::new("clear_data_confirm"))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label(t!("confirm.clear_data", name = name));
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button(t!("act.cancel")).clicked() {
+                        closing = true;
+                    }
+                    if ui.button(t!("act.clear_data")).clicked() {
                         confirmed = true;
                         closing = true;
                     }
                 });
             });
         if confirmed {
-            if let Some(id) = self.confirm_delete.take() {
-                let name = self
-                    .m()
-                    .all_programs()
-                    .into_iter()
-                    .find(|p| p.id == id)
-                    .map(|p| p.name.clone());
-                let del_r = self.m().delete_program(&id, &self.config_path);
-                match del_r {
-                    Ok(()) => {
-                        // 取消选中/清理相关运行时状态
-                        if self.current_id.as_deref() == Some(id.as_str()) {
-                            self.current_id = None;
-                        }
-                        self.values.remove(&id);
-                        self.latest_versions.remove(&id);
-                        self.show_toast(
-                            t!("toast.deleted", name = name.unwrap_or(id.clone())).to_string(),
-                        );
-                        self.m().log_op(&t!("op.delete", name = id));
-                    }
-                    Err(e) => {
-                        let msg = format!("{e:#}");
-                        self.log_op(t!("toast.delete_fail", err = msg).as_ref());
-                    }
+            let name2 = self.m().all_programs().into_iter().find(|p| p.id == id).map(|p| p.name.clone());
+            let r = self.m().clear_program_data(id);
+            match r {
+                Ok(()) => {
+                    self.show_toast(
+                        t!("toast.data_cleared", name = name2.unwrap_or_else(|| id.to_string()))
+                            .to_string(),
+                    );
+                    self.m().log_op(&t!("op.clear_data", name = id));
+                }
+                Err(e) => {
+                    self.log_op(t!("toast.delete_fail", err = format!("{e:#}")).as_ref());
                 }
             }
-        } else if !open || closing {
-            self.confirm_delete = None;
+        }
+        if !open || closing {
+            self.confirm_clear = None;
+        }
+    }
+
+    /// 执行删除（`entirely=false` 软删除保留数据 / `true` 删除并清空数据），
+    /// 返回程序显示名，供 toast 使用。
+    fn perform_delete(&mut self, id: &str, entirely: bool) -> String {
+        let name = self
+            .m()
+            .all_programs()
+            .into_iter()
+            .find(|p| p.id == id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| id.to_string());
+        let del_r = if entirely {
+            self.m().delete_program_entirely(id, &self.config_path)
+        } else {
+            self.m().delete_program(id, &self.config_path)
+        };
+        match del_r {
+            Ok(()) => {
+                // 取消选中/清理相关运行时状态
+                if self.current_id.as_deref() == Some(id) {
+                    self.current_id = None;
+                }
+                self.values.remove(id);
+                self.latest_versions.remove(id);
+                self.m().log_op(&t!(
+                    if entirely { "op.delete_entirely" } else { "op.delete" },
+                    name = id
+                ));
+                name
+            }
+            Err(e) => {
+                self.log_op(t!("toast.delete_fail", err = format!("{e:#}")).as_ref());
+                name
+            }
         }
     }
 }
@@ -3920,6 +4008,9 @@ impl eframe::App for ShellApp {
         }
         if let Some(id) = self.confirm_delete.clone() {
             self.show_delete_confirm(ui.ctx(), &id);
+        }
+        if let Some(id) = self.confirm_clear.clone() {
+            self.show_clear_confirm(ui.ctx(), &id);
         }
         self.show_library_confirms(ui.ctx());
         if self.show_sources {
