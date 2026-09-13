@@ -35,7 +35,8 @@
   "fields": [
     { "key": "bind", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
     { "key": "port", "kind": "string", "label": "端口", "default": "5000", "placeholder": "5000" },
-    { "key": "dir", "kind": "directory", "label": "共享目录", "default": "", "required": true }
+    { "key": "extra", "kind": "string", "label": "附加参数", "default": "-A" },
+    { "key": "dir", "kind": "directory", "label": "共享文件|目录", "default": "", "required": true }
   ],
-  "args": ["-b", "{bind}", "-p", "{port}", "-A", "{dir}"]
+  "args": ["-b", "{bind}", "-p", "{port}", "{extra}", "{dir}"]
 }
