@@ -6,6 +6,8 @@ name: Update Registry (universal-shell)
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'templates/**'
   workflow_dispatch:
