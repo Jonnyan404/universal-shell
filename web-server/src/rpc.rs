@@ -111,6 +111,8 @@ struct ProgramView {
     http_version_regex: String,
     http_sha256_url: String,
     http_urls: Vec<String>,
+    channel: String,
+    version_pin: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -345,6 +347,8 @@ fn to_view(p: &Program) -> ProgramView {
         http_version_regex,
         http_sha256_url,
         http_urls,
+        channel: p.channel.clone(),
+        version_pin: p.version_pin.clone(),
     }
 }
 
@@ -611,6 +615,8 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
         template_source: base.template_source.clone(),
         imported_at: base.imported_at,
         check_sha256: base.check_sha256.clone(),
+        channel: base.channel.clone(),
+        version_pin: base.version_pin.clone(),
         hidden: base.hidden,
     }
 }
@@ -635,6 +641,8 @@ fn blank_program(id: &str) -> Program {
         template_source: None,
         imported_at: None,
         check_sha256: None,
+        channel: String::new(),
+        version_pin: None,
         hidden: false,
     }
 }
@@ -863,6 +871,73 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             mgr.stop_all();
             mgr.log_op(t!("op.stop_all").as_ref());
             Ok(json!({}))
+        }
+
+        // ---------- 更新通道 / 指定版本 ----------
+        // 版本选择列表（最近 limit 个，含预发布）；HTTP 源/本地程序返回空列表。
+        "list_versions" => {
+            let program_id = arg_str(args, "programId");
+            let limit = args
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(15)
+                .clamp(1, 100) as usize;
+            let (program, layout) = {
+                let mgr = state.manager.lock().unwrap();
+                let p = mgr
+                    .all_programs()
+                    .into_iter()
+                    .find(|p| p.id == program_id)
+                    .ok_or_else(|| program_not_found(&program_id))?;
+                (p, mgr.proxy.clone())
+            };
+            let gh = proxied_github(&layout);
+            let versions =
+                shared::shell_manager::list_remote_versions(&gh, &program, limit)?;
+            Ok(json!({
+                "programId": program_id,
+                "version_pin": program.version_pin,
+                "versions": versions,
+            }))
+        }
+        "set_channel" => {
+            let program_id = arg_str(args, "programId");
+            let channel = arg_str(args, "channel");
+            let mut mgr = state.manager.lock().unwrap();
+            let prog = mgr
+                .set_update_channel(&program_id, &channel, &state.config_path)
+                .map_err(|e| format!("{e:#}"))?;
+            mgr.log_op(&t!(
+                "op.set_channel",
+                name = &prog.name,
+                channel = if prog.update_channel() == "pre" {
+                    t!("upd.pre")
+                } else {
+                    t!("upd.stable")
+                }
+            ));
+            Ok(serde_json::to_value(to_view(&prog)).map_err(|e| format!("rpc: view: {e}"))?)
+        }
+        "set_version_pin" => {
+            let program_id = arg_str(args, "programId");
+            let version = arg_str(args, "version"); // 空串=清除钉住
+            let mut mgr = state.manager.lock().unwrap();
+            let prog = mgr
+                .set_version_pin(&program_id, &version, &state.config_path)
+                .map_err(|e| format!("{e:#}"))?;
+            if prog.version_pin.is_some() {
+                mgr.log_op(&t!(
+                    "op.set_pin",
+                    name = &prog.name,
+                    ver = prog.version_pin.as_deref().unwrap_or("")
+                ));
+            } else {
+                mgr.log_op(&t!(
+                    "op.clear_pin",
+                    name = &prog.name
+                ));
+            }
+            Ok(serde_json::to_value(to_view(&prog)).map_err(|e| format!("rpc: view: {e}"))?)
         }
 
         // ---------- 日志 ----------

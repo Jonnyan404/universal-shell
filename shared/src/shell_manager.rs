@@ -400,12 +400,15 @@ impl ShellManager {
         if is_http {
             return self.install_http(program, on_progress);
         }
-        // 1. 查最新版本(GitHub)
-        let release: LatestRelease = self.github.latest(&program.repo)?;
+        // 1. 解析目标版本：优先「钉住的指定版本」，否则按更新通道(channel)取最新
+        let release: LatestRelease = match &program.version_pin {
+            Some(tag) => self.github.release_by_tag(&program.repo, tag)?,
+            None => self.github.latest_channel(&program.repo, program.update_channel())?,
+        };
         let version = release.tag_name.trim_start_matches('v').to_string();
         info!("{}", t!("log.version_latest", id = &program.id, version = &version));
 
-        // 1b. 已安装且本地版本不低于最新版时，跳过重复下载
+        // 1b. 已安装且本地版本不低于目标版本时，跳过重复下载
         if !crate::version::is_newer(&version, &self.local_version(program))
             && self.bin_path(program).exists()
         {
@@ -415,7 +418,8 @@ impl ShellManager {
 
         // 2. 候选匹配资产名/URL/digest
         let arch = std::env::consts::ARCH.to_string();
-        let (rule, asset_name, url, api_digest) = self.github.resolve_download(program, &arch, &version)?;
+        let (rule, asset_name, url, api_digest) =
+            self.github.resolve_download(program, &arch, &version, &release)?;
 
         // 3. 下载到临时文件
         let dl_path = self.data_dir.join(format!(".dl-{}", asset_name));
@@ -652,7 +656,15 @@ impl ShellManager {
             }
             return st;
         }
-        if let Ok(latest) = self.github.latest(&program.repo) {
+        // 已钉住指定版本：报告钉住的 tag 为「更新目标」（而非跟随 channel 的最新）。
+        if let Some(tag) = &program.version_pin {
+            if let Ok(rel) = self.github.release_by_tag(&program.repo, tag) {
+                st.latest_version = Some(rel.tag_name.trim_start_matches('v').to_string());
+                st.latest_published = rel.published_at.clone();
+            }
+        } else if let Ok(latest) =
+            self.github.latest_channel(&program.repo, program.update_channel())
+        {
             st.latest_version = Some(latest.tag_name.trim_start_matches('v').to_string());
             st.latest_published = latest.published_at.clone();
         }
@@ -1140,6 +1152,47 @@ impl ShellManager {
         self.save_config(path)
     }
 
+    /// 设置某程序的更新通道(pre/stable)，返回更新后的 Program。内置程序自动落成用户覆盖。
+    pub fn set_update_channel(&mut self, id: &str, channel: &str, path: &Path) -> anyhow::Result<Program> {
+        let valid = if channel == "pre" {
+            "pre".to_string()
+        } else {
+            String::new()
+        };
+        self.patch_update(id, &|p| p.channel = valid.clone(), path)
+    }
+
+    /// 设置「钉住的指定版本」(空串=清除钉住)，返回更新后的 Program。内置程序自动落成用户覆盖。
+    pub fn set_version_pin(&mut self, id: &str, version_pin: &str, path: &Path) -> anyhow::Result<Program> {
+        let pin = if version_pin.trim().is_empty() {
+            None
+        } else {
+            Some(version_pin.trim().to_string())
+        };
+        self.patch_update(id, &|p| p.version_pin = pin.clone(), path)
+    }
+
+    /// 对某程序做单个运行时字段的原地修改；内置程序(无用户覆盖)自动克隆一份作为覆盖。
+    /// 这样 channel/version_pin 之类的实例级设置在重启后仍生效。
+    fn patch_update(&mut self, id: &str, f: &dyn Fn(&mut Program), path: &Path) -> anyhow::Result<Program> {
+        let idx = self.programs.iter().position(|p| p.id == id);
+        let mut prog = match idx {
+            Some(i) => self.programs[i].clone(),
+            None => self
+                .all_programs()
+                .into_iter()
+                .find(|p| p.id == id)
+                .ok_or_else(|| anyhow!(t!("err.program_not_found", id = id)))?,
+        };
+        f(&mut prog);
+        match idx {
+            Some(i) => self.programs[i] = prog.clone(),
+            None => self.programs.push(prog.clone()),
+        }
+        self.save_config(path)?;
+        Ok(prog)
+    }
+
     /// 复制模板/程序为副本：自动生成不冲突的 id（原名-2、-3…）、名称加副本后缀。
     /// 返回新程序，供 UI 立刻跳转编辑。template_source 不继承（副本是新模板而非远程导入）。
     pub fn duplicate_program(&mut self, id: &str, path: &Path) -> anyhow::Result<Program> {
@@ -1253,10 +1306,22 @@ impl Default for ProgramStatus {
     }
 }
 
+/// 远端某发行版信息（供「指定版本」选择列表）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RemoteVersion {
+    /// 版本 tag（如 "v1.2.3"）
+    pub tag: String,
+    /// 是否预发布
+    pub prerelease: bool,
+    /// 发布时间（RFC3339 或空）
+    pub published: String,
+}
+
 /// 按 source 分发远程最新版本(GitHub / HTTP 源)。返回 (version, published_at)。
 /// - `Ok(None)`：本地程序(空 repo 且非 http)无远程版本；
 /// - `Ok(Some(v, pb))`：查询成功；
 /// - `Err(msg)`：网络/上游请求失败（供调用方写壳日志并在 UI 提示，不再静默吞错）。
+/// GitHub 源按程序的更新通道(channel)解析最新（pre 通道含预发布）。
 pub fn latest_remote(
     program: &Program,
     gh: &GitHub,
@@ -1271,7 +1336,19 @@ pub fn latest_remote(
     if program.repo.is_empty() {
         return Ok(None);
     }
-    gh.latest(&program.repo)
+    // 钉住指定版本：报告该版本为「最新」（更新目标），而非跟随 channel 的最新。
+    if let Some(tag) = program.version_pin.as_deref() {
+        return gh.release_by_tag(&program.repo, tag)
+            .map(|l| {
+                (
+                    l.tag_name.trim_start_matches('v').to_string(),
+                    l.published_at.clone(),
+                )
+            })
+            .map(Some)
+            .map_err(|e| format!("{e:#}"));
+    }
+    gh.latest_channel(&program.repo, program.update_channel())
         .map(|l| {
             (
                 l.tag_name.trim_start_matches('v').to_string(),
@@ -1279,6 +1356,29 @@ pub fn latest_remote(
             )
         })
         .map(Some)
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// 列出远程可供选择的版本（供「指定版本号更新/下载」）。最近 `limit` 个发行版，含预发布。
+/// HTTP 直链源 / 本地程序无法枚举版本，返回空列表。
+pub fn list_remote_versions(
+    gh: &GitHub,
+    program: &Program,
+    limit: usize,
+) -> Result<Vec<RemoteVersion>, String> {
+    if program.source.as_ref().is_some_and(|s| s.is_http()) || program.repo.is_empty() {
+        return Ok(Vec::new());
+    }
+    gh.releases(&program.repo, limit)
+        .map(|list| {
+            list.into_iter()
+                .map(|r| RemoteVersion {
+                    tag: r.tag_name,
+                    prerelease: r.prerelease,
+                    published: r.published_at,
+                })
+                .collect()
+        })
         .map_err(|e| format!("{e:#}"))
 }
 
@@ -1663,6 +1763,8 @@ mod tests {
             template_source: None,
             imported_at: None,
             check_sha256: None,
+            channel: String::new(),
+            version_pin: None,
             hidden: false,
         };
         let (_, names) = base.candidate_names("x86_64", "0.1.0").unwrap();
@@ -1733,6 +1835,39 @@ mod tests {
         assert!(mgr2.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap().hidden);
     }
 
+    /// 内置程序的更新通道/指定版本同样作为用户覆盖持久化：重启后仍生效。
+    #[test]
+    fn builtin_update_settings_persist_across_restart() {
+        let dir = std::env::temp_dir().join("cc-builtin-update");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg = dir.join("cfg.json");
+        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        mgr.load_config(&cfg).unwrap();
+
+        let builtin_id = crate::builtin::builtin_programs()[0].id.clone();
+
+        // 预发布通道 + 钉住 v9.9.9
+        mgr.set_update_channel(&builtin_id, "pre", &cfg).unwrap();
+        mgr.set_version_pin(&builtin_id, "v9.9.9", &cfg).unwrap();
+        let p = mgr.all_programs().into_iter().find(|x| x.id == builtin_id).unwrap();
+        assert_eq!(p.update_channel(), "pre");
+        assert_eq!(p.version_pin.as_deref(), Some("v9.9.9"));
+
+        // 重启后仍生效
+        let mut mgr2 = ShellManager::new(dir.clone()).unwrap();
+        mgr2.load_config(&cfg).unwrap();
+        let p2 = mgr2.all_programs().into_iter().find(|x| x.id == builtin_id).unwrap();
+        assert_eq!(p2.update_channel(), "pre");
+        assert_eq!(p2.version_pin.as_deref(), Some("v9.9.9"));
+
+        // 清空钉住即可恢复随通道
+        mgr2.set_version_pin(&builtin_id, "  ", &cfg).unwrap();
+        let p3 = mgr2.all_programs().into_iter().find(|x| x.id == builtin_id).unwrap();
+        assert!(p3.version_pin.is_none());
+        assert_eq!(p3.update_channel(), "pre"); // 通道不受影响
+    }
+
     /// 无 manager 锁的日志追加（下载后台线程用）：落盘且带时间戳行。
     #[test]
     fn log_op_for_appends_without_manager() {
@@ -1796,6 +1931,8 @@ mod tests {
             template_source: None,
             imported_at: None,
             check_sha256: None,
+            channel: String::new(),
+            version_pin: None,
             hidden: false,
         };
         mgr.start(&prog, &BTreeMap::new()).unwrap();

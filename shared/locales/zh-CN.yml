@@ -195,6 +195,13 @@ upd.available: 发现壳新版本 %{latest}（当前 %{current}）
 upd.goto_download: 前往下载
 upd.fail: '检查更新失败：%{err}'
 upd.current_version: 'v%{ver}'
+upd.channel: 更新通道
+upd.stable: 最新稳定版
+upd.pre: 最新（含预发布）
+upd.version: 指定版本
+upd.auto: 自动（随更新通道）
+upd.list_fail: '获取版本列表失败：%{err}'
+upd.none: 无可选版本
 log.just: 刚刚
 log.equal_parts: 上次更新
 log.remote_ready: 远程源更新：
@@ -287,6 +294,7 @@ toast.export_fail: '导出模板失败: %{err}'
 toast.sources_fail: '保存模板源失败: %{err}'
 toast.settings_fail: '保存设置失败: %{err}'
 toast.visibility_fail: '切换显示状态失败: %{err}'
+toast.channel_set: '更新通道已设为 %{channel}'
 toast.duplicate_fail: '复制模板失败: %{err}'
 toast.delete_fail: '删除程序失败: %{err}'
 toast.save_fail: '保存程序失败: %{err}'
@@ -400,6 +408,9 @@ op.proxy_update: '更新网络加速/代理设置：加速 %{accel_n} 项、代�
 op.import_overwrite: '%{desc} 覆盖导入「%{id}」'
 op.import: '%{desc} 导入「%{name}」'
 op.export: 导出程序「%{name}」模板到本地
+op.set_channel: 程序「%{name}」更新通道改为 %{channel}
+op.set_pin: 程序「%{name}」钉住版本 %{ver}
+op.clear_pin: 程序「%{name}」清除钉住版本
 log.autostart.set_fail: 'autostart 设置失败: %{err}'
 log.shell_autostart_fail: '切换壳开机自启失败: %{err}'
 tray.show: 显示主窗口
@@ -443,6 +454,7 @@ err.github.download_status: '下载返回 %{status}'
 err.github.create_dest: '无法创建 %{path}'
 err.github.no_match: '发行版中未找到匹配资产；期待候选 %{candidates}，实际有 %{count} 个资产(含 %{list})'
 err.github.no_rule: '当前系统 %{os} 无对应资产规则'
+err.github.no_release: '仓库 %{repo} 没有可用发行版'
 err.http.no_source: '程序未配置 HTTP 源(source.kind=http)'
 err.http.no_version_url: 'HTTP 源未配置 version_url，无法探测版本'
 err.http.parse_json: '解析 %{url} 返回的 JSON 失败'

@@ -631,6 +631,20 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .env-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
 .env-key { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-weight: 600; color: var(--text); }
 .env-val { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); color: var(--accent); word-break: break-all; }
+/* 更新通道 / 指定版本 */
+.update-settings { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; }
+.upd-settings { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+.upd-row { display: inline-flex; align-items: center; gap: 8px; }
+.upd-label { color: var(--muted); font-size: 13px; }
+.upd-radios { display: inline-flex; gap: 12px; }
+.upd-radio { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--text); cursor: pointer; }
+.upd-radio input { accent-color: var(--accent); }
+.upd-select {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 3px 6px; font-size: 13px; max-width: 240px;
+}
+.upd-note { font-size: 12px; color: var(--muted); }
+.upd-note.upd-error { color: var(--danger); }
 .edit-field-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .edit-field-row input {
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text);

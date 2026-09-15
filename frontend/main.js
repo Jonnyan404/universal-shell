@@ -34,6 +34,7 @@ const el = {
   manageLog: document.querySelector("#manage-log"),
   manageLogContent: document.querySelector("#manage-log-content"),
   envBody: document.querySelector("#env-body"),
+  updateSettings: document.querySelector("#update-settings"),
   envSection: document.querySelector("#env-section"),
   manageView: document.querySelector("#manage-view"),
   batchView: document.querySelector("#batch-view"),
@@ -411,9 +412,136 @@ async function switchCurrent(id) {
   renderForm();
   renderActions();
   await refreshStatusLocal();
+  await renderUpdateSettings();
   const hint = document.querySelector("#manage-log-hint");
   if (hint) hint.textContent = current.id;
   refreshManageLog();
+}
+
+// ---------- 更新设置（通道 + 指定版本） ----------
+// 仅 GitHub 远程源程序展示；HTTP 直链源/本地程序不适用。
+async function renderUpdateSettings() {
+  const box = el.updateSettings;
+  if (!box) return;
+  const isHttp = current && current.http_enabled;
+  if (!current || !current.repo || isHttp) {
+    box.hidden = true;
+    box.innerHTML = "";
+    box.dataset.programId = "";
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = "";
+  box.dataset.programId = current.id;
+
+  const wrap = document.createElement("div");
+  wrap.className = "upd-settings";
+
+  // 更新通道：稳定版 / 预发布
+  const chan = document.createElement("div");
+  chan.className = "upd-row";
+  const chanLabel = document.createElement("span");
+  chanLabel.className = "upd-label";
+  chanLabel.textContent = t("upd.channel");
+  chan.appendChild(chanLabel);
+  const chanGroup = document.createElement("span");
+  chanGroup.className = "upd-radios";
+  for (const [value, label] of [["stable", t("upd.stable")], ["pre", t("upd.pre")]]) {
+    const lab = document.createElement("label");
+    lab.className = "upd-radio";
+    const inp = document.createElement("input");
+    inp.type = "radio";
+    inp.name = "upd-channel";
+    inp.value = value;
+    inp.checked = (current.channel || "") === value;
+    inp.addEventListener("change", async () => {
+      if (!inp.checked) return;
+      try {
+        const v = await invoke("set_channel", { programId: current.id, channel: value });
+        Object.assign(current, { channel: v.channel, version_pin: v.version_pin });
+        showNotice(t("toast.channel_set", { channel: value === "pre" ? t("upd.pre") : t("upd.stable") }));
+        await renderUpdateSettings();
+        await refreshStatusLocal();
+      } catch (e) {
+        showNotice(String(e), true);
+      }
+    });
+    lab.appendChild(inp);
+    lab.appendChild(document.createTextNode(" " + label));
+    chanGroup.appendChild(lab);
+  }
+  chan.appendChild(chanGroup);
+  wrap.appendChild(chan);
+
+  // 指定版本：自动(随通道) + 最近 N 个发行版
+  const vrow = document.createElement("div");
+  vrow.className = "upd-row";
+  const vLabel = document.createElement("span");
+  vLabel.className = "upd-label";
+  vLabel.textContent = t("upd.version");
+  vrow.appendChild(vLabel);
+  const sel = document.createElement("select");
+  sel.className = "upd-select";
+  vrow.appendChild(sel);
+  const verNote = document.createElement("span");
+  verNote.className = "upd-note";
+  vrow.appendChild(verNote);
+  wrap.appendChild(vrow);
+  box.appendChild(wrap);
+
+  sel.addEventListener("change", async () => {
+    try {
+      const v = await invoke("set_version_pin", { programId: current.id, version: sel.value });
+      Object.assign(current, { channel: v.channel, version_pin: v.version_pin });
+      await renderUpdateSettings();
+      await refreshStatusLocal();
+    } catch (e) {
+      showNotice(String(e), true);
+    }
+  });
+
+  try {
+    const r = await invoke("list_versions", { programId: current.id, limit: 15 });
+    const versions = r.versions || [];
+    const pin = current.version_pin || "";
+    const sel2 = sel;
+    const auto = document.createElement("option");
+    auto.value = "";
+    auto.textContent = t("upd.auto");
+    auto.selected = !pin;
+    sel2.appendChild(auto);
+    if (!versions.length) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = t("upd.none");
+      sel2.appendChild(none);
+      sel2.disabled = true;
+    } else {
+      for (const vv of versions) {
+        const opt = document.createElement("option");
+        opt.value = vv.tag;
+        opt.textContent = vv.tag + (vv.prerelease ? " ⚠" : "");
+        opt.selected = vv.tag === pin;
+        sel2.appendChild(opt);
+      }
+      // 钉住的版本不在最近列表内：仍补充一项标注原钉住值
+      if (pin && !versions.some((x) => x.tag === pin)) {
+        const opt = document.createElement("option");
+        opt.value = pin;
+        opt.textContent = pin + " (pin)";
+        opt.selected = true;
+        sel2.appendChild(opt);
+      }
+    }
+  } catch (e) {
+    sel.disabled = true;
+    const only = document.createElement("option");
+    only.value = "";
+    only.textContent = pin || t("upd.auto");
+    sel.appendChild(only);
+    verNote.textContent = t("upd.list_fail", { err: String(e) });
+    verNote.classList.add("upd-error");
+  }
 }
 
 function renderHeader() {

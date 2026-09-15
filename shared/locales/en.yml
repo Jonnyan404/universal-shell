@@ -195,6 +195,13 @@ upd.available: New shell version %{latest} available (current %{current})
 upd.goto_download: Download
 upd.fail: 'Update check failed: %{err}'
 upd.current_version: 'v%{ver}'
+upd.channel: Update channel
+upd.stable: Latest stable
+upd.pre: Latest (incl. prerelease)
+upd.version: Specific version
+upd.auto: Auto (follow channel)
+upd.list_fail: 'Failed to list versions: %{err}'
+upd.none: No versions available
 log.just: Just now
 log.equal_parts: Last update
 log.remote_ready: 'Remote source update:'
@@ -287,6 +294,7 @@ toast.export_fail: 'Template export failed: %{err}'
 toast.sources_fail: 'Failed to save template sources: %{err}'
 toast.settings_fail: 'Failed to save settings: %{err}'
 toast.visibility_fail: 'Failed to toggle visibility: %{err}'
+toast.channel_set: 'Update channel set to %{channel}'
 toast.duplicate_fail: 'Failed to duplicate template: %{err}'
 toast.delete_fail: 'Failed to delete program: %{err}'
 toast.save_fail: 'Failed to save program: %{err}'
@@ -400,6 +408,9 @@ op.proxy_update: 'Updated network acceleration/proxy settings: %{accel_n} accele
 op.import_overwrite: '%{desc} overwrote import "%{id}"'
 op.import: '%{desc} imported "%{name}"'
 op.export: Exported program "%{name}" template to local
+op.set_channel: 'Update channel for "%{name}" set to %{channel}'
+op.set_pin: 'Program "%{name}" pinned to version %{ver}'
+op.clear_pin: 'Program "%{name}" unpinned from specific version'
 log.autostart.set_fail: 'autostart set failed: %{err}'
 log.shell_autostart_fail: 'Failed to toggle shell autostart: %{err}'
 tray.show: Show main window
@@ -443,6 +454,7 @@ err.github.download_status: 'Download returned %{status}'
 err.github.create_dest: 'Cannot create %{path}'
 err.github.no_match: 'No matching asset in release; expected candidates %{candidates}, actual %{count} assets (incl. %{list})'
 err.github.no_rule: 'No asset rule for current OS %{os}'
+err.github.no_release: 'No release available for repo %{repo}'
 err.http.no_source: 'Program has no HTTP source (source.kind=http)'
 err.http.no_version_url: 'HTTP source lacks version_url, cannot probe version'
 err.http.parse_json: 'Failed to parse JSON from %{url}'

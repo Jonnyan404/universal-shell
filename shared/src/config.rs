@@ -165,6 +165,14 @@ pub struct Program {
     /// asset digest 校验，防止篡改资产被安装。
     #[serde(default)]
     pub check_sha256: Option<String>,
+    /// 更新通道：空/"stable"=仅稳定版；"pre"=跟随最新版本(可含预发布)。
+    /// 影响「最新版本」的解析与未钉住时的更新目标。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub channel: String,
+    /// 钉住到指定版本 tag(如 "v1.2.3")：设置后「更新/下载」固定使用该版本，
+    /// 不再跟随 channel 的最新；清空回到按 channel 跟随最新。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version_pin: Option<String>,
     /// 是否在侧栏/主管理列表隐藏（批量管理仍可见）。
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
@@ -359,6 +367,15 @@ impl Program {
         self.assets.get(os_key())
     }
 
+    /// 生效的更新通道："pre" 或 "stable"（空/其它一律按 stable）。
+    pub fn update_channel(&self) -> &str {
+        if self.channel == "pre" {
+            "pre"
+        } else {
+            "stable"
+        }
+    }
+
     /// 渲染任意模板串，替换 {name} {version} {arch} {os} {ext}。
     /// {name} 取二进制名 binary（复制模板 id 会变、binary 不变，下载链接才不会跟 id 跑）；
     /// binary 为空时回退 id。
@@ -433,6 +450,8 @@ mod tests {
             template_source: None,
             imported_at: None,
             check_sha256: None,
+            channel: String::new(),
+            version_pin: None,
             hidden: false,
         }
     }
@@ -485,6 +504,8 @@ mod tests {
             template_source: None,
             imported_at: None,
             check_sha256: None,
+            channel: String::new(),
+            version_pin: None,
             hidden: false,
         };
         let mut fv = BTreeMap::new();
@@ -814,5 +835,30 @@ mod proxy_tests {
         assert!(p.selected_accelerate.is_empty());
         // 默认不启用（无选择、无代理）
         assert!(!p.proxy_effective());
+    }
+
+    /// 更新通道/钉住版本序列化：空 channel 与空 pin 不落盘（模板/存量保持干净），
+    /// 设置了才写入；读取时默认值回落到 stable/无钉住。
+    #[test]
+    fn update_channel_and_pin_serde_defaults() {
+        // 默认值：不写字段
+        let p: Program = serde_json::from_str(
+            r#"{"id":"x","name":"X","repo":"a/b","binary":"x","assets":{},"arch_map":{},"os_map":{},"fields":[],"args":[],"env":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(p.update_channel(), "stable");
+        assert!(p.version_pin.is_none());
+        let s = serde_json::to_string(&p).unwrap();
+        assert!(!s.contains("channel"), "空 channel 不应写出: {s}");
+        assert!(!s.contains("version_pin"), "空 pin 不应写出: {s}");
+
+        // 显式设置：非默认写入并在重读后恢复
+        let mut p2 = p.clone();
+        p2.channel = "pre".into();
+        p2.version_pin = Some("v1.2.3".into());
+        let s2 = serde_json::to_string(&p2).unwrap();
+        let back: Program = serde_json::from_str(&s2).unwrap();
+        assert_eq!(back.update_channel(), "pre");
+        assert_eq!(back.version_pin.as_deref(), Some("v1.2.3"));
     }
 }

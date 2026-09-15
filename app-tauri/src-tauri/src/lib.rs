@@ -1120,6 +1120,8 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
         template_source: base.template_source.clone(),
         imported_at: base.imported_at,
         check_sha256: base.check_sha256.clone(),
+        channel: base.channel.clone(),
+        version_pin: base.version_pin.clone(),
         hidden: base.hidden,
     }
 }
@@ -1168,6 +1170,8 @@ fn add_program(
         template_source: None,
         imported_at: None,
         check_sha256: None,
+        channel: String::new(),
+        version_pin: None,
         hidden: false,
     };
     let mut mgr = state.manager.lock().unwrap();

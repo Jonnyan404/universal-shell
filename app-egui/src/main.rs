@@ -98,6 +98,8 @@ enum Msg {
     ImportDiff(String, Result<shared::TemplateDiffView, String>),
     /// 后台刷新各程序最新版本完成：携带 (id, 最新版本, 发布时间)
     StatusRefreshed(Vec<(String, Option<String>, String)>),
+    /// 指定版本列表拉取完成：(程序 id, 结果)
+    VersionsReady(String, Result<Vec<shared::shell_manager::RemoteVersion>, String>),
     /// 托盘菜单「开机自启」被点击：请求主线程切换壳自身自启
     TrayAutoToggle,
     /// 壳自身更新检查完成：(是否手动触发, 有新版时携带版本信息)
@@ -286,6 +288,14 @@ struct ShellApp {
     /// 各程序的最新版本缓存（后台异步刷新，避免渲染时联网卡顿）
     /// key = 程序 id, value = (最新版本, 发布时间)
     latest_versions: BTreeMap<String, (Option<String>, String)>,
+    /// 当前程序的「指定版本」下拉列表（最近 N 个发行版，含预发布）
+    version_options: Vec<shared::shell_manager::RemoteVersion>,
+    /// 该下拉所属程序 id（切换程序后重新拉取；拉取失败也置位，避免每帧重试刷 API）
+    version_options_for: Option<String>,
+    /// 版本列表是否在拉取中（防重复起线程）
+    version_options_requested: Option<String>,
+    /// 版本列表拉取失败的提示（None=无）
+    version_list_error: Option<String>,
     /// 待二次确认删除的程序 id（删除弹窗内含「删除（保留数据）/ 删除并清空数据」两个选项）
     confirm_delete: Option<String>,
     /// 待二次确认「重置数据（保留程序）」的程序 id
@@ -489,6 +499,10 @@ impl ShellApp {
             prefs_saved_dark: dark_mode,
             prefs_saved_current: current_id,
             latest_versions,
+            version_options: Vec::new(),
+            version_options_for: None,
+            version_options_requested: None,
+            version_list_error: None,
             confirm_delete: None,
             confirm_clear: None,
             checking_updates: false,
@@ -874,6 +888,22 @@ cache,
                     self.m().save_version_check(&vc);
                     self.show_toast(t!("dl.done").to_string());
                 }
+                Msg::VersionsReady(id, result) => {
+                    self.version_options_requested = None;
+                    if self.current_id.as_deref() == Some(id.as_str()) {
+                        match result {
+                            Ok(list) => {
+                                self.version_options = list;
+                                self.version_list_error = None;
+                            }
+                            Err(e) => {
+                                self.version_options.clear();
+                                self.version_list_error = Some(e);
+                            }
+                        }
+                        self.version_options_for = Some(id);
+                    }
+                }
                 Msg::ShellUpdateChecked(manual, result) => {
                     self.shell_update_checking = false;
                     match result {
@@ -968,6 +998,22 @@ cache,
         });
     }
 
+    /// 后台拉取当前程序的「指定版本」下拉列表（最近 N 个发行版，含预发布）。
+    fn spawn_fetch_versions(&mut self, program: shared::config::Program) {
+        let proxy = self.m().proxy.clone();
+        let tx = self.tx.clone();
+        let pid = program.id.clone();
+        std::thread::spawn(move || {
+            let mut gh = shared::GitHub::default();
+            gh.apply_network(
+                proxy.effective_accelerate_prefix(),
+                proxy.effective_http_proxy(),
+            );
+            let r = shared::shell_manager::list_remote_versions(&gh, &program, 15);
+            let _ = tx.send(Msg::VersionsReady(pid, r));
+        });
+    }
+
     /// UI 线程运行态：仅以壳持有的子进程句柄为准（try_wait，无派生）。
     /// 生命周期由壳完全接管，无孤儿探测，同类方法可在渲染路径直接调用。
     fn ui_running(&mut self, p: &shared::config::Program) -> bool {
@@ -1032,6 +1078,139 @@ cache,
     fn shown_program(&self) -> Option<shared::config::Program> {
         let id = self.current_id.as_deref()?;
         self.m().all_programs().into_iter().find(|p| p.id == id)
+    }
+
+    /// 更新设置：更新通道(稳定版/预发布) + 指定版本下拉。仅 GitHub 远程源调用。
+    fn show_update_settings(&mut self, ui: &mut egui::Ui, p: &shared::config::Program) {
+        // 首次切到该程序：后台拉指定版本列表
+        let need_fetch = self.version_options_for.as_deref() != Some(p.id.as_str())
+            && self.version_options_requested.as_deref() != Some(p.id.as_str());
+        if need_fetch {
+            self.version_options_requested = Some(p.id.clone());
+            self.spawn_fetch_versions(p.clone());
+        }
+
+        let mut chan = if p.update_channel() == "pre" { "pre" } else { "stable" };
+        let mut chan_changed = false;
+        let mut pin_change: Option<Option<String>> = None;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new(t!("upd.channel")).small().weak());
+            for (val, label) in [("stable", t!("upd.stable")), ("pre", t!("upd.pre"))] {
+                let r = ui.radio_value(&mut chan, val, label);
+                if r.clicked() {
+                    chan_changed = true;
+                }
+            }
+            ui.separator();
+            // 指定版本下拉：auto(随通道) + 最近版本
+            ui.label(egui::RichText::new(t!("upd.version")).small().weak());
+            let pin = p.version_pin.clone();
+            let mut labels: Vec<String> = vec![t!("upd.auto").to_string()];
+            for v in &self.version_options {
+                labels.push(if v.prerelease {
+                    format!("{} (pre)", v.tag)
+                } else {
+                    v.tag.clone()
+                });
+            }
+            // 钉住版本可能在最近列表之外：追加一项
+            if let Some(pinv) = &pin {
+                if !self.version_options.iter().any(|v| &v.tag == pinv) {
+                    labels.push(format!("{} (pin)", pinv));
+                }
+            }
+            let selected_text = if let Some(pinv) = &pin {
+                labels
+                    .iter()
+                    .find(|l| *l == pinv || *l == &format!("{} (pin)", pinv))
+                    .cloned()
+                    .unwrap_or_else(|| pinv.clone())
+            } else {
+                labels[0].clone()
+            };
+            egui::ComboBox::from_id_salt("upd-version")
+                .width(180.0)
+                .selected_text(selected_text)
+                .show_ui(ui, |ui| {
+                    for (i, label) in labels.iter().enumerate() {
+                        let resp = ui.selectable_label(i == 0 && pin.is_none(), label);
+                        if resp.clicked() {
+                            pin_change = if i == 0 {
+                                Some(None) // auto：清除钉住
+                            } else if i <= self.version_options.len() {
+                                Some(Some(self.version_options[i - 1].tag.clone()))
+                            } else {
+                                Some(pin.clone()) // 越界项=原钉住，无变化
+                            };
+                        }
+                    }
+                });
+        });
+
+        if chan_changed {
+            let pid = p.id.clone();
+            let val = chan.to_string();
+            let (ok_channel, err) = {
+                let mut m = self.m();
+                match m.set_update_channel(&pid, &val, &self.config_path) {
+                    Ok(prog) => {
+                        let cnl = if prog.update_channel() == "pre" {
+                            t!("upd.pre").to_string()
+                        } else {
+                            t!("upd.stable").to_string()
+                        };
+                        m.log_op(&t!("op.set_channel", name = &prog.name, channel = cnl));
+                        (Some(cnl), None)
+                    }
+                    Err(e) => (None, Some(format!("{e:#}"))),
+                }
+            };
+            if let Some(c) = ok_channel {
+                self.show_toast(t!("toast.channel_set", channel = c).to_string());
+            } else if let Some(e) = err {
+                self.show_toast(e);
+            }
+            self.refresh_status();
+        }
+        if let Some(new_pin) = pin_change.take() {
+            let pid = p.id.clone();
+            let val = new_pin.unwrap_or_default();
+            let err = {
+                let mut m = self.m();
+                match m.set_version_pin(&pid, &val, &self.config_path) {
+                    Ok(prog) => {
+                        if let Some(v) = &prog.version_pin {
+                            m.log_op(&t!("op.set_pin", name = &prog.name, ver = v));
+                        } else {
+                            m.log_op(&t!("op.clear_pin", name = &prog.name));
+                        }
+                        None
+                    }
+                    Err(e) => Some(format!("{e:#}")),
+                }
+            };
+            if let Some(e) = err {
+                self.show_toast(e);
+            }
+            self.refresh_status();
+        }
+        if self.version_list_error.is_some() {
+            let msg = self.version_list_error.clone().unwrap_or_default();
+            let mut retry = false;
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(t!("upd.list_fail", err = msg))
+                        .small()
+                        .color(egui::Color32::from_rgb(210, 90, 90)),
+                );
+                retry = ui.small_button(t!("act.refresh")).clicked();
+            });
+            if retry {
+                self.version_options_for = None;
+                self.version_list_error = None;
+            }
+        }
+        ui.separator();
     }
 
     fn show_form(&mut self, ui: &mut egui::Ui) {
@@ -1919,6 +2098,13 @@ cache,
                 egui::Label::new(egui::RichText::new(&p.description).small().weak()).truncate(),
             );
         }
+
+        // 更新设置（通道 + 指定版本），仅 GitHub 远程源程序展示（HTTP 直链源/本地不适用）
+        let is_http = p.source.as_ref().is_some_and(|s| s.is_http());
+        if !p.repo.is_empty() && !is_http {
+            self.show_update_settings(ui, &p);
+        }
+
         // 状态 chips（对齐 Tauri renderStatus：本地版本 / 已安装 / 开机启动；运行态看按钮）
         ui.horizontal_wrapped(|ui| {
             ui.label(
@@ -3754,6 +3940,8 @@ cache,
             template_source: b.and_then(|x| x.template_source.clone()),
             imported_at: b.and_then(|x| x.imported_at),
             check_sha256: b.and_then(|x| x.check_sha256.clone()),
+            channel: b.map(|x| x.channel.clone()).unwrap_or_default(),
+            version_pin: b.and_then(|x| x.version_pin.clone()),
             hidden: b.is_some_and(|x| x.hidden),
         };
         if is_new {
