@@ -1080,79 +1080,168 @@ cache,
         self.m().all_programs().into_iter().find(|p| p.id == id)
     }
 
-    /// 更新设置：更新通道(稳定版/预发布) + 指定版本下拉。仅 GitHub 远程源调用。
+    /// 更新卡片（方案②）：版本行（本地→最新）+ 下载按钮 + 更新通道/指定版本。
+    /// 本地程序不显示；HTTP 直链源只显示版本行+下载按钮；GitHub 远程源再显示通道/版本控件。
     /// 指定版本列表按需拉取：切到该程序/刷新不联网，首次打开（点击）下拉时才请求，
     /// 会话内已加载的版本不重复请求；右侧 ↻ 可手动强制刷新列表。
-    fn show_update_settings(&mut self, ui: &mut egui::Ui, p: &shared::config::Program) {
-        let mut chan = if p.update_channel() == "pre" { "pre" } else { "stable" };
+    fn show_update_card(
+        &mut self,
+        ui: &mut egui::Ui,
+        p: &shared::config::Program,
+        status: &shared::ProgramStatus,
+    ) {
+        let is_http = p.source.as_ref().is_some_and(|s| s.is_http());
+        if p.repo.is_empty() && !is_http {
+            return; // 本地程序：无更新卡片
+        }
+        let up_to_date = status
+            .latest_version
+            .as_ref()
+            .map(|v| *v == status.local_version)
+            .unwrap_or(false);
+        let show_dl = is_http
+            || (!p.repo.is_empty()
+                && !(status.installed && (up_to_date || status.latest_version.is_none())));
+
         let mut chan_changed = false;
         let mut pin_change: Option<Option<String>> = None;
         let mut want_fetch = false;
         let mut force_refresh = false;
-        ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new(t!("upd.channel")).small().weak());
-            for (val, label) in [("stable", t!("upd.stable")), ("pre", t!("upd.pre"))] {
-                let r = ui.radio_value(&mut chan, val, label);
-                if r.clicked() {
-                    chan_changed = true;
-                }
-            }
-            ui.separator();
-            // 指定版本下拉：auto(随通道) + 最近版本（列表按需拉取）
-            ui.label(egui::RichText::new(t!("upd.version")).small().weak());
-            let pin = p.version_pin.clone();
-            let loaded = self.version_options_for.as_deref() == Some(p.id.as_str());
-            let in_flight = self.version_options_requested.as_deref() == Some(p.id.as_str());
-            let selected_text = if let Some(pinv) = &pin {
-                pinv.clone()
-            } else {
-                t!("upd.auto").to_string()
-            };
-            egui::ComboBox::from_id_salt("upd-version")
-                .width(180.0)
-                .selected_text(selected_text)
-                .show_ui(ui, |ui| {
-                    // 弹出内容仅在打开下拉时渲染：未加载 → 触发拉取并显示加载中
-                    if !loaded {
-                        if !in_flight {
-                            want_fetch = true;
-                        }
-                        let _ = ui.selectable_label(false, t!("upd.loading"));
-                        return;
-                    }
-                    if ui
-                        .selectable_label(pin.is_none(), t!("upd.auto"))
-                        .clicked()
-                    {
-                        pin_change = Some(None); // auto：清除钉住
-                    }
-                    for v in &self.version_options {
-                        let label = if v.prerelease {
-                            format!("{} (pre)", v.tag)
+        let mut chan = if p.update_channel() == "pre" { "pre" } else { "stable" };
+
+        let fill = ui.visuals().faint_bg_color;
+        egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
+            // 版本行：本地 → 最新 + 下载按钮
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(t!("th.local_ver")).small().weak());
+                let local = if status.installed {
+                    format!("v{}", status.local_version)
+                } else {
+                    t!("st.not_installed_bare").to_string()
+                };
+                ui.label(egui::RichText::new(local).strong().monospace());
+                ui.label(egui::RichText::new("→").weak());
+                ui.label(egui::RichText::new(t!("th.latest_ver")).small().weak());
+                let is_newer = status.installed
+                    && status
+                        .latest_version
+                        .as_deref()
+                        .map(|l| l != status.local_version.as_str())
+                        .unwrap_or(false);
+                let latest = status
+                    .latest_version
+                    .clone()
+                    .map(|v| format!("v{v}"))
+                    .unwrap_or_else(|| "—".to_string());
+                let latest_color = if is_newer {
+                    egui::Color32::from_rgb(34, 197, 94)
+                } else {
+                    ui.visuals().strong_text_color()
+                };
+                ui.label(egui::RichText::new(latest).strong().monospace().color(latest_color));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if show_dl {
+                        let dl_text = if self.busy {
+                            t!("dl.downloading").to_string()
+                        } else if status.installed {
+                            t!("dl.update").to_string()
                         } else {
-                            v.tag.clone()
+                            t!("dl.download").to_string()
                         };
-                        let is_sel = pin.as_deref() == Some(v.tag.as_str());
-                        if ui.selectable_label(is_sel, label).clicked() {
-                            pin_change = Some(Some(v.tag.clone()));
-                        }
-                    }
-                    // 钉住版本可能在最近列表之外：补充一项（选中无变化）
-                    if let Some(pinv) = &pin {
-                        if !self.version_options.iter().any(|v| &v.tag == pinv) {
-                            let _ = ui.selectable_label(true, format!("{} (pin)", pinv));
+                        let dl_btn = ui.add_enabled(!self.busy, egui::Button::new(dl_text));
+                        if dl_btn.clicked() {
+                            self.spawn_install(p.clone());
                         }
                     }
                 });
-            // 手动刷新列表（清除会话缓存后重新请求）
-            if ui
-                .small_button("↻")
-                .on_hover_text(t!("act.refresh"))
-                .clicked()
-            {
-                force_refresh = true;
+            });
+
+            // 控件行：更新通道 + 指定版本（仅 GitHub 远程源）
+            if !is_http && !p.repo.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new(t!("upd.channel")).small().weak());
+                    for (val, label) in [("stable", t!("upd.stable")), ("pre", t!("upd.pre"))] {
+                        let r = ui.radio_value(&mut chan, val, label);
+                        if r.clicked() {
+                            chan_changed = true;
+                        }
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new(t!("upd.version")).small().weak());
+                    let pin = p.version_pin.clone();
+                    let loaded = self.version_options_for.as_deref() == Some(p.id.as_str());
+                    let in_flight =
+                        self.version_options_requested.as_deref() == Some(p.id.as_str());
+                    let selected_text = if let Some(pinv) = &pin {
+                        pinv.clone()
+                    } else {
+                        t!("upd.auto").to_string()
+                    };
+                    egui::ComboBox::from_id_salt("upd-version")
+                        .width(180.0)
+                        .selected_text(selected_text)
+                        .show_ui(ui, |ui| {
+                            // 弹出内容仅在打开下拉时渲染：未加载 → 触发拉取并显示加载中
+                            if !loaded {
+                                if !in_flight {
+                                    want_fetch = true;
+                                }
+                                let _ = ui.selectable_label(false, t!("upd.loading"));
+                                return;
+                            }
+                            if ui
+                                .selectable_label(pin.is_none(), t!("upd.auto"))
+                                .clicked()
+                            {
+                                pin_change = Some(None); // auto：清除钉住
+                            }
+                            for v in &self.version_options {
+                                let label = if v.prerelease {
+                                    format!("{} (pre)", v.tag)
+                                } else {
+                                    v.tag.clone()
+                                };
+                                let is_sel = pin.as_deref() == Some(v.tag.as_str());
+                                if ui.selectable_label(is_sel, label).clicked() {
+                                    pin_change = Some(Some(v.tag.clone()));
+                                }
+                            }
+                            // 钉住版本可能在最近列表之外：补充一项（选中无变化）
+                            if let Some(pinv) = &pin {
+                                if !self.version_options.iter().any(|v| &v.tag == pinv) {
+                                    let _ =
+                                        ui.selectable_label(true, format!("{} (pin)", pinv));
+                                }
+                            }
+                        });
+                    if ui
+                        .small_button("↻")
+                        .on_hover_text(t!("act.refresh"))
+                        .clicked()
+                    {
+                        force_refresh = true;
+                    }
+                });
+                // 版本列表拉取失败提示
+                if self.version_list_error.is_some() {
+                    let msg = self.version_list_error.clone().unwrap_or_default();
+                    let mut retry = false;
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(t!("upd.list_fail", err = msg))
+                                .small()
+                                .color(egui::Color32::from_rgb(210, 90, 90)),
+                        );
+                        retry = ui.small_button(t!("act.refresh")).clicked();
+                    });
+                    if retry {
+                        self.version_options_for = None;
+                        self.version_list_error = None;
+                    }
+                }
             }
         });
+        ui.add_space(4.0);
 
         // 首次打开下拉：按需触发版本列表拉取（防重复），并标记该程序已在拉取
         if want_fetch
@@ -1167,7 +1256,6 @@ cache,
             self.version_options_requested = Some(p.id.clone());
             self.spawn_fetch_versions(p.clone());
         }
-
         if chan_changed {
             let pid = p.id.clone();
             let val = chan.to_string();
@@ -1215,23 +1303,6 @@ cache,
             }
             self.refresh_status();
         }
-        if self.version_list_error.is_some() {
-            let msg = self.version_list_error.clone().unwrap_or_default();
-            let mut retry = false;
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new(t!("upd.list_fail", err = msg))
-                        .small()
-                        .color(egui::Color32::from_rgb(210, 90, 90)),
-                );
-                retry = ui.small_button(t!("act.refresh")).clicked();
-            });
-            if retry {
-                self.version_options_for = None;
-                self.version_list_error = None;
-            }
-        }
-        ui.separator();
     }
 
     fn show_form(&mut self, ui: &mut egui::Ui) {
@@ -2081,37 +2152,14 @@ cache,
             return;
         };
 
-        // 状态行：程序名 + 状态标签 + 下载按钮（匹配 Tauri statusbar）
+        // 状态行：程序名 + 状态标签（下载按钮已并入下方更新卡片）
         let status = self.display_status(&p);
-        let up_to_date = status
-            .latest_version
-            .as_ref()
-            .map(|v| *v == status.local_version)
-            .unwrap_or(false);
-        // 本地程序(repo 为空)无远程源，不显示下载/更新按钮
-        let show_dl = !p.repo.is_empty()
-            && !(status.installed && (up_to_date || status.latest_version.is_none()));
         ui.horizontal(|ui| {
             ui.heading(&p.name);
             // 对齐 Tauri 状态栏：GitHub 项目(owner/repo)显示为链接，非 GitHub 留空
             if let Some(url) = github_repo_url(&p.repo) {
                 ui.hyperlink_to("GitHub", url);
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if show_dl {
-                    let dl_text = if self.busy {
-                        t!("dl.downloading").to_string()
-                    } else if status.installed {
-                        t!("dl.update").to_string()
-                    } else {
-                        t!("dl.download").to_string()
-                    };
-                    let dl_btn = ui.add_enabled(!self.busy, egui::Button::new(dl_text));
-                    if dl_btn.clicked() {
-                        self.spawn_install(p.clone());
-                    }
-                }
-            });
         });
         // 描述独占第二行（无描述时不占位，对齐 Tauri #prog-desc）
         if !p.description.is_empty() {
@@ -2120,11 +2168,8 @@ cache,
             );
         }
 
-        // 更新设置（通道 + 指定版本），仅 GitHub 远程源程序展示（HTTP 直链源/本地不适用）
-        let is_http = p.source.as_ref().is_some_and(|s| s.is_http());
-        if !p.repo.is_empty() && !is_http {
-            self.show_update_settings(ui, &p);
-        }
+        // 更新卡片：本地→最新 + 下载按钮 + 更新通道/指定版本（方案②；仅远程源显示）
+        self.show_update_card(ui, &p, &status);
 
         // 状态 chips（对齐 Tauri renderStatus：本地版本 / 已安装 / 开机启动；运行态看按钮）
         ui.horizontal_wrapped(|ui| {

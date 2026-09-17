@@ -36,19 +36,30 @@
         <span class="room-sub" id="prog-sub"></span>
         <span class="spacer"></span>
         <div id="status-chips" class="pills"></div>
-        <button id="dl-btn" class="dl-btn" hidden></button>
         <div class="status-desc" id="prog-desc" hidden></div>
       </div>
 
       <!-- 程序管理 -->
       <section id="manage-view" class="view manage-view">
         <div class="manage-body">
+          <!-- 更新卡片：当前→最新 + 下载按钮 + 更新通道/指定版本（仅远程源显示） -->
+          <div id="update-settings" class="upd-card" hidden>
+            <div class="upd-card-main">
+              <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
+              <span class="upd-ver" id="upd-current">—</span>
+              <span class="upd-arrow">→</span>
+              <span class="upd-key" data-i18n="th.latest_ver">最新版本</span>
+              <span class="upd-ver" id="upd-latest">—</span>
+              <span class="spacer"></span>
+              <button id="dl-btn" class="dl-btn" hidden></button>
+            </div>
+            <div id="upd-controls" class="upd-settings"></div>
+          </div>
           <form id="field-form"></form>
           <div id="env-section" class="env-section" hidden>
             <div class="env-title"><span data-i18n="edit.env">环境变量（派生只读）</span></div>
             <div id="env-body"></div>
           </div>
-          <div id="update-settings" class="update-settings" hidden></div>
           <div id="actions"></div>
         </div>
         <div id="manage-log" class="manage-log" data-open="1">

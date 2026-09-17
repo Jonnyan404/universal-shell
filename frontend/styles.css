@@ -631,9 +631,27 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .env-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
 .env-key { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-weight: 600; color: var(--text); }
 .env-val { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); color: var(--accent); word-break: break-all; }
-/* 更新通道 / 指定版本 */
-.update-settings { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 10px; }
-.upd-settings { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+/* 更新卡片：版本行 + 通道/指定版本控件（方案②：卡片顶部，与运行参数表单隔离） */
+.upd-card {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.upd-card[hidden] { display: none; }
+.upd-card .upd-card-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.upd-card .upd-key { color: var(--muted); font-size: 12px; }
+.upd-card .upd-ver {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-weight: 600; font-size: 13px; color: var(--text);
+}
+.upd-card .upd-ver.newer { color: var(--ok); }
+.upd-card .upd-arrow { color: var(--muted); }
+.upd-card .upd-settings {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+}
 .upd-row { display: inline-flex; align-items: center; gap: 8px; }
 .upd-label { color: var(--muted); font-size: 13px; }
 .upd-radios { display: inline-flex; gap: 12px; }

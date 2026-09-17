@@ -38,6 +38,9 @@ const el = {
   manageLogContent: document.querySelector("#manage-log-content"),
   envBody: document.querySelector("#env-body"),
   updateSettings: document.querySelector("#update-settings"),
+  updateControls: document.querySelector("#upd-controls"),
+  updateCurrent: document.querySelector("#upd-current"),
+  updateLatest: document.querySelector("#upd-latest"),
   envSection: document.querySelector("#env-section"),
   manageView: document.querySelector("#manage-view"),
   batchView: document.querySelector("#batch-view"),
@@ -421,24 +424,28 @@ async function switchCurrent(id) {
   refreshManageLog();
 }
 
-// ---------- 更新设置（通道 + 指定版本） ----------
-// 仅 GitHub 远程源程序展示；HTTP 直链源/本地程序不适用。
+// ---------- 更新卡片（当前→最新 + 下载 + 通道/指定版本） ----------
+// 本地程序不显示整卡；HTTP 直链源只显示版本行+下载按钮；GitHub 远程源才显示通道/版本控件。
 async function renderUpdateSettings() {
   const box = el.updateSettings;
-  if (!box) return;
-  const isHttp = current && current.http_enabled;
-  if (!current || !current.repo || isHttp) {
+  if (!box || !current) return;
+  const isHttp = !!current.http_enabled;
+  const isLocal = !current.repo && !isHttp;
+  if (isLocal) {
     box.hidden = true;
-    box.innerHTML = "";
-    box.dataset.programId = "";
     return;
   }
   box.hidden = false;
-  box.innerHTML = "";
   box.dataset.programId = current.id;
+  const st = statuses.find((s) => s.id === current.id)?.status;
+  updateUpdateCard(st);
 
-  const wrap = document.createElement("div");
-  wrap.className = "upd-settings";
+  // 控件行（通道 + 指定版本）：仅 GitHub 远程源构建
+  const ctrl = el.updateControls;
+  if (!ctrl) return;
+  ctrl.innerHTML = "";
+  ctrl.hidden = isHttp || !current.repo;
+  if (isHttp || !current.repo) return;
 
   // 更新通道：稳定版 / 预发布
   const chan = document.createElement("div");
@@ -474,7 +481,7 @@ async function renderUpdateSettings() {
     chanGroup.appendChild(lab);
   }
   chan.appendChild(chanGroup);
-  wrap.appendChild(chan);
+  ctrl.appendChild(chan);
 
   // 指定版本：自动(随通道) + 最近 N 个发行版。
   // 版本列表按需拉取：切到该程序/刷新时不联网，首次点击/聚焦下拉时才请求
@@ -498,8 +505,7 @@ async function renderUpdateSettings() {
   verRefresh.textContent = "↻";
   verRefresh.hidden = true;
   vrow.appendChild(verRefresh);
-  wrap.appendChild(vrow);
-  box.appendChild(wrap);
+  ctrl.appendChild(vrow);
 
   const pin = current.version_pin || "";
   // 初始仅「自动」；已钉住时补一项当前 pin，避免一进程序就联网拉列表
@@ -516,8 +522,8 @@ async function renderUpdateSettings() {
     sel.appendChild(pinOpt);
   }
 
-  // 会话级缓存：依「已加载的 manual 刷新版本列表」判断
-  let cached = versionListCache[current.id];
+  // 会话级缓存
+  const cached = versionListCache[current.id];
   if (cached) {
     applyVersions(cached.versions, cached.error);
   }
@@ -607,6 +613,24 @@ async function renderUpdateSettings() {
       showNotice(String(e), true);
     }
   });
+}
+
+// 刷新更新卡片的版本行（当前 → 最新）。状态每次更新时由 applyStatus 调用。
+function updateUpdateCard(st) {
+  if (!el.updateSettings || el.updateSettings.hidden) return;
+  if (!st) st = statuses.find((s) => s.id === current?.id)?.status;
+  const cur = el.updateCurrent;
+  const latest = el.updateLatest;
+  if (!cur || !latest) return;
+  const local = st?.installed ? `v${st.local_version}` : t("st.not_installed_bare");
+  cur.textContent = local;
+  const newest = st?.latest_version ? `v${st.latest_version}` : "—";
+  latest.textContent = newest;
+  const newer =
+    st?.installed &&
+    st?.latest_version &&
+    st?.latest_version !== st?.local_version;
+  latest.classList.toggle("newer", !!newer);
 }
 
 function renderHeader() {
@@ -857,6 +881,7 @@ function applyStatus(st) {
   renderChips(st);
   renderButtons(st);
   syncInstallBtns(current.id);
+  updateUpdateCard(st);
   renderSidebar();
 }
 
