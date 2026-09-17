@@ -1240,6 +1240,24 @@ cache,
                     }
                 }
             }
+
+            // 检查更新 + 上次检查时间（并入卡片；顶部栏只留标题与状态标签）
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if self.checking_updates {
+                        ui.add_enabled(false, egui::Button::new(t!("dl.checking_short")));
+                    } else if ui.button(t!("batch.check")).clicked() {
+                        self.checking_updates = true;
+                        self.refresh_status();
+                        ui.ctx().request_repaint();
+                    }
+                    if let Some(at) = self.latest_checked_at {
+                        ui.weak(t!("check.last_checked", ago = time_ago(at)));
+                    } else {
+                        ui.weak(t!("check.not_checked"));
+                    }
+                });
+            });
         });
         ui.add_space(4.0);
 

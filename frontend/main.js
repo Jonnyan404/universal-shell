@@ -22,6 +22,8 @@ const installing = new Set();
 // 「指定版本」列表的会话级缓存：programId -> {versions, error}；/ 已尝试拉取的 programId
 const versionListCache = {};
 const versionListLoaded = new Set();
+// 检查更新是否进行中（批量按钮与更新卡片按钮共享同一状态标记）
+let checkingUpdates = false;
 let shellUpdate = null; // {current, latest_tag, release_url}
 let shellChecking = false;
 
@@ -41,6 +43,8 @@ const el = {
   updateControls: document.querySelector("#upd-controls"),
   updateCurrent: document.querySelector("#upd-current"),
   updateLatest: document.querySelector("#upd-latest"),
+  updateCheckedAt: document.querySelector("#upd-checked-at"),
+  updateCheckBtn: document.querySelector("#upd-check-btn"),
   envSection: document.querySelector("#env-section"),
   manageView: document.querySelector("#manage-view"),
   batchView: document.querySelector("#batch-view"),
@@ -440,6 +444,14 @@ async function renderUpdateSettings() {
   const st = statuses.find((s) => s.id === current.id)?.status;
   updateUpdateCard(st);
 
+  // 检查更新按钮：与批量按钮共享 checkingUpdates 状态
+  const chkBtn = el.updateCheckBtn;
+  if (chkBtn) {
+    chkBtn.onclick = () => checkUpdates(chkBtn);
+    chkBtn.disabled = checkingUpdates;
+    chkBtn.textContent = checkingUpdates ? t("dl.checking_short") : t("batch.check");
+  }
+
   // 控件行（通道 + 指定版本）：仅 GitHub 远程源构建
   const ctrl = el.updateControls;
   if (!ctrl) return;
@@ -631,6 +643,13 @@ function updateUpdateCard(st) {
     st?.latest_version &&
     st?.latest_version !== st?.local_version;
   latest.classList.toggle("newer", !!newer);
+  // 上次检查时间
+  if (el.updateCheckedAt) {
+    const at = st?.latest_checked_at;
+    el.updateCheckedAt.textContent = at
+      ? t("check.last_checked", { ago: timeAgo(at) })
+      : t("check.not_checked");
+  }
 }
 
 function renderHeader() {
@@ -1101,19 +1120,24 @@ async function refreshBatchLocal() {
   }
 }
 
-async function checkUpdates() {
-  const btn = document.querySelector("#batch-check-updates");
-  if (btn?.classList.contains("busy")) return;
-  if (btn) {
-    btn.classList.add("busy");
-    btn.disabled = true;
-    btn.textContent = t("dl.checking_short");
-  }
+async function checkUpdates(btn) {
+  if (checkingUpdates) return;
+  checkingUpdates = true;
+  const targets = [btn, document.querySelector("#batch-check-updates")].filter(Boolean);
+  targets.forEach((b) => {
+    b.classList.add("busy");
+    b.disabled = true;
+    b.textContent = t("dl.checking_short");
+  });
   try {
     const full = await invoke("batch_status");
     statuses = full;
     renderSidebar();
-    renderBatch();
+    if (view === "batch") renderBatch();
+    if (current) {
+      const cur = statuses.find((it) => it.id === current.id)?.status;
+      if (cur) applyStatus(cur);
+    }
     // 代理/网络不通等场景：有远程源的程序查不到最新版本 → 分类提示失败
     const failed = statuses.filter((it) => hasRemoteSource(it) && !it.status?.latest_version).length;
     if (failed > 0) await netErrorNotice(null, failed);
@@ -1121,10 +1145,15 @@ async function checkUpdates() {
   } catch (e) {
     showNotice(String(e), true);
   } finally {
-    if (btn) {
-      btn.classList.remove("busy");
-      btn.disabled = false;
-      btn.textContent = t("batch.check");
+    checkingUpdates = false;
+    targets.forEach((b) => {
+      b.classList.remove("busy");
+      b.disabled = false;
+      b.textContent = t("batch.check");
+    });
+    if (current) {
+      const cur = statuses.find((it) => it.id === current.id)?.status;
+      if (cur) updateUpdateCard(cur);
     }
   }
 }
@@ -3130,7 +3159,8 @@ document.querySelector("#batch-refresh").onclick = async () => {
     showNotice(String(e), true);
   }
 };
-document.querySelector("#batch-check-updates").onclick = checkUpdates;
+document.querySelector("#batch-check-updates").onclick = (e) =>
+  checkUpdates(e.currentTarget);
 document.querySelector("#batch-stop-all").onclick = async () => {
   try {
     await invoke("stop_all");

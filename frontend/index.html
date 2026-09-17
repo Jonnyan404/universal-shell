@@ -36,13 +36,13 @@
         <span class="room-sub" id="prog-sub"></span>
         <span class="spacer"></span>
         <div id="status-chips" class="pills"></div>
-        <div class="status-desc" id="prog-desc" hidden></div>
       </div>
 
       <!-- 程序管理 -->
       <section id="manage-view" class="view manage-view">
         <div class="manage-body">
-          <!-- 更新卡片：当前→最新 + 下载按钮 + 更新通道/指定版本（仅远程源显示） -->
+          <div class="status-desc" id="prog-desc" hidden></div>
+          <!-- 更新卡片：当前→最新 + 下载按钮 + 更新通道/指定版本 + 检查更新/上次检查（仅远程源显示） -->
           <div id="update-settings" class="upd-card" hidden>
             <div class="upd-card-main">
               <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
@@ -54,6 +54,10 @@
               <button id="dl-btn" class="dl-btn" hidden></button>
             </div>
             <div id="upd-controls" class="upd-settings"></div>
+            <div class="upd-check">
+              <span class="upd-checked-at" id="upd-checked-at"></span>
+              <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
+            </div>
           </div>
           <form id="field-form"></form>
           <div id="env-section" class="env-section" hidden>

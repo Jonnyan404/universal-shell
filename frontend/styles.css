@@ -632,6 +632,7 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .env-key { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-weight: 600; color: var(--text); }
 .env-val { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); color: var(--accent); word-break: break-all; }
 /* 更新卡片：版本行 + 通道/指定版本控件（方案②：卡片顶部，与运行参数表单隔离） */
+.manage-body > .status-desc { margin: 0 0 12px; font-size: 12px; color: var(--muted); word-break: break-word; }
 .upd-card {
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -670,6 +671,10 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 .upd-refresh:hover { border-color: var(--accent); color: var(--accent); }
 .upd-refresh:disabled { opacity: 0.5; cursor: default; }
+/* 卡片底部：检查更新 + 上次检查时间（右对齐） */
+.upd-check { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 10px; }
+.upd-check .op { padding: 2px 10px; font-size: 12px; }
+.upd-checked-at { font-size: 12px; color: var(--muted); white-space: nowrap; }
 .edit-field-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .edit-field-row input {
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
