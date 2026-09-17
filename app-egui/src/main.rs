@@ -3372,7 +3372,7 @@ cache,
                         self.confirm_clear = Some(p.id.clone());
                     }
                 });
-                // 方案E: 内联展开的「更新设置」行（通道 + 上次检查 + 检查更新）
+                // 方案E: 内联展开的「更新设置」行（通道 + 指定版本 + 上次检查 + 检查更新）
                 let is_http = p.source.as_ref().is_some_and(|s| s.is_http());
                 if !p.repo.is_empty() && !is_http && self.batch_upd_open.contains(p.id.as_str()) {
                     let mut chan = if p.update_channel() == "pre" { "pre" } else { "stable" };
@@ -3385,6 +3385,35 @@ cache,
                                 chan_changed = true;
                             }
                         }
+                        ui.separator();
+                        ui.label(egui::RichText::new(t!("upd.version")).small().weak());
+                        let pin = p.version_pin.clone();
+                        let loaded = self.version_options_for.as_deref() == Some(p.id.as_str());
+                        let in_flight = self.version_options_requested.as_deref() == Some(p.id.as_str());
+                        let selected_text = pin.clone().unwrap_or_else(|| t!("upd.auto").to_string());
+                        egui::ComboBox::from_id_salt(format!("batch-version-{}", p.id))
+                            .width(120.0)
+                            .selected_text(selected_text)
+                            .show_ui(ui, |ui| {
+                                if !loaded {
+                                    if !in_flight {
+                                        self.version_options_requested = Some(p.id.clone());
+                                        self.spawn_fetch_versions(p.clone());
+                                    }
+                                    let _ = ui.selectable_label(false, t!("upd.loading"));
+                                    return;
+                                }
+                                if ui.selectable_label(pin.is_none(), t!("upd.auto")).clicked() {
+                                    // TODO: set_version_pin("")
+                                }
+                                for v in &self.version_options {
+                                    let label = if v.prerelease { format!("{} (pre)", v.tag) } else { v.tag.clone() };
+                                    let is_sel = pin.as_deref() == Some(v.tag.as_str());
+                                    if ui.selectable_label(is_sel, label).clicked() {
+                                        // TODO: set_version_pin(v.tag)
+                                    }
+                                }
+                            });
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if self.checking_updates {
                                 ui.add_enabled(false, egui::Button::new(t!("dl.checking_short")));

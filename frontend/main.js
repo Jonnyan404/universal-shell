@@ -1427,7 +1427,7 @@ function batchOpButtons(item) {
   return ops;
 }
 
-// 方案E: 批量页每行「更新设置」内联展开行（通道 + 上次检查 + 检查更新）
+// 方案E: 批量页每行「更新设置」内联展开行（通道 + 指定版本 + 上次检查 + 检查更新）
 function buildBatchSettingsRow(item) {
   const tr = document.createElement("tr");
   tr.className = "batch-settings-row";
@@ -1467,6 +1467,102 @@ function buildBatchSettingsRow(item) {
     group.appendChild(lab);
   }
   row.appendChild(group);
+
+  // 指定版本选择（与管理页相同的懒加载逻辑）
+  const pin = prog?.version_pin || "";
+  const vLabel = document.createElement("span");
+  vLabel.style.cssText = "font-size:12px;color:var(--muted);margin-left:6px;";
+  vLabel.textContent = t("upd.version");
+  row.appendChild(vLabel);
+  const sel = document.createElement("select");
+  sel.className = "upd-select";
+  sel.style.cssText = "max-width:120px;";
+  row.appendChild(sel);
+  const autoOpt = document.createElement("option");
+  autoOpt.value = "";
+  autoOpt.textContent = t("upd.auto");
+  autoOpt.selected = !pin;
+  sel.appendChild(autoOpt);
+  if (pin) {
+    const pinOpt = document.createElement("option");
+    pinOpt.value = pin;
+    pinOpt.textContent = pin + " (pin)";
+    pinOpt.selected = true;
+    sel.appendChild(pinOpt);
+  }
+
+  // 懒加载版本列表（复用会话缓存）
+  const ensureVersions = async () => {
+    if (versionListLoaded.has(item.id)) return;
+    versionListLoaded.add(item.id);
+    const loadOpt = document.createElement("option");
+    loadOpt.value = "";
+    loadOpt.textContent = t("upd.loading");
+    loadOpt.selected = true;
+    sel.add(loadOpt);
+    try {
+      const r = await invoke("list_versions", { programId: item.id, limit: 15 });
+      const versions = (r && r.versions) || [];
+      versionListCache[item.id] = { versions, error: "" };
+      applyBatchVersions(sel, versions, pin);
+    } catch (e) {
+      const err = String(e);
+      versionListCache[item.id] = { versions: [], error: err };
+      applyBatchVersions(sel, [], pin, err);
+    }
+  };
+
+  function applyBatchVersions(select, versions, pinVal, error) {
+    // 清掉「自动」之后的选项（含加载中占位），保留第一项自动
+    while (select.options.length > 1) select.remove(1);
+    if (error) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = t("upd.none");
+      none.selected = !pinVal;
+      none.disabled = true;
+      select.appendChild(none);
+    } else if (!versions.length) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = t("upd.none");
+      none.selected = !pinVal;
+      none.disabled = true;
+      select.appendChild(none);
+    } else {
+      for (const vv of versions) {
+        const opt = document.createElement("option");
+        opt.value = vv.tag;
+        opt.textContent = vv.tag + (vv.prerelease ? " ⚠" : "");
+        opt.selected = vv.tag === pinVal;
+        select.appendChild(opt);
+      }
+      // 钉住的版本不在最近列表内：仍补充一项标注原钉住值
+      if (pinVal && !versions.some((x) => x.tag === pinVal)) {
+        const opt = document.createElement("option");
+        opt.value = pinVal;
+        opt.textContent = pinVal + " (pin)";
+        opt.selected = true;
+        select.appendChild(opt);
+      }
+    }
+    select.value = pinVal || "";
+    select.disabled = false;
+  }
+
+  // 首次交互(点击/聚焦下拉)时才拉版本列表
+  sel.addEventListener("pointerdown", ensureVersions);
+  sel.addEventListener("focus", ensureVersions);
+  sel.addEventListener("change", async () => {
+    try {
+      await invoke("set_version_pin", { programId: item.id, version: sel.value });
+      programs = await invoke("get_programs");
+      renderSidebar();
+    } catch (e) {
+      showNotice(String(e), true);
+    }
+  });
+
   const right = document.createElement("span");
   right.style.cssText = "margin-left:auto;display:flex;align-items:center;gap:8px;";
   const at = statuses.find((s) => s.id === item.id)?.status?.latest_checked_at;
