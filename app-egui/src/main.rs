@@ -298,8 +298,6 @@ struct ShellApp {
     version_list_error: Option<String>,
     /// 更新卡片被折叠的程序 id 集合（默认折叠，点开 ▸ 时移除该项以展开）
     upd_card_collapsed: std::collections::HashSet<String>,
-    /// 批量页展开「更新设置」的程序 id 集合（方案E：内联齿轮展开）
-    batch_upd_open: std::collections::HashSet<String>,
     /// 待二次确认删除的程序 id（删除弹窗内含「删除（保留数据）/ 删除并清空数据」两个选项）
     confirm_delete: Option<String>,
     /// 待二次确认「重置数据（保留程序）」的程序 id
@@ -508,7 +506,6 @@ impl ShellApp {
             version_options_requested: None,
             version_list_error: None,
             upd_card_collapsed: std::collections::HashSet::new(),
-            batch_upd_open: std::collections::HashSet::new(),
             confirm_delete: None,
             confirm_clear: None,
             checking_updates: false,
@@ -3346,22 +3343,6 @@ cache,
                         let d = self.m().app_dir(p);
                         spawn_open(&d.to_string_lossy());
                     }
-                    // 方案E: 更新设置齿轮（内联展开通道/检查更新）——仅 GitHub 远程源
-                    let is_http = p.source.as_ref().is_some_and(|s| s.is_http());
-                    if !p.repo.is_empty() && !is_http {
-                        let open = self.batch_upd_open.contains(p.id.as_str());
-                        let gtxt = if open { "▾ ⚙" } else { "▸ ⚙" };
-                        let gear = ui
-                            .small_button(gtxt)
-                            .on_hover_text(t!("upd.expand"));
-                        if gear.clicked() {
-                            if self.batch_upd_open.contains(p.id.as_str()) {
-                                self.batch_upd_open.remove(p.id.as_str());
-                            } else {
-                                self.batch_upd_open.insert(p.id.clone());
-                            }
-                        }
-                    }
                     if ui.small_button(t!("act.edit")).clicked() {
                         self.open_edit(&p.id);
                     }
@@ -3372,11 +3353,13 @@ cache,
                         self.confirm_clear = Some(p.id.clone());
                     }
                 });
-                // 方案E: 内联展开的「更新设置」行（通道 + 指定版本 + 上次检查 + 检查更新）
+                // 方案E: 内联默认展开的「更新设置」行（通道 + 指定版本 + 上次检查 + 检查更新）
                 let is_http = p.source.as_ref().is_some_and(|s| s.is_http());
-                if !p.repo.is_empty() && !is_http && self.batch_upd_open.contains(p.id.as_str()) {
+                if !p.repo.is_empty() && !is_http {
                     let mut chan = if p.update_channel() == "pre" { "pre" } else { "stable" };
                     let mut chan_changed = false;
+                    let mut pin_change: Option<Option<String>> = None;
+                    let mut want_fetch = false;
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(t!("upd.channel")).small().weak());
                         for (val, label) in [("stable", t!("upd.stable")), ("pre", t!("upd.pre"))] {
@@ -3390,27 +3373,35 @@ cache,
                         let pin = p.version_pin.clone();
                         let loaded = self.version_options_for.as_deref() == Some(p.id.as_str());
                         let in_flight = self.version_options_requested.as_deref() == Some(p.id.as_str());
-                        let selected_text = pin.clone().unwrap_or_else(|| t!("upd.auto").to_string());
+                        let selected_text = if let Some(pinv) = &pin {
+                            pinv.clone()
+                        } else {
+                            t!("upd.auto").to_string()
+                        };
                         egui::ComboBox::from_id_salt(format!("batch-version-{}", p.id))
-                            .width(120.0)
+                            .width(160.0)
                             .selected_text(selected_text)
                             .show_ui(ui, |ui| {
                                 if !loaded {
                                     if !in_flight {
-                                        self.version_options_requested = Some(p.id.clone());
-                                        self.spawn_fetch_versions(p.clone());
+                                        want_fetch = true;
                                     }
                                     let _ = ui.selectable_label(false, t!("upd.loading"));
                                     return;
                                 }
                                 if ui.selectable_label(pin.is_none(), t!("upd.auto")).clicked() {
-                                    // TODO: set_version_pin("")
+                                    pin_change = Some(None);
                                 }
                                 for v in &self.version_options {
                                     let label = if v.prerelease { format!("{} (pre)", v.tag) } else { v.tag.clone() };
                                     let is_sel = pin.as_deref() == Some(v.tag.as_str());
                                     if ui.selectable_label(is_sel, label).clicked() {
-                                        // TODO: set_version_pin(v.tag)
+                                        pin_change = Some(Some(v.tag.clone()));
+                                    }
+                                }
+                                if let Some(pinv) = &pin {
+                                    if !self.version_options.iter().any(|v| &v.tag == pinv) {
+                                        let _ = ui.selectable_label(true, format!("{} (pin)", pinv));
                                     }
                                 }
                             });
@@ -3433,6 +3424,13 @@ cache,
                             }
                         });
                     });
+                    // 首次打开版本下拉：按需触发拉取（防重复，模式同管理页）
+                    if want_fetch
+                        && self.version_options_requested.as_deref() != Some(p.id.as_str())
+                    {
+                        self.version_options_requested = Some(p.id.clone());
+                        self.spawn_fetch_versions(p.clone());
+                    }
                     if chan_changed {
                         let pid = p.id.clone();
                         let val = chan.to_string();
@@ -3454,6 +3452,28 @@ cache,
                         if let Some(c) = ok {
                             self.show_toast(t!("toast.channel_set", channel = c).to_string());
                         } else if let Some(e) = err {
+                            self.show_toast(e);
+                        }
+                        self.refresh_status();
+                    }
+                    if let Some(new_pin) = pin_change.take() {
+                        let pid = p.id.clone();
+                        let val = new_pin.unwrap_or_default();
+                        let err = {
+                            let mut m = self.m();
+                            match m.set_version_pin(&pid, &val, &self.config_path) {
+                                Ok(prog) => {
+                                    if let Some(v) = &prog.version_pin {
+                                        m.log_op(&t!("op.set_pin", name = &prog.name, ver = v));
+                                    } else {
+                                        m.log_op(&t!("op.clear_pin", name = &prog.name));
+                                    }
+                                    None
+                                }
+                                Err(e) => Some(format!("{e:#}")),
+                            }
+                        };
+                        if let Some(e) = err {
                             self.show_toast(e);
                         }
                         self.refresh_status();

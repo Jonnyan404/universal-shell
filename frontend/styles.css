@@ -381,8 +381,11 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .batch-settings-row td {
   background: var(--panel-2); padding: 6px 10px 8px; border-top: 1px solid var(--border);
 }
-.batch-ops .ops-upd svg path { fill: var(--muted); }
-.batch-ops .ops-upd:hover svg path { fill: var(--text); }
+.batch-settings-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.batch-settings-line .upd-select { max-width: 160px; }
+.batch-settings-line .batch-upd-note { font-size: 12px; color: var(--muted); }
+.batch-settings-line .batch-upd-note.error { color: var(--danger); }
+.batch-settings-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .batch-ops { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .op-btn { font-size: 12px; padding: 4px 10px; }
 

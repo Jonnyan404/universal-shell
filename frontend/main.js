@@ -521,6 +521,7 @@ async function renderUpdateSettings() {
   chan.appendChild(chanLabel);
   const chanGroup = document.createElement("span");
   chanGroup.className = "upd-radios";
+  const effChan = current.channel === "pre" ? "pre" : "stable";
   for (const [value, label] of [["stable", t("upd.stable")], ["pre", t("upd.pre")]]) {
     const lab = document.createElement("label");
     lab.className = "upd-radio";
@@ -528,7 +529,7 @@ async function renderUpdateSettings() {
     inp.type = "radio";
     inp.name = "upd-channel";
     inp.value = value;
-    inp.checked = (current.channel || "") === value;
+    inp.checked = effChan === value;
     inp.addEventListener("change", async () => {
       if (!inp.checked) return;
       try {
@@ -1163,25 +1164,6 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // ---------- 批量管理 ----------
-const batchUpdOpen = new Set(); // 展开中「更新设置」的程序 id
-function toggleBatchSettings(item) {
-  const existing = document.getElementById(`batch-settings-${item.id}`);
-  if (existing) {
-    existing.remove();
-    batchUpdOpen.delete(item.id);
-    return;
-  }
-  batchUpdOpen.add(item.id);
-  const tr = buildBatchSettingsRow(item);
-  tr.id = `batch-settings-${item.id}`;
-  const gear = document.querySelector(`.ops-upd[data-id="${item.id}"]`);
-  if (gear) {
-    const opsRow = gear.closest("tr");
-    if (opsRow) opsRow.after(tr);
-  } else {
-    el.batchBody.appendChild(tr);
-  }
-}
 async function refreshBatchLocal() {
   try {
     statuses = await invoke("batch_status_local");
@@ -1330,7 +1312,6 @@ function renderBatch() {
       const settingsTr = buildBatchSettingsRow(item);
       settingsTr.id = `batch-settings-${item.id}`;
       opsRow.after(settingsTr);
-      batchUpdOpen.add(item.id);
     }
   }
 }
@@ -1434,15 +1415,15 @@ function buildBatchSettingsRow(item) {
   const td = document.createElement("td");
   td.colSpan = 6;
   const row = document.createElement("div");
-  row.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
-  const chan = document.createElement("span");
-  chan.style.cssText = "font-size:12px;color:var(--muted);";
-  chan.textContent = t("upd.channel");
-  row.appendChild(chan);
+  row.className = "batch-settings-line";
+  const chanLabel = document.createElement("span");
+  chanLabel.className = "upd-label";
+  chanLabel.textContent = t("upd.channel");
+  row.appendChild(chanLabel);
   const group = document.createElement("span");
   group.className = "upd-radios";
   const prog = programs.find((p) => p.id === item.id);
-  const currentChan = prog?.channel || "";
+  const effChan = prog?.channel === "pre" ? "pre" : "stable";
   for (const [value, label] of [["stable", t("upd.stable")], ["pre", t("upd.pre")]]) {
     const lab = document.createElement("label");
     lab.className = "upd-radio";
@@ -1450,7 +1431,7 @@ function buildBatchSettingsRow(item) {
     inp.type = "radio";
     inp.name = `upd-batch-${item.id}`;
     inp.value = value;
-    inp.checked = currentChan === value;
+    inp.checked = effChan === value;
     inp.addEventListener("change", async () => {
       if (!inp.checked) return;
       try {
@@ -1471,13 +1452,15 @@ function buildBatchSettingsRow(item) {
   // 指定版本选择（与管理页相同的懒加载逻辑）
   const pin = prog?.version_pin || "";
   const vLabel = document.createElement("span");
-  vLabel.style.cssText = "font-size:12px;color:var(--muted);margin-left:6px;";
+  vLabel.className = "upd-label";
   vLabel.textContent = t("upd.version");
   row.appendChild(vLabel);
   const sel = document.createElement("select");
   sel.className = "upd-select";
-  sel.style.cssText = "max-width:120px;";
   row.appendChild(sel);
+  const verNote = document.createElement("span");
+  verNote.className = "batch-upd-note";
+  row.appendChild(verNote);
   const autoOpt = document.createElement("option");
   autoOpt.value = "";
   autoOpt.textContent = t("upd.auto");
@@ -1489,6 +1472,12 @@ function buildBatchSettingsRow(item) {
     pinOpt.textContent = pin + " (pin)";
     pinOpt.selected = true;
     sel.appendChild(pinOpt);
+  }
+
+  // 会话级缓存：整页重建后复用已拉取的结果
+  const cached = versionListCache[item.id];
+  if (cached) {
+    applyBatchVersions(sel, cached.versions, pin, cached.error);
   }
 
   // 懒加载版本列表（复用会话缓存）
@@ -1516,13 +1505,13 @@ function buildBatchSettingsRow(item) {
     // 清掉「自动」之后的选项（含加载中占位），保留第一项自动
     while (select.options.length > 1) select.remove(1);
     if (error) {
-      const none = document.createElement("option");
-      none.value = "";
-      none.textContent = t("upd.none");
-      none.selected = !pinVal;
-      none.disabled = true;
-      select.appendChild(none);
-    } else if (!versions.length) {
+      verNote.textContent = t("upd.list_fail", { err: error });
+      verNote.classList.add("error");
+    } else {
+      verNote.textContent = "";
+      verNote.classList.remove("error");
+    }
+    if (error || !versions.length) {
       const none = document.createElement("option");
       none.value = "";
       none.textContent = t("upd.none");
@@ -1564,17 +1553,16 @@ function buildBatchSettingsRow(item) {
   });
 
   const right = document.createElement("span");
-  right.style.cssText = "margin-left:auto;display:flex;align-items:center;gap:8px;";
+  right.className = "batch-settings-right";
   const at = statuses.find((s) => s.id === item.id)?.status?.latest_checked_at;
   const lastEl = document.createElement("span");
-  lastEl.style.cssText = "font-size:12px;color:var(--muted);";
+  lastEl.className = "upd-label";
   lastEl.textContent = at
     ? t("check.last_checked", { ago: timeAgo(at) })
     : t("check.not_checked");
   right.appendChild(lastEl);
   const checkBtn = document.createElement("button");
   checkBtn.className = "op";
-  checkBtn.style.cssText = "padding:2px 8px;font-size:12px;";
   checkBtn.textContent = checkingUpdates ? t("dl.checking_short") : t("batch.check");
   checkBtn.disabled = checkingUpdates;
   checkBtn.onclick = () => checkUpdates(checkBtn);
