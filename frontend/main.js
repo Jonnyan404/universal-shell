@@ -22,6 +22,7 @@ const installing = new Set();
 // 「指定版本」列表的会话级缓存：programId -> {versions, error}；/ 已尝试拉取的 programId
 const versionListCache = {};
 const versionListLoaded = new Set();
+const UPD_EXPAND_KEY = "upd-card-expanded";
 // 检查更新是否进行中（批量按钮与更新卡片按钮共享同一状态标记）
 let checkingUpdates = false;
 let shellUpdate = null; // {current, latest_tag, release_url}
@@ -43,6 +44,9 @@ const el = {
   updateControls: document.querySelector("#upd-controls"),
   updateCurrent: document.querySelector("#upd-current"),
   updateLatest: document.querySelector("#upd-latest"),
+  updatePin: document.querySelector("#upd-pin"),
+  updateToggle: document.querySelector("#upd-toggle"),
+  updateDetails: document.querySelector("#upd-details"),
   updateCheckedAt: document.querySelector("#upd-checked-at"),
   updateCheckBtn: document.querySelector("#upd-check-btn"),
   envSection: document.querySelector("#env-section"),
@@ -428,8 +432,27 @@ async function switchCurrent(id) {
   refreshManageLog();
 }
 
-// ---------- 更新卡片（当前→最新 + 下载 + 通道/指定版本） ----------
-// 本地程序不显示整卡；HTTP 直链源只显示版本行+下载按钮；GitHub 远程源才显示通道/版本控件。
+function isUpdateCardExpanded(id) {
+  try {
+    const a = JSON.parse(localStorage.getItem(UPD_EXPAND_KEY) || "[]");
+    return a.includes(id);
+  } catch {
+    return false;
+  }
+}
+function setUpdateCardExpanded(id, on) {
+  try {
+    let a = JSON.parse(localStorage.getItem(UPD_EXPAND_KEY) || "[]");
+    const i = a.indexOf(id);
+    if (on && i < 0) a.push(id);
+    if (!on && i >= 0) a.splice(i, 1);
+    localStorage.setItem(UPD_EXPAND_KEY, JSON.stringify(a));
+  } catch {}
+}
+
+// ---------- 更新卡片（当前→最新 + 下载 + 通道/指定版本 + 检查更新） ----------
+// 默认折叠：只露出版本行 + 下载按钮；点 ▾/▸ 展开「通道/指定版本/检查更新」。
+// 折叠状态按程序 id 持久化到 localStorage（新程序默认折叠）。
 async function renderUpdateSettings() {
   const box = el.updateSettings;
   if (!box || !current) return;
@@ -443,6 +466,35 @@ async function renderUpdateSettings() {
   box.dataset.programId = current.id;
   const st = statuses.find((s) => s.id === current.id)?.status;
   updateUpdateCard(st);
+
+  // 折叠状态：默认折叠
+  const expanded = isUpdateCardExpanded(current.id);
+  const details = el.updateDetails;
+  if (details) details.hidden = !expanded;
+  const toggle = el.updateToggle;
+  if (toggle) {
+    const renderToggle = () => {
+      toggle.textContent = details.hidden ? "▸" : "▾";
+      toggle.title = details.hidden ? t("upd.expand") : t("upd.collapse");
+    };
+    renderToggle();
+    toggle.onclick = () => {
+      details.hidden = !details.hidden;
+      renderToggle();
+      setUpdateCardExpanded(current.id, !details.hidden);
+    };
+  }
+
+  // 钉住指定版本时在版本行显示小 pill，折叠时也能看到
+  if (el.updatePin) {
+    const pinv = current.version_pin || "";
+    if (pinv) {
+      el.updatePin.textContent = pinv;
+      el.updatePin.hidden = false;
+    } else {
+      el.updatePin.hidden = true;
+    }
+  }
 
   // 检查更新按钮：与批量按钮共享 checkingUpdates 状态
   const chkBtn = el.updateCheckBtn;

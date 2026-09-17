@@ -296,6 +296,8 @@ struct ShellApp {
     version_options_requested: Option<String>,
     /// 版本列表拉取失败的提示（None=无）
     version_list_error: Option<String>,
+    /// 更新卡片被折叠的程序 id 集合（默认折叠，点开 ▸ 时移除该项以展开）
+    upd_card_collapsed: std::collections::HashSet<String>,
     /// 待二次确认删除的程序 id（删除弹窗内含「删除（保留数据）/ 删除并清空数据」两个选项）
     confirm_delete: Option<String>,
     /// 待二次确认「重置数据（保留程序）」的程序 id
@@ -503,6 +505,7 @@ impl ShellApp {
             version_options_for: None,
             version_options_requested: None,
             version_list_error: None,
+            upd_card_collapsed: std::collections::HashSet::new(),
             confirm_delete: None,
             confirm_clear: None,
             checking_updates: false,
@@ -1111,6 +1114,8 @@ cache,
 
         let fill = ui.visuals().faint_bg_color;
         egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
+            // 折叠状态（默认折叠）：只露出版本行 + 下载按钮
+            let mut collapsed = self.upd_card_collapsed.contains(p.id.as_str());
             // 版本行：本地 → 最新 + 下载按钮
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(t!("th.local_ver")).small().weak());
@@ -1139,6 +1144,18 @@ cache,
                     ui.visuals().strong_text_color()
                 };
                 ui.label(egui::RichText::new(latest).strong().monospace().color(latest_color));
+                // 折叠切换（版本行最右：▸ 折叠 / ▾ 展开）
+                let tog_text = if collapsed { "▸" } else { "▾" };
+                let tog = ui.small_button(tog_text)
+                    .on_hover_text(if collapsed { t!("upd.expand") } else { t!("upd.collapse") });
+                if tog.clicked() {
+                    if collapsed {
+                        self.upd_card_collapsed.remove(p.id.as_str());
+                    } else {
+                        self.upd_card_collapsed.insert(p.id.clone());
+                    }
+                    collapsed = !collapsed;
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if show_dl {
                         let dl_text = if self.busy {
@@ -1156,8 +1173,8 @@ cache,
                 });
             });
 
-            // 控件行：更新通道 + 指定版本（仅 GitHub 远程源）
-            if !is_http && !p.repo.is_empty() {
+            // 控件行：更新通道 + 指定版本（仅 GitHub 远程源；折叠时不显示）
+            if !collapsed && !is_http && !p.repo.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new(t!("upd.channel")).small().weak());
                     for (val, label) in [("stable", t!("upd.stable")), ("pre", t!("upd.pre"))] {
@@ -1241,23 +1258,25 @@ cache,
                 }
             }
 
-            // 检查更新 + 上次检查时间（并入卡片；顶部栏只留标题与状态标签）
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if self.checking_updates {
-                        ui.add_enabled(false, egui::Button::new(t!("dl.checking_short")));
-                    } else if ui.button(t!("batch.check")).clicked() {
-                        self.checking_updates = true;
-                        self.refresh_status();
-                        ui.ctx().request_repaint();
-                    }
-                    if let Some(at) = self.latest_checked_at {
-                        ui.weak(t!("check.last_checked", ago = time_ago(at)));
-                    } else {
-                        ui.weak(t!("check.not_checked"));
-                    }
+            // 检查更新 + 上次检查时间（并入卡片；折叠时不显示）
+            if !collapsed {
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.checking_updates {
+                            ui.add_enabled(false, egui::Button::new(t!("dl.checking_short")));
+                        } else if ui.button(t!("batch.check")).clicked() {
+                            self.checking_updates = true;
+                            self.refresh_status();
+                            ui.ctx().request_repaint();
+                        }
+                        if let Some(at) = self.latest_checked_at {
+                            ui.weak(t!("check.last_checked", ago = time_ago(at)));
+                        } else {
+                            ui.weak(t!("check.not_checked"));
+                        }
+                    });
                 });
-            });
+            }
         });
         ui.add_space(4.0);
 

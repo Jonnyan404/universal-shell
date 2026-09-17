@@ -642,6 +642,12 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 .upd-card[hidden] { display: none; }
 .upd-card .upd-card-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.upd-card .upd-toggle {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+  width: 22px; height: 22px; border-radius: 6px; line-height: 1; cursor: pointer;
+  font-size: 12px; padding: 0; flex: 0 0 auto;
+}
+.upd-card .upd-toggle:hover { color: var(--text); border-color: var(--accent); }
 .upd-card .upd-key { color: var(--muted); font-size: 12px; }
 .upd-card .upd-ver {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
@@ -649,6 +655,10 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 .upd-card .upd-ver.newer { color: var(--ok); }
 .upd-card .upd-arrow { color: var(--muted); }
+.upd-card .upd-pin {
+  font-size: 11px; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--muted); background: var(--panel-2);
+}
 .upd-card .upd-settings {
   display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
   margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
