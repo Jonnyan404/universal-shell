@@ -1325,12 +1325,12 @@ function renderBatch() {
     opsCell.appendChild(ops);
     opsRow.appendChild(opsCell);
     el.batchBody.appendChild(opsRow);
-    // 方案E: 若该程序更新设置已展开，重建后保持展开
-    if (batchUpdOpen.has(item.id) && item.repo) {
-      tr.innerHTML = ""; // noop
+    // 方案E: 默认展开设置行（GitHub 远程源才显示）
+    if (item.repo) {
       const settingsTr = buildBatchSettingsRow(item);
       settingsTr.id = `batch-settings-${item.id}`;
       opsRow.after(settingsTr);
+      batchUpdOpen.add(item.id);
     }
   }
 }
@@ -1405,15 +1405,6 @@ function batchOpButtons(item) {
   const ops = document.createElement("span");
   ops.className = "batch-ops";
   if (hasRemoteSource(item)) ops.appendChild(batchDownloadBtn(item, s));
-  // 方案E: 更新设置齿轮（内联展开通道/检查更新）——仅 GitHub 远程源
-  const prog = programs.find((x) => x.id === item.id);
-  const isHttp = prog && prog.http_enabled;
-  if (item.repo && !isHttp) {
-    const gear = batchIconBtn("gear", "upd.expand", "ops-upd", () => toggleBatchSettings(item));
-    gear.dataset.id = item.id;
-    gear.title = t("upd.expand");
-    ops.appendChild(gear);
-  }
   const startBtn = batchIconBtn("start", "act.start", "ops-start", () => batchAct(item, "start_program"));
   startBtn.disabled = !!s.running;
   ops.appendChild(startBtn);
