@@ -40,13 +40,12 @@ const el = {
   manageLog: document.querySelector("#manage-log"),
   manageLogContent: document.querySelector("#manage-log-content"),
   envBody: document.querySelector("#env-body"),
-  updateSettings: document.querySelector("#update-settings"),
+  updateSettings: document.querySelector("#upd-settings"),
   updateControls: document.querySelector("#upd-controls"),
   updateCurrent: document.querySelector("#upd-current"),
   updateLatest: document.querySelector("#upd-latest"),
   updatePin: document.querySelector("#upd-pin"),
   updateToggle: document.querySelector("#upd-toggle"),
-  updateDetails: document.querySelector("#upd-details"),
   updateCheckedAt: document.querySelector("#upd-checked-at"),
   updateCheckBtn: document.querySelector("#upd-check-btn"),
   envSection: document.querySelector("#env-section"),
@@ -393,6 +392,7 @@ function switchView(v) {
   el.logView.hidden = v !== "log";
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) dlBtn.hidden = v !== "manage";
+  if (el.updateSettings) el.updateSettings.hidden = v !== "manage";
   if (v === "manage") {
     el.statusbar.hidden = false;
     if (current) {
@@ -450,50 +450,51 @@ function setUpdateCardExpanded(id, on) {
   } catch {}
 }
 
-// ---------- 更新卡片（当前→最新 + 下载 + 通道/指定版本 + 检查更新） ----------
-// 默认折叠：只露出版本行 + 下载按钮；点 ▾/▸ 展开「通道/指定版本/检查更新」。
+// ---------- 更新设置（方案A：状态栏「更新设置」→ 展开条） ----------
+// 默认折叠：管理页只有状态栏一个「更新设置」小按钮；点开才显示版本行+通道+检查更新。
 // 折叠状态按程序 id 持久化到 localStorage（新程序默认折叠）。
 async function renderUpdateSettings() {
   const box = el.updateSettings;
-  if (!box || !current) return;
+  const toggle = el.updateToggle;
+  if (!box || !toggle || !current) return;
   const isHttp = !!current.http_enabled;
   const isLocal = !current.repo && !isHttp;
   if (isLocal) {
+    // 本地程序：没有更新设置，全靠隐藏（按钮 + 折叠条都消失）
+    const forLocal = current.repo === "" && !isHttp;
     box.hidden = true;
+    toggle.hidden = forLocal;
     return;
   }
   box.hidden = false;
+  toggle.hidden = false;
   box.dataset.programId = current.id;
   const st = statuses.find((s) => s.id === current.id)?.status;
   updateUpdateCard(st);
 
-  // 折叠状态：默认折叠
+  // 折叠状态：默认折叠（persist per program）
   const expanded = isUpdateCardExpanded(current.id);
-  const details = el.updateDetails;
-  if (details) details.hidden = !expanded;
-  const toggle = el.updateToggle;
-  if (toggle) {
-    const renderToggle = () => {
-      toggle.textContent = details.hidden ? "▸" : "▾";
-      toggle.title = details.hidden ? t("upd.expand") : t("upd.collapse");
-    };
-    renderToggle();
-    toggle.onclick = () => {
-      details.hidden = !details.hidden;
-      renderToggle();
-      setUpdateCardExpanded(current.id, !details.hidden);
-    };
-  }
+  box.hidden = !expanded;
+  const renderToggle = () => {
+    toggle.classList.toggle("open", !!expanded);
+    toggle.querySelector(".upd-toggle-caret").textContent = expanded ? "▾" : "▸";
+    toggle.title = expanded ? t("upd.collapse") : t("upd.expand");
+  };
+  renderToggle();
+  toggle.onclick = () => {
+    const now = isUpdateCardExpanded(current.id);
+    box.hidden = now;
+    toggle.classList.toggle("open", !now);
+    toggle.querySelector(".upd-toggle-caret").textContent = now ? "▸" : "▾";
+    toggle.title = now ? t("upd.expand") : t("upd.collapse");
+    setUpdateCardExpanded(current.id, !now);
+  };
 
-  // 钉住指定版本时在版本行显示小 pill，折叠时也能看到
+  // 钉住指定版本时在版本行显示小 pill，折叠也能看到（折叠时整条隐藏，展开可见）
   if (el.updatePin) {
     const pinv = current.version_pin || "";
-    if (pinv) {
-      el.updatePin.textContent = pinv;
-      el.updatePin.hidden = false;
-    } else {
-      el.updatePin.hidden = true;
-    }
+    el.updatePin.textContent = pinv;
+    el.updatePin.hidden = !pinv;
   }
 
   // 检查更新按钮：与批量按钮共享 checkingUpdates 状态
@@ -1162,6 +1163,25 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // ---------- 批量管理 ----------
+const batchUpdOpen = new Set(); // 展开中「更新设置」的程序 id
+function toggleBatchSettings(item) {
+  const existing = document.getElementById(`batch-settings-${item.id}`);
+  if (existing) {
+    existing.remove();
+    batchUpdOpen.delete(item.id);
+    return;
+  }
+  batchUpdOpen.add(item.id);
+  const tr = buildBatchSettingsRow(item);
+  tr.id = `batch-settings-${item.id}`;
+  const gear = document.querySelector(`.ops-upd[data-id="${item.id}"]`);
+  if (gear) {
+    const opsRow = gear.closest("tr");
+    if (opsRow) opsRow.after(tr);
+  } else {
+    el.batchBody.appendChild(tr);
+  }
+}
 async function refreshBatchLocal() {
   try {
     statuses = await invoke("batch_status_local");
@@ -1305,6 +1325,13 @@ function renderBatch() {
     opsCell.appendChild(ops);
     opsRow.appendChild(opsCell);
     el.batchBody.appendChild(opsRow);
+    // 方案E: 若该程序更新设置已展开，重建后保持展开
+    if (batchUpdOpen.has(item.id) && item.repo) {
+      tr.innerHTML = ""; // noop
+      const settingsTr = buildBatchSettingsRow(item);
+      settingsTr.id = `batch-settings-${item.id}`;
+      opsRow.after(settingsTr);
+    }
   }
 }
 
@@ -1313,6 +1340,7 @@ function hasRemoteSource(item) {
 }
 
 const ICONS = {
+  gear: '<path fill="#94a3b8" d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.64-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 15.6 12 3.6 3.6 0 0 1 12 15.6z"/>',
   start: '<path fill="#4f8cff" d="M4.5 3.2v17.6L19.5 12z"/>',
   stop: '<rect fill="#ff453a" x="4" y="4" width="16" height="16" rx="2.5"/>',
   restart: '<path fill="#ff9f0a" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/>',
@@ -1377,6 +1405,15 @@ function batchOpButtons(item) {
   const ops = document.createElement("span");
   ops.className = "batch-ops";
   if (hasRemoteSource(item)) ops.appendChild(batchDownloadBtn(item, s));
+  // 方案E: 更新设置齿轮（内联展开通道/检查更新）——仅 GitHub 远程源
+  const prog = programs.find((x) => x.id === item.id);
+  const isHttp = prog && prog.http_enabled;
+  if (item.repo && !isHttp) {
+    const gear = batchIconBtn("gear", "upd.expand", "ops-upd", () => toggleBatchSettings(item));
+    gear.dataset.id = item.id;
+    gear.title = t("upd.expand");
+    ops.appendChild(gear);
+  }
   const startBtn = batchIconBtn("start", "act.start", "ops-start", () => batchAct(item, "start_program"));
   startBtn.disabled = !!s.running;
   ops.appendChild(startBtn);
@@ -1397,6 +1434,68 @@ function batchOpButtons(item) {
   ops.appendChild(batchIconBtn("clear", "act.clear_data", "ops-clear", () => confirmAndClearData(programs.find((x) => x.id === item.id))));
   ops.appendChild(batchIconBtn("del", "act.delete", "ops-del", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
   return ops;
+}
+
+// 方案E: 批量页每行「更新设置」内联展开行（通道 + 上次检查 + 检查更新）
+function buildBatchSettingsRow(item) {
+  const tr = document.createElement("tr");
+  tr.className = "batch-settings-row";
+  const td = document.createElement("td");
+  td.colSpan = 6;
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap;";
+  const chan = document.createElement("span");
+  chan.style.cssText = "font-size:12px;color:var(--muted);";
+  chan.textContent = t("upd.channel");
+  row.appendChild(chan);
+  const group = document.createElement("span");
+  group.className = "upd-radios";
+  const prog = programs.find((p) => p.id === item.id);
+  const currentChan = prog?.channel || "";
+  for (const [value, label] of [["stable", t("upd.stable")], ["pre", t("upd.pre")]]) {
+    const lab = document.createElement("label");
+    lab.className = "upd-radio";
+    const inp = document.createElement("input");
+    inp.type = "radio";
+    inp.name = `upd-batch-${item.id}`;
+    inp.value = value;
+    inp.checked = currentChan === value;
+    inp.addEventListener("change", async () => {
+      if (!inp.checked) return;
+      try {
+        await invoke("set_channel", { programId: item.id, channel: value });
+        showNotice(t("toast.channel_set", { channel: value === "pre" ? t("upd.pre") : t("upd.stable") }));
+        programs = await invoke("get_programs");
+        renderSidebar();
+      } catch (e) {
+        showNotice(String(e), true);
+      }
+    });
+    lab.appendChild(inp);
+    lab.appendChild(document.createTextNode(" " + label));
+    group.appendChild(lab);
+  }
+  row.appendChild(group);
+  const right = document.createElement("span");
+  right.style.cssText = "margin-left:auto;display:flex;align-items:center;gap:8px;";
+  const at = statuses.find((s) => s.id === item.id)?.status?.latest_checked_at;
+  const lastEl = document.createElement("span");
+  lastEl.style.cssText = "font-size:12px;color:var(--muted);";
+  lastEl.textContent = at
+    ? t("check.last_checked", { ago: timeAgo(at) })
+    : t("check.not_checked");
+  right.appendChild(lastEl);
+  const checkBtn = document.createElement("button");
+  checkBtn.className = "op";
+  checkBtn.style.cssText = "padding:2px 8px;font-size:12px;";
+  checkBtn.textContent = checkingUpdates ? t("dl.checking_short") : t("batch.check");
+  checkBtn.disabled = checkingUpdates;
+  checkBtn.onclick = () => checkUpdates(checkBtn);
+  right.appendChild(checkBtn);
+  row.appendChild(right);
+  td.appendChild(row);
+  tr.appendChild(td);
+  return tr;
 }
 
 // 移动端：批量管理改卡片列表流（G3）

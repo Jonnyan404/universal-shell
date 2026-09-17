@@ -378,6 +378,11 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .batch-table .missing { color: var(--muted); }
 .batch-table .running { color: var(--ok); font-weight: 600; }
 .batch-table .stopped { color: var(--muted); }
+.batch-settings-row td {
+  background: var(--panel-2); padding: 6px 10px 8px; border-top: 1px solid var(--border);
+}
+.batch-ops .ops-upd svg path { fill: var(--muted); }
+.batch-ops .ops-upd:hover svg path { fill: var(--text); }
 .batch-ops { display: inline-flex; gap: 6px; flex-wrap: wrap; }
 .op-btn { font-size: 12px; padding: 4px 10px; }
 
@@ -631,37 +636,35 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .env-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
 .env-key { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-weight: 600; color: var(--text); }
 .env-val { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); color: var(--accent); word-break: break-all; }
-/* 更新卡片：版本行 + 通道/指定版本控件（方案②：卡片顶部，与运行参数表单隔离） */
+/* 方案A：更新设置条 —— 状态栏「更新设置」按钮 + 展开条 */
 .manage-body > .status-desc { margin: 0 0 12px; font-size: 12px; color: var(--muted); word-break: break-word; }
-.upd-card {
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
+.statusbar > .upd-toggle {
+  font-size: 12px; color: var(--muted); background: transparent; border: 1px solid transparent;
+  border-radius: 6px; padding: 2px 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
 }
-.upd-card[hidden] { display: none; }
-.upd-card .upd-card-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
-.upd-card .upd-toggle {
-  background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
-  width: 22px; height: 22px; border-radius: 6px; line-height: 1; cursor: pointer;
-  font-size: 12px; padding: 0; flex: 0 0 auto;
+.statusbar > .upd-toggle:hover { color: var(--text); border-color: var(--border); background: var(--panel-2); }
+.statusbar > .upd-toggle.open { color: var(--text); background: var(--panel-2); border-color: var(--border); }
+.upd-toggle-caret { transition: transform .15s; display: inline-block; }
+.statusbar > .upd-toggle.open .upd-toggle-caret { transform: rotate(90deg); }
+.upd-settings-strip {
+  border-bottom: 1px solid var(--border); background: var(--panel-2); padding: 10px 14px;
 }
-.upd-card .upd-toggle:hover { color: var(--text); border-color: var(--accent); }
-.upd-card .upd-key { color: var(--muted); font-size: 12px; }
-.upd-card .upd-ver {
+.upd-settings-strip[hidden] { display: none; }
+.upd-settings-strip .upd-card-main { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.upd-settings-strip .upd-key { color: var(--muted); font-size: 12px; }
+.upd-settings-strip .upd-ver {
   font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-weight: 600; font-size: 13px; color: var(--text);
 }
-.upd-card .upd-ver.newer { color: var(--ok); }
-.upd-card .upd-arrow { color: var(--muted); }
-.upd-card .upd-pin {
+.upd-settings-strip .upd-ver.newer { color: var(--ok); }
+.upd-settings-strip .upd-arrow { color: var(--muted); }
+.upd-settings-strip .upd-pin {
   font-size: 11px; padding: 1px 6px; border-radius: 999px;
-  border: 1px solid var(--border); color: var(--muted); background: var(--panel-2);
+  border: 1px solid var(--border); color: var(--muted); background: var(--panel);
 }
-.upd-card .upd-settings {
+.upd-settings-strip .upd-settings {
   display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
-  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
 }
 .upd-row { display: inline-flex; align-items: center; gap: 8px; }
 .upd-label { color: var(--muted); font-size: 13px; }

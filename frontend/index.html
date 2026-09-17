@@ -36,33 +36,33 @@
         <span class="room-sub" id="prog-sub"></span>
         <span class="spacer"></span>
         <div id="status-chips" class="pills"></div>
+        <button id="upd-toggle" type="button" class="upd-toggle" hidden>
+          <span class="upd-toggle-caret">▸</span><span data-i18n="upd.expand">展开更新设置</span>
+        </button>
+        <button id="dl-btn" class="dl-btn" hidden></button>
+      </div>
+
+      <!-- 更新设置条：默认折叠，点状态栏「更新设置」展开 -->
+      <div id="upd-settings" class="upd-settings-strip" hidden>
+        <div class="upd-card-main">
+          <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
+          <span class="upd-ver" id="upd-current">—</span>
+          <span class="upd-arrow">→</span>
+          <span class="upd-key" data-i18n="th.latest_ver">最新版本</span>
+          <span class="upd-ver" id="upd-latest">—</span>
+          <span class="upd-pin" id="upd-pin" hidden></span>
+        </div>
+        <div id="upd-controls" class="upd-settings"></div>
+        <div class="upd-check">
+          <span class="upd-checked-at" id="upd-checked-at"></span>
+          <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
+        </div>
       </div>
 
       <!-- 程序管理 -->
       <section id="manage-view" class="view manage-view">
         <div class="manage-body">
           <div class="status-desc" id="prog-desc" hidden></div>
-          <!-- 更新卡片：当前→最新 + 下载按钮（默认折叠，展开才有通道/指定版本/检查更新） -->
-          <div id="update-settings" class="upd-card" hidden>
-            <div class="upd-card-main">
-              <button id="upd-toggle" type="button" class="upd-toggle" title=""></button>
-              <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
-              <span class="upd-ver" id="upd-current">—</span>
-              <span class="upd-arrow">→</span>
-              <span class="upd-key" data-i18n="th.latest_ver">最新版本</span>
-              <span class="upd-ver" id="upd-latest">—</span>
-              <span class="upd-pin" id="upd-pin" hidden></span>
-              <span class="spacer"></span>
-              <button id="dl-btn" class="dl-btn" hidden></button>
-            </div>
-            <div id="upd-details" hidden>
-              <div id="upd-controls" class="upd-settings"></div>
-              <div class="upd-check">
-                <span class="upd-checked-at" id="upd-checked-at"></span>
-                <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
-              </div>
-            </div>
-          </div>
           <form id="field-form"></form>
           <div id="env-section" class="env-section" hidden>
             <div class="env-title"><span data-i18n="edit.env">环境变量（派生只读）</span></div>
