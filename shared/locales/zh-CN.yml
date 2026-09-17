@@ -201,6 +201,7 @@ upd.pre: 最新（含预发布）
 upd.version: 指定版本
 upd.auto: 自动（随更新通道）
 upd.list_fail: '获取版本列表失败：%{err}'
+upd.loading: 加载中…
 upd.none: 无可选版本
 log.just: 刚刚
 log.equal_parts: 上次更新

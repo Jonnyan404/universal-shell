@@ -1081,18 +1081,14 @@ cache,
     }
 
     /// 更新设置：更新通道(稳定版/预发布) + 指定版本下拉。仅 GitHub 远程源调用。
+    /// 指定版本列表按需拉取：切到该程序/刷新不联网，首次打开（点击）下拉时才请求，
+    /// 会话内已加载的版本不重复请求；右侧 ↻ 可手动强制刷新列表。
     fn show_update_settings(&mut self, ui: &mut egui::Ui, p: &shared::config::Program) {
-        // 首次切到该程序：后台拉指定版本列表
-        let need_fetch = self.version_options_for.as_deref() != Some(p.id.as_str())
-            && self.version_options_requested.as_deref() != Some(p.id.as_str());
-        if need_fetch {
-            self.version_options_requested = Some(p.id.clone());
-            self.spawn_fetch_versions(p.clone());
-        }
-
         let mut chan = if p.update_channel() == "pre" { "pre" } else { "stable" };
         let mut chan_changed = false;
         let mut pin_change: Option<Option<String>> = None;
+        let mut want_fetch = false;
+        let mut force_refresh = false;
         ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new(t!("upd.channel")).small().weak());
             for (val, label) in [("stable", t!("upd.stable")), ("pre", t!("upd.pre"))] {
@@ -1102,50 +1098,75 @@ cache,
                 }
             }
             ui.separator();
-            // 指定版本下拉：auto(随通道) + 最近版本
+            // 指定版本下拉：auto(随通道) + 最近版本（列表按需拉取）
             ui.label(egui::RichText::new(t!("upd.version")).small().weak());
             let pin = p.version_pin.clone();
-            let mut labels: Vec<String> = vec![t!("upd.auto").to_string()];
-            for v in &self.version_options {
-                labels.push(if v.prerelease {
-                    format!("{} (pre)", v.tag)
-                } else {
-                    v.tag.clone()
-                });
-            }
-            // 钉住版本可能在最近列表之外：追加一项
-            if let Some(pinv) = &pin {
-                if !self.version_options.iter().any(|v| &v.tag == pinv) {
-                    labels.push(format!("{} (pin)", pinv));
-                }
-            }
+            let loaded = self.version_options_for.as_deref() == Some(p.id.as_str());
+            let in_flight = self.version_options_requested.as_deref() == Some(p.id.as_str());
             let selected_text = if let Some(pinv) = &pin {
-                labels
-                    .iter()
-                    .find(|l| *l == pinv || *l == &format!("{} (pin)", pinv))
-                    .cloned()
-                    .unwrap_or_else(|| pinv.clone())
+                pinv.clone()
             } else {
-                labels[0].clone()
+                t!("upd.auto").to_string()
             };
             egui::ComboBox::from_id_salt("upd-version")
                 .width(180.0)
                 .selected_text(selected_text)
                 .show_ui(ui, |ui| {
-                    for (i, label) in labels.iter().enumerate() {
-                        let resp = ui.selectable_label(i == 0 && pin.is_none(), label);
-                        if resp.clicked() {
-                            pin_change = if i == 0 {
-                                Some(None) // auto：清除钉住
-                            } else if i <= self.version_options.len() {
-                                Some(Some(self.version_options[i - 1].tag.clone()))
-                            } else {
-                                Some(pin.clone()) // 越界项=原钉住，无变化
-                            };
+                    // 弹出内容仅在打开下拉时渲染：未加载 → 触发拉取并显示加载中
+                    if !loaded {
+                        if !in_flight {
+                            want_fetch = true;
+                        }
+                        let _ = ui.selectable_label(false, t!("upd.loading"));
+                        return;
+                    }
+                    if ui
+                        .selectable_label(pin.is_none(), t!("upd.auto"))
+                        .clicked()
+                    {
+                        pin_change = Some(None); // auto：清除钉住
+                    }
+                    for v in &self.version_options {
+                        let label = if v.prerelease {
+                            format!("{} (pre)", v.tag)
+                        } else {
+                            v.tag.clone()
+                        };
+                        let is_sel = pin.as_deref() == Some(v.tag.as_str());
+                        if ui.selectable_label(is_sel, label).clicked() {
+                            pin_change = Some(Some(v.tag.clone()));
+                        }
+                    }
+                    // 钉住版本可能在最近列表之外：补充一项（选中无变化）
+                    if let Some(pinv) = &pin {
+                        if !self.version_options.iter().any(|v| &v.tag == pinv) {
+                            let _ = ui.selectable_label(true, format!("{} (pin)", pinv));
                         }
                     }
                 });
+            // 手动刷新列表（清除会话缓存后重新请求）
+            if ui
+                .small_button("↻")
+                .on_hover_text(t!("act.refresh"))
+                .clicked()
+            {
+                force_refresh = true;
+            }
         });
+
+        // 首次打开下拉：按需触发版本列表拉取（防重复），并标记该程序已在拉取
+        if want_fetch
+            && self.version_options_requested.as_deref() != Some(p.id.as_str())
+        {
+            self.version_options_requested = Some(p.id.clone());
+            self.spawn_fetch_versions(p.clone());
+        }
+        if force_refresh {
+            self.version_options_for = None;
+            self.version_list_error = None;
+            self.version_options_requested = Some(p.id.clone());
+            self.spawn_fetch_versions(p.clone());
+        }
 
         if chan_changed {
             let pid = p.id.clone();

@@ -19,6 +19,9 @@ let libSearchValue = "";
 const templateStatusCache = {};
 const importing = new Set();
 const installing = new Set();
+// 「指定版本」列表的会话级缓存：programId -> {versions, error}；/ 已尝试拉取的 programId
+const versionListCache = {};
+const versionListLoaded = new Set();
 let shellUpdate = null; // {current, latest_tag, release_url}
 let shellChecking = false;
 
@@ -473,7 +476,9 @@ async function renderUpdateSettings() {
   chan.appendChild(chanGroup);
   wrap.appendChild(chan);
 
-  // 指定版本：自动(随通道) + 最近 N 个发行版
+  // 指定版本：自动(随通道) + 最近 N 个发行版。
+  // 版本列表按需拉取：切到该程序/刷新时不联网，首次点击/聚焦下拉时才请求
+  // （会话级缓存：同一程序只请求一次，除非用户主动再次点击刷新图标）。
   const vrow = document.createElement("div");
   vrow.className = "upd-row";
   const vLabel = document.createElement("span");
@@ -486,8 +491,111 @@ async function renderUpdateSettings() {
   const verNote = document.createElement("span");
   verNote.className = "upd-note";
   vrow.appendChild(verNote);
+  const verRefresh = document.createElement("button");
+  verRefresh.type = "button";
+  verRefresh.className = "icon-btn upd-refresh";
+  verRefresh.title = t("act.refresh");
+  verRefresh.textContent = "↻";
+  verRefresh.hidden = true;
+  vrow.appendChild(verRefresh);
   wrap.appendChild(vrow);
   box.appendChild(wrap);
+
+  const pin = current.version_pin || "";
+  // 初始仅「自动」；已钉住时补一项当前 pin，避免一进程序就联网拉列表
+  const autoOpt = document.createElement("option");
+  autoOpt.value = "";
+  autoOpt.textContent = t("upd.auto");
+  autoOpt.selected = !pin;
+  sel.appendChild(autoOpt);
+  if (pin) {
+    const pinOpt = document.createElement("option");
+    pinOpt.value = pin;
+    pinOpt.textContent = pin + " (pin)";
+    pinOpt.selected = true;
+    sel.appendChild(pinOpt);
+  }
+
+  // 会话级缓存：依「已加载的 manual 刷新版本列表」判断
+  let cached = versionListCache[current.id];
+  if (cached) {
+    applyVersions(cached.versions, cached.error);
+  }
+
+  const ensureVersions = async () => {
+    if (versionListLoaded.has(current.id)) return;
+    versionListLoaded.add(current.id);
+    verRefresh.disabled = true;
+    const loadOpt = document.createElement("option");
+    loadOpt.value = "";
+    loadOpt.textContent = t("upd.loading");
+    loadOpt.selected = true;
+    sel.add(loadOpt);
+    try {
+      const r = await invoke("list_versions", { programId: current.id, limit: 15 });
+      const versions = (r && r.versions) || [];
+      versionListCache[current.id] = { versions, error: "" };
+      applyVersions(versions, "");
+    } catch (e) {
+      const err = String(e);
+      versionListCache[current.id] = { versions: [], error: err };
+      applyVersions([], err);
+    } finally {
+      verRefresh.disabled = false;
+    }
+  };
+
+  function applyVersions(versions, error) {
+    // 清掉「自动」之后的选项（含加载中占位），保留第一项自动
+    while (sel.options.length > 1) sel.remove(1);
+    if (error) {
+      verNote.textContent = t("upd.list_fail", { err: error });
+      verNote.classList.add("upd-error");
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = t("upd.none");
+      none.selected = !pin;
+      none.disabled = true;
+      sel.appendChild(none);
+    } else if (!versions.length) {
+      const none = document.createElement("option");
+      none.value = "";
+      none.textContent = t("upd.none");
+      none.selected = !pin;
+      none.disabled = true;
+      sel.appendChild(none);
+    } else {
+      for (const vv of versions) {
+        const opt = document.createElement("option");
+        opt.value = vv.tag;
+        opt.textContent = vv.tag + (vv.prerelease ? " ⚠" : "");
+        opt.selected = vv.tag === pin;
+        sel.appendChild(opt);
+      }
+      // 钉住的版本不在最近列表内：仍补充一项标注原钉住值
+      if (pin && !versions.some((x) => x.tag === pin)) {
+        const opt = document.createElement("option");
+        opt.value = pin;
+        opt.textContent = pin + " (pin)";
+        opt.selected = true;
+        sel.appendChild(opt);
+      }
+    }
+    sel.value = pin || "";
+    sel.disabled = false;
+    verNote.classList.remove("upd-error");
+  }
+
+  // 首次交互(点击/聚焦下拉)时才拉版本列表；之后会话内直接走缓存
+  sel.addEventListener("pointerdown", ensureVersions);
+  sel.addEventListener("focus", ensureVersions);
+  // 手动刷新：清除缓存后再次触发拉取
+  verRefresh.addEventListener("click", async () => {
+    versionListLoaded.delete(current.id);
+    delete versionListCache[current.id];
+    await ensureVersions();
+  });
+  verRefresh.hidden = false;
 
   sel.addEventListener("change", async () => {
     try {
@@ -499,49 +607,6 @@ async function renderUpdateSettings() {
       showNotice(String(e), true);
     }
   });
-
-  try {
-    const r = await invoke("list_versions", { programId: current.id, limit: 15 });
-    const versions = r.versions || [];
-    const pin = current.version_pin || "";
-    const sel2 = sel;
-    const auto = document.createElement("option");
-    auto.value = "";
-    auto.textContent = t("upd.auto");
-    auto.selected = !pin;
-    sel2.appendChild(auto);
-    if (!versions.length) {
-      const none = document.createElement("option");
-      none.value = "";
-      none.textContent = t("upd.none");
-      sel2.appendChild(none);
-      sel2.disabled = true;
-    } else {
-      for (const vv of versions) {
-        const opt = document.createElement("option");
-        opt.value = vv.tag;
-        opt.textContent = vv.tag + (vv.prerelease ? " ⚠" : "");
-        opt.selected = vv.tag === pin;
-        sel2.appendChild(opt);
-      }
-      // 钉住的版本不在最近列表内：仍补充一项标注原钉住值
-      if (pin && !versions.some((x) => x.tag === pin)) {
-        const opt = document.createElement("option");
-        opt.value = pin;
-        opt.textContent = pin + " (pin)";
-        opt.selected = true;
-        sel2.appendChild(opt);
-      }
-    }
-  } catch (e) {
-    sel.disabled = true;
-    const only = document.createElement("option");
-    only.value = "";
-    only.textContent = pin || t("upd.auto");
-    sel.appendChild(only);
-    verNote.textContent = t("upd.list_fail", { err: String(e) });
-    verNote.classList.add("upd-error");
-  }
 }
 
 function renderHeader() {

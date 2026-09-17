@@ -201,6 +201,7 @@ upd.pre: Latest (incl. prerelease)
 upd.version: Specific version
 upd.auto: Auto (follow channel)
 upd.list_fail: 'Failed to list versions: %{err}'
+upd.loading: Loading…
 upd.none: No versions available
 log.just: Just now
 log.equal_parts: Last update

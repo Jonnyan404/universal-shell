@@ -645,6 +645,13 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 }
 .upd-note { font-size: 12px; color: var(--muted); }
 .upd-note.upd-error { color: var(--danger); }
+.upd-refresh {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+  width: 24px; height: 24px; border-radius: 6px; line-height: 1; cursor: pointer;
+  font-size: 13px; padding: 0; flex: 0 0 auto;
+}
+.upd-refresh:hover { border-color: var(--accent); color: var(--accent); }
+.upd-refresh:disabled { opacity: 0.5; cursor: default; }
 .edit-field-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .edit-field-row input {
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
