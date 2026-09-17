@@ -298,6 +298,8 @@ struct ShellApp {
     version_list_error: Option<String>,
     /// 更新卡片被折叠的程序 id 集合（默认折叠，点开 ▸ 时移除该项以展开）
     upd_card_collapsed: std::collections::HashSet<String>,
+    /// 批量页展开「更新设置」的程序 id 集合（方案E：内联齿轮展开）
+    batch_upd_open: std::collections::HashSet<String>,
     /// 待二次确认删除的程序 id（删除弹窗内含「删除（保留数据）/ 删除并清空数据」两个选项）
     confirm_delete: Option<String>,
     /// 待二次确认「重置数据（保留程序）」的程序 id
@@ -506,6 +508,7 @@ impl ShellApp {
             version_options_requested: None,
             version_list_error: None,
             upd_card_collapsed: std::collections::HashSet::new(),
+            batch_upd_open: std::collections::HashSet::new(),
             confirm_delete: None,
             confirm_clear: None,
             checking_updates: false,
@@ -1114,8 +1117,6 @@ cache,
 
         let fill = ui.visuals().faint_bg_color;
         egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
-            // 折叠状态（默认折叠）：只露出版本行 + 下载按钮
-            let mut collapsed = self.upd_card_collapsed.contains(p.id.as_str());
             // 版本行：本地 → 最新 + 下载按钮
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(t!("th.local_ver")).small().weak());
@@ -1144,18 +1145,6 @@ cache,
                     ui.visuals().strong_text_color()
                 };
                 ui.label(egui::RichText::new(latest).strong().monospace().color(latest_color));
-                // 折叠切换（版本行最右：▸ 折叠 / ▾ 展开）
-                let tog_text = if collapsed { "▸" } else { "▾" };
-                let tog = ui.small_button(tog_text)
-                    .on_hover_text(if collapsed { t!("upd.expand") } else { t!("upd.collapse") });
-                if tog.clicked() {
-                    if collapsed {
-                        self.upd_card_collapsed.remove(p.id.as_str());
-                    } else {
-                        self.upd_card_collapsed.insert(p.id.clone());
-                    }
-                    collapsed = !collapsed;
-                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if show_dl {
                         let dl_text = if self.busy {
@@ -1173,8 +1162,8 @@ cache,
                 });
             });
 
-            // 控件行：更新通道 + 指定版本（仅 GitHub 远程源；折叠时不显示）
-            if !collapsed && !is_http && !p.repo.is_empty() {
+            // 控件行：更新通道 + 指定版本（仅 GitHub 远程源）
+            if !is_http && !p.repo.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(egui::RichText::new(t!("upd.channel")).small().weak());
                     for (val, label) in [("stable", t!("upd.stable")), ("pre", t!("upd.pre"))] {
@@ -1258,25 +1247,23 @@ cache,
                 }
             }
 
-            // 检查更新 + 上次检查时间（并入卡片；折叠时不显示）
-            if !collapsed {
-                ui.horizontal(|ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if self.checking_updates {
-                            ui.add_enabled(false, egui::Button::new(t!("dl.checking_short")));
-                        } else if ui.button(t!("batch.check")).clicked() {
-                            self.checking_updates = true;
-                            self.refresh_status();
-                            ui.ctx().request_repaint();
-                        }
-                        if let Some(at) = self.latest_checked_at {
-                            ui.weak(t!("check.last_checked", ago = time_ago(at)));
-                        } else {
-                            ui.weak(t!("check.not_checked"));
-                        }
-                    });
+            // 检查更新 + 上次检查时间
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if self.checking_updates {
+                        ui.add_enabled(false, egui::Button::new(t!("dl.checking_short")));
+                    } else if ui.button(t!("batch.check")).clicked() {
+                        self.checking_updates = true;
+                        self.refresh_status();
+                        ui.ctx().request_repaint();
+                    }
+                    if let Some(at) = self.latest_checked_at {
+                        ui.weak(t!("check.last_checked", ago = time_ago(at)));
+                    } else {
+                        ui.weak(t!("check.not_checked"));
+                    }
                 });
-            }
+            });
         });
         ui.add_space(4.0);
 
@@ -2189,13 +2176,32 @@ cache,
             return;
         };
 
-        // 状态行：程序名 + 状态标签（下载按钮已并入下方更新卡片）
+        // 状态行：程序名 + 状态标签 + 更新设置开关（方案A：可折叠更新条）
         let status = self.display_status(&p);
+        let is_remote = !p.repo.is_empty() && !(p.source.as_ref().is_some_and(|s| s.is_http()));
+        let collapsed = self.upd_card_collapsed.contains(p.id.as_str());
         ui.horizontal(|ui| {
             ui.heading(&p.name);
             // 对齐 Tauri 状态栏：GitHub 项目(owner/repo)显示为链接，非 GitHub 留空
             if let Some(url) = github_repo_url(&p.repo) {
                 ui.hyperlink_to("GitHub", url);
+            }
+            if is_remote {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    let label = if collapsed {
+                        format!("{} {}", "▸", t!("upd.expand"))
+                    } else {
+                        format!("{} {}", "▾", t!("upd.collapse"))
+                    };
+                    let btn = ui.small_button(label).on_hover_text(t!("upd.expand"));
+                    if btn.clicked() {
+                        if collapsed {
+                            self.upd_card_collapsed.remove(p.id.as_str());
+                        } else {
+                            self.upd_card_collapsed.insert(p.id.clone());
+                        }
+                    }
+                });
             }
         });
         // 描述独占第二行（无描述时不占位，对齐 Tauri #prog-desc）
@@ -2204,9 +2210,10 @@ cache,
                 egui::Label::new(egui::RichText::new(&p.description).small().weak()).truncate(),
             );
         }
-
-        // 更新卡片：本地→最新 + 下载按钮 + 更新通道/指定版本（方案②；仅远程源显示）
-        self.show_update_card(ui, &p, &status);
+        // 更新卡片（方案A：折叠时隐藏）
+        if !collapsed && !p.repo.is_empty() {
+            self.show_update_card(ui, &p, &status);
+        }
 
         // 状态 chips（对齐 Tauri renderStatus：本地版本 / 已安装 / 开机启动；运行态看按钮）
         ui.horizontal_wrapped(|ui| {
@@ -3339,6 +3346,22 @@ cache,
                         let d = self.m().app_dir(p);
                         spawn_open(&d.to_string_lossy());
                     }
+                    // 方案E: 更新设置齿轮（内联展开通道/检查更新）——仅 GitHub 远程源
+                    let is_http = p.source.as_ref().is_some_and(|s| s.is_http());
+                    if !p.repo.is_empty() && !is_http {
+                        let open = self.batch_upd_open.contains(p.id.as_str());
+                        let gtxt = if open { "▾ ⚙" } else { "▸ ⚙" };
+                        let gear = ui
+                            .small_button(gtxt)
+                            .on_hover_text(t!("upd.expand"));
+                        if gear.clicked() {
+                            if self.batch_upd_open.contains(p.id.as_str()) {
+                                self.batch_upd_open.remove(p.id.as_str());
+                            } else {
+                                self.batch_upd_open.insert(p.id.clone());
+                            }
+                        }
+                    }
                     if ui.small_button(t!("act.edit")).clicked() {
                         self.open_edit(&p.id);
                     }
@@ -3349,6 +3372,64 @@ cache,
                         self.confirm_clear = Some(p.id.clone());
                     }
                 });
+                // 方案E: 内联展开的「更新设置」行（通道 + 上次检查 + 检查更新）
+                let is_http = p.source.as_ref().is_some_and(|s| s.is_http());
+                if !p.repo.is_empty() && !is_http && self.batch_upd_open.contains(p.id.as_str()) {
+                    let mut chan = if p.update_channel() == "pre" { "pre" } else { "stable" };
+                    let mut chan_changed = false;
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(t!("upd.channel")).small().weak());
+                        for (val, label) in [("stable", t!("upd.stable")), ("pre", t!("upd.pre"))] {
+                            let r = ui.radio_value(&mut chan, val, label);
+                            if r.clicked() {
+                                chan_changed = true;
+                            }
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if self.checking_updates {
+                                ui.add_enabled(false, egui::Button::new(t!("dl.checking_short")));
+                            } else if ui.small_button(t!("batch.check")).clicked() {
+                                self.checking_updates = true;
+                                self.refresh_status();
+                                ui.ctx().request_repaint();
+                            }
+                            if let Some(at) = self.latest_checked_at {
+                                ui.label(
+                                    egui::RichText::new(t!("check.last_checked", ago = time_ago(at)))
+                                        .small()
+                                        .weak(),
+                                );
+                            } else {
+                                ui.label(egui::RichText::new(t!("check.not_checked")).small().weak());
+                            }
+                        });
+                    });
+                    if chan_changed {
+                        let pid = p.id.clone();
+                        let val = chan.to_string();
+                        let (ok, err) = {
+                            let mut m = self.m();
+                            match m.set_update_channel(&pid, &val, &self.config_path) {
+                                Ok(prog) => {
+                                    let cnl = if prog.update_channel() == "pre" {
+                                        t!("upd.pre").to_string()
+                                    } else {
+                                        t!("upd.stable").to_string()
+                                    };
+                                    m.log_op(&t!("op.set_channel", name = &prog.name, channel = cnl));
+                                    (Some(cnl), None)
+                                }
+                                Err(e) => (None, Some(format!("{e:#}"))),
+                            }
+                        };
+                        if let Some(c) = ok {
+                            self.show_toast(t!("toast.channel_set", channel = c).to_string());
+                        } else if let Some(e) = err {
+                            self.show_toast(e);
+                        }
+                        self.refresh_status();
+                    }
+                }
                 ui.separator();
             }
         });
