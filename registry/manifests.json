@@ -1,5 +1,5 @@
 {
-  "revision": "rev-1789298854",
+  "revision": "rev-1789558204",
   "categories": [
     "file-sharing",
     "sync",
@@ -85,6 +85,13 @@
       "category": "utility",
       "description": "本地已安装的二进制程序（如 /opt/homebrew/bin/ffmpeg）。导入后请在编辑器中把 binary 改成你机器上可执行文件的绝对路径（壳不下载、不更新）。",
       "repo": ""
+    },
+    {
+      "id": "memos",
+      "name": "memos",
+      "category": "utility",
+      "description": "memos — 开源自托管的轻量笔记/灵感工具，Markdown 时间线、标签与搜索，完全私有部署。默认只绑定 127.0.0.1，数据存于 --data 目录。",
+      "repo": "usememos/memos"
     },
     {
       "id": "mihomo",

@@ -1,0 +1,38 @@
+{
+  "id": "memos",
+  "name": "memos",
+  "description": "memos — 开源自托管的轻量笔记/灵感工具，Markdown 时间线、标签与搜索，完全私有部署。默认只绑定 127.0.0.1，数据存于 --data 目录。",
+  "repo": "usememos/memos",
+  "binary": "memos",
+  "category": "utility",
+  "assets": {
+    "darwin": {
+      "candidates": ["memos_{version}_darwin_{arch}.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "memos"
+    },
+    "linux": {
+      "candidates": ["memos_{version}_linux_{arch}.tar.gz"],
+      "format": "tar.gz",
+      "mode": "single",
+      "member": "memos"
+    },
+    "windows": {
+      "candidates": ["memos_{version}_windows_amd64.zip"],
+      "format": "zip",
+      "mode": "single",
+      "member": "memos.exe"
+    }
+  },
+  "arch_map": {
+    "x86_64": "amd64",
+    "aarch64": "arm64"
+  },
+  "fields": [
+    { "key": "addr", "kind": "string", "label": "监听地址", "default": "127.0.0.1", "placeholder": "127.0.0.1" },
+    { "key": "port", "kind": "string", "label": "端口", "default": "8081", "placeholder": "8081" },
+    { "key": "data", "kind": "directory", "label": "数据目录", "default": "", "required": true, "placeholder": "存放 memos 数据库与附件，如 ~/.memos" }
+  ],
+  "args": ["--addr", "{addr}", "--port", "{port}", "--data", "{data}"]
+}
