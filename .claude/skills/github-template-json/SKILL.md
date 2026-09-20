@@ -1,20 +1,26 @@
 ---
 name: github-template-json
-description: Use when the user hands you a GitHub repo/release URL (or owner/repo) and wants a universal-shell program template, i.e. a templates/<id>.json file for this project's template library. Generates a schema-valid Program JSON with darwin/linux/windows asset rules by querying the GitHub API for real release assets, then writes it to templates/ and validates it with cargo run -p shared --example verify_templates.
+description: Use when the user hands you a GitHub repo/release URL (or owner/repo) and wants a universal-shell program template, i.e. a templates/<id>.json file for the template library. Generates a schema-valid Program JSON with darwin/linux/windows asset rules by querying the GitHub API for real release assets, then writes it into the official template repo (universal-shell-templates) and validates it with `cargo run -p shared --example verify_templates`.
 license: MIT
 ---
 
 # universal-shell 模板生成
 
-把任意 GitHub 程序仓库转成 universal-shell 的模板文件 `templates/<id>.json`。
+把任意 GitHub 程序仓库转成 universal-shell 的模板文件 `<id>.json`。
 模板是「配置驱动的万能应用壳」里描述如何下载、安装、启动一个程序的结构化 JSON，
 会被导入成受管程序（menus→库里可安装）。schema 见下文，务必逐字段核对。
+
+> **模板库已拆到独立仓库** [universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates)：
+> 模板源文件在这两个位置之一（按顺序找，找到就用同一个）：
+> 1. 环境变量 `US_TEMPLATES_DIR` 指向的目录；
+> 2. 兄弟目录 `../universal-shell-templates/templates/`（本仓库与模板库并排 clone 时的默认）。
+> 本仓库（universal-shell）**不再存放模板**，只保留 `shared/src/config.rs`（schema 权威定义）与校验工具。
 
 ## 触发场景
 
 - 用户给一个 GitHub 链接（仓库主页 / release 页 / 单 asset 链接），或 `owner/repo`，
   或只报一个程序名，要求「生成模板 / 加进模板库 / 做成模板」。
-- 产出物 = 一个完整、schema 合法、能通过 `verify_templates` 校验的 JSON 文件。
+- 产出物 = 一个完整、schema 合法、能通过 `verify_templates` 校验的 JSON 文件（落到模板库仓库）。
 
 ## 模板 schema（Program，权威定义见本仓库 `shared/src/config.rs`）
 
@@ -101,22 +107,27 @@ license: MIT
 4. **填 metadata**：`id`（全小写、逻辑名）、`description`（中文一句 + 若监听网络注明默认绑定 127.0.0.1 的安全提示）、
    `category`（取最贴切现有值）、`binary`（通常 = member 或无压缩时的可执行名）。
 5. **写 `fields`/`args`**：按上面启发式；不确定上游启动参数时最少给 `args_extra`，label 用中文。
-6. **落盘**：写 `templates/<id>.json`（JSON 缩进，键序参照现有模板：id,name,description,repo,binary,category,assets,arch_map,os_map,fields,args）。
+6. **落盘**：写 `<模板库目录>/templates/<id>.json`（JSON 缩进，键序参照现有模板：id,name,description,repo,binary,category,assets,arch_map,os_map,fields,args），
+   模板库目录取 `$US_TEMPLATES_DIR` 或 `../universal-shell-templates/templates/`。
 7. **校验**（本仓库根目录）：
    ```bash
-   cargo run -p shared --example verify_templates
+   cargo run -p shared --example verify_templates -- "$TPL_DIR"
    ```
    该命令对当前 OS/arch 调 GitHub API 逐个核对候选资产能否命中真实 release，
    任一 FAIL 即视为还需修正（多半是 candidates/arch_map 写错）。可先看该模板单条输出。
-8. **提交**：确认通过后，`git add templates/<id>.json` 并提交（英文祈使句 message，如
-   `Add template for <name>`）。仅当用户授权 push 才 push。
+8. **提交**：确认通过后，在**模板库仓库**里 `git add templates/<id>.json` 并提交（英文祈使句 message，如
+   `Add template for <name>`）。若还想让本机/远端立刻用上，再在该仓库执行
+   `cargo run -p shared --example generate_registry -- ./registry ./templates`
+   （或直接推 main，交给其 CI 自动生成 + 签名 + 提交 `registry/`）。仅当用户授权 push 才 push。
 
-## 完整示例（本仓库内已有，可直接参照）
+## 完整示例（模板库仓库内已有，可直接参照）
 
-- `templates/croc.json`、`templates/dufs.json`（tar.gz + single，darwin/linux/windows）
+- `templates/dufs.json`（tar.gz + single，darwin/linux/windows）
+- `templates/croc-send.json` / `croc-receive.json`（同一 repo 多模板）
 - `templates/gitea.json`（raw + raw 示例，双 OS arch_map）
 - `templates/sing-box.json`（tar.gz/zip，`file` 字段加载 config 示例）
 - `templates/syncthing.json`（whole 模式示例）
+- 三方源示例 + HTTP 直链源说明：模板库仓库 `example-third-party/README.md`
 
 > 若某次校验失败且原因非人为疏漏（上游资产命名近期变更），保留真实资产名为准，
 > 更新 candidates 使其与上游一致，并如实告知用户。
@@ -125,5 +136,5 @@ license: MIT
 
 - **一定以 GitHub API 真实返回的资产名为准**，不要凭印象写文件名。
 - 多架构候选都列全；每个 OS 至少给 `x86_64` 与 `aarch64` 对应候选（能确定的就都给）。
-- 只要没把握，就回读本仓库 `shared/src/config.rs` 与 `templates/*.json` 对齐 schema，再生成。
+- 只要没把握，就回读本仓库 `shared/src/config.rs` 与模板库仓库的 `templates/*.json` 对齐 schema，再生成。
 - 模板里的 `description`/字段 `label`/`placeholder` 用中文，与现有模板一致。

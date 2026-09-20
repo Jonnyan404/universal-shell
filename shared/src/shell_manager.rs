@@ -13,11 +13,11 @@ use crate::extract;
 use crate::github::{GitHub, LatestRelease};
 use crate::runner::Runner;
 
-/// 内置模板注册表（bash 配置为空时的默认源）。
-/// 指向本仓库 `registry/` 的 GitHub raw，配对的 Ed25519 公钥见
-/// [`DEFAULT_REGISTRY_PUBKEY`]。
+/// 内置模板注册表（配置为空时的默认源）。
+/// 模板库已拆到独立仓库 universal-shell-templates，这里指向其 `registry/` 的 GitHub raw，
+/// 配对的 Ed25519 公钥见 [`DEFAULT_REGISTRY_PUBKEY`]。
 pub const DEFAULT_REGISTRY: &str =
-    "https://raw.githubusercontent.com/Jonnyan404/universal-shell/main/registry/";
+    "https://raw.githubusercontent.com/Jonnyan404/universal-shell-templates/main/registry/";
 /// 配套内置注册表的 demo 公钥（sign_registry 固定测试种子对应公钥）。
 pub const DEFAULT_REGISTRY_PUBKEY: &str =
     "4cb5abf6ad79fbf5abbccafcc269d85cd2651ed4b885b5869f241aedf0a5ba29";

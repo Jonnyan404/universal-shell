@@ -3,7 +3,16 @@
 ## 项目约定
 
 - 本仓库即 universal-shell（配置驱动的万能应用壳）——核心逻辑在 `shared/`（纯 Rust，零 UI 依赖），`app-tauri/` 为主界面，`app-egui/` 为轻量备用界面。
-- 模板库（下载规则）：`templates/*.json`，用 `cargo run -p shared --example generate_registry` 生成静态注册表。
+- **模板库已拆到独立仓库** [universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates)：
+  - 那里是模板单一事实来源（`templates/*.json`）与生成产物（`registry/`：`manifests.json` + `manifests.sig` + `templates/<id>.json`），其 CI 在模板变更后自动「生成 + 签名 + 提交」。
+  - 本仓库**不再存放模板**，只保留 schema（`shared/src/config.rs`）与工具链。加/改模板请去那个仓库提 PR。
+  - 工具链用法（模板库目录用参数或环境变量传入，本地一般把模板库 clone 到本仓库旁边）：
+    - 生成：`cargo run -p shared --example generate_registry -- <out_dir> <templates_dir>`（env：`US_REGISTRY_OUT_DIR` / `US_TEMPLATES_DIR`）
+    - 校验：`cargo run -p shared --example verify_templates -- <templates_dir...>`（env：`US_TEMPLATES_DIRS`）
+    - 端到端下载：`US_TEMPLATES_DIR=... cargo run -p shared --example e2e_download -- <id...>`
+    - 签名与客户端行为自测：`sign_registry` / `registry_demo`（env：`US_REGISTRY_DIR`）
+  - 例：`cargo run -p shared --example generate_registry -- ../universal-shell-templates/registry ../universal-shell-templates/templates`
+- 内置程序（壳自带的少量程序）仍是 `shared/builtin/programs.json`，不属于模板库。
 
 ## 工作习惯（必须遵守）
 

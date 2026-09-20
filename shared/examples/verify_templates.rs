@@ -1,9 +1,16 @@
-//! 模板验证工具：遍历 templates/ 与第三方源示例 templates/ 下模板，
+//! 模板验证工具：遍历模板库目录下所有模板，
 //! 对当前 OS/arch 检查：
 //! - GitHub 模板：调 GitHub API 检查资产候选能否命中真实 release；
 //! - HTTP 源模板(source.kind=http)：探版本 + 直链可用性 + sha256 可解析。
 //!
-//! 用法：cargo run -p shared --example verify_templates
+//! 用法：
+//!   cargo run -p shared --example verify_templates [<templates_dir>...]
+//! 目录来源优先级：命令行参数 > 环境变量 `US_TEMPLATES_DIRS`（`:` 或 `;` 分隔）
+//! > 默认（`../templates`、`../example-third-party/templates`，相对 shared crate）。
+//!
+//! 注：模板库已拆到独立仓库 universal-shell-templates，其 CI 会 checkout 本仓库作为工具链
+//! 并显式传入目录（见该仓库 .github/workflows/verify-templates.yml）。
+//!
 //! 输出 PASS/FAIL，任一失败 exit 1。可在 CI 中定时运行，监控上游资产命名变化。
 
 use std::path::PathBuf;
@@ -11,15 +18,34 @@ use std::path::PathBuf;
 use shared::config::Program;
 use shared::github::GitHub;
 
-fn load_all_templates() -> Vec<Program> {
-    let mut out = Vec::new();
-    let dirs = [
+/// 模板库目录列表：参数 > `US_TEMPLATES_DIRS` > 默认（同仓库内联调试用）。
+fn template_dirs() -> Vec<PathBuf> {
+    let args: Vec<PathBuf> = std::env::args().skip(1).map(PathBuf::from).collect();
+    if !args.is_empty() {
+        return args;
+    }
+    if let Ok(v) = std::env::var("US_TEMPLATES_DIRS") {
+        let dirs: Vec<PathBuf> = v
+            .split([':', ';'])
+            .filter(|s| !s.trim().is_empty())
+            .map(PathBuf::from)
+            .collect();
+        if !dirs.is_empty() {
+            return dirs;
+        }
+    }
+    vec![
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../templates")),
         PathBuf::from(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../registry/example-third-party/templates"
+            "/../example-third-party/templates"
         )),
-    ];
+    ]
+}
+
+fn load_all_templates() -> Vec<Program> {
+    let mut out = Vec::new();
+    let dirs = template_dirs();
     for dir in dirs {
         if !dir.exists() {
             continue;
@@ -45,7 +71,11 @@ fn main() {
     let arch = std::env::consts::ARCH.to_string();
     let programs = load_all_templates();
     if programs.is_empty() {
-        println!("无模板可验证");
+        println!(
+            "无模板可验证：请传入模板库目录，如\n  \
+             cargo run -p shared --example verify_templates -- ../universal-shell-templates/templates\n\
+             （官方模板库：https://github.com/Jonnyan404/universal-shell-templates）"
+        );
         std::process::exit(2);
     }
 

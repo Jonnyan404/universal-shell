@@ -100,15 +100,31 @@
 | G4 | 移除桌面端之前为移动显示打的冗余补丁（顶部工具条式侧栏/双层布局/行动作区溢出补丁等） | 移动端仅走 G 方案样式，无残留冲突 | ☑ |
 | G5 | 移动端 e2e 手测（iOS/Android 浏览器）+ 视觉回归 | 启停/查看/编辑在真机可完成 | ☐ |
 
+## 阶段 I — 模板库拆分到独立仓库
+
+> 目标：模板（下载规则）与壳本体解耦。模板单一事实来源与生成产物（`registry/`，客户端 raw 直连）搬到
+> [universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates)；
+> 本仓库只保留 schema 与工具链（生成/签名/校验的 Rust example），模板库 CI 反过来 checkout 本仓库当工具链。
+
+| # | 任务 | 验收标准 | 状态 |
+|---|---|---|---|
+| I1 | 模板与生成产物迁出（`templates/`、`registry/`） | 模板库仓库含 `templates/`、`registry/`（含 `manifests.sig`）与 `example-third-party/`；本仓库两者清空 | ☑ |
+| I2 | 工具链支持外部目录（CLI 参数 + 环境变量） | `generate_registry <out_dir> <templates_dir>`、`verify_templates <dir...>`、`US_TEMPLATES_DIR(S)`/`US_REGISTRY_DIR`、`e2e_download` 可直接就地验证模板库仓库 | ☑ |
+| I3 | 生成器清理过期快照 | `registry/templates/` 与 `templates/` 集合一致（无 `age`/`brook`/`lazygit` 残留） | ☑ |
+| I4 | CI 迁移：update-registry / verify-templates 到模板库仓库 | 模板 PR 校验生成物是否同步；main push 自动生成+签名+提交；每日 verify + e2e | ☑ |
+| I5 | 默认源与文档同步 | `DEFAULT_REGISTRY` 指向新仓库 `registry/` raw；README/AGENTS/SKILL/ROADMAP 更新；字体子集脚本改从模板库取字 | ☑ |
+
+
 ## 执行顺序建议
 
-A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → D1-D3 → F-1（F1→F2→F3/F4→F5）→ F-2 → F-3 → G-1（G1→G2→G3→G4→G5）
+A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → D1-D3 → F-1（F1→F2→F3/F4→F5）→ F-2 → F-3 → G-1（G1→G2→G3→G4→G5）→ I1-I5
 
 ## 关键决策记录
 
 - **前端**：egui 与 Tauri 双实现，核心逻辑全部在 `shared/` 复用
 - **主前端**：Tauri 为主界面（模板浏览/搜索体验 + 前端迭代快），egui 为轻量备用（托盘常驻场景）
 - **模板源**：两级结构（清单 + 模板惰性拉取），本地缓存可离线回退
+- **模板库拆分**：模板库独立成仓库 `universal-shell-templates`（模板源 `templates/*.json` + 生成并签名的 `registry/` 都在那边，由该仓库 CI 负责生成/签名/提交）；本仓库只留引擎与工具链，生成/校验工具改为「目录可传入」（参数 + `US_TEMPLATES_*`/`US_REGISTRY_*` 环境变量），避免同一套 schema 与校验逻辑维护两份；默认源 `DEFAULT_REGISTRY` 指向新仓库 raw。壳自带的少量内置程序（`shared/builtin/programs.json`）不属于模板库，仍在本仓库。
 - **信任模型**：远程模板会引导下载并执行第三方二进制；默认安全字段值 + 来源记录 + 可选 sha256/签名
 - **Web 界面**：内嵌进 Tauri 与 egui 两进程、不单独打包；SPA 单一起源 `frontend/`，浏览器与 Tauri 窗口共享同一前端、同一服务
 - **Web 能力模型**：前端零 `window.__TAURI__` 依赖；原生能力（文件对话框/Finder reveal）后移为服务端端点（`/api/native/pick`、`/api/native/reveal`，rfd/`open` 在服务端执行）；`/api/capabilities` 声明可用能力，本机窗口原生体验、远程浏览器自动降级（手填/input file）

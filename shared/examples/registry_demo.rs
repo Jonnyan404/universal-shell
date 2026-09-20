@@ -1,8 +1,12 @@
 //! 注册表客户端 example：起一个本地 http.server 托管静态注册表，验证
 //! 清单拉取 / 模板惰性拉取 / 304 缓存 / 离线回退 / 签名验签(C6)。
 //!
-//! 前置：先运行 `cargo run -p shared --example generate_registry` 生成，
-//! 且已由 `sign_registry` 生成 manifests.sig（仓库中已提交）。
+//! 前置：先运行 `cargo run -p shared --example generate_registry -- <out_dir> <templates_dir>`
+//! 生成，且已由 `sign_registry` 生成 manifests.sig。
+//!
+//! 用法：cargo run -p shared --example registry_demo [<registry_dir>]
+//! 目录来源：命令行参数 > 环境变量 `US_REGISTRY_DIR` > 默认 `../registry`（相对 shared crate）。
+//! 官方模板库仓库（universal-shell-templates）里生成的 registry/ 即默认结构。
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -11,9 +15,23 @@ use std::thread;
 use std::time::Duration;
 
 fn main() {
-    let repo_registry = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../registry"));
-    let serve = PathBuf::from("/var/folders/r0/gbm1g1gs3gg1tkd3_8gcz5380000gn/T/opencode/registry-serve");
-    let cache = PathBuf::from("/var/folders/r0/gbm1g1gs3gg1tkd3_8gcz5380000gn/T/opencode/registry-cache");
+    let repo_registry = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .or_else(|| std::env::var("US_REGISTRY_DIR").ok().map(PathBuf::from))
+        .unwrap_or_else(|| {
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../registry"))
+        });
+    if !repo_registry.is_dir() {
+        eprintln!(
+            "注册表目录不存在: {}（用参数或 US_REGISTRY_DIR 指定；官方模板库：\
+             https://github.com/Jonnyan404/universal-shell-templates）",
+            repo_registry.display()
+        );
+        std::process::exit(2);
+    }
+    let serve = std::env::temp_dir().join("us-registry-demo-serve");
+    let cache = std::env::temp_dir().join("us-registry-demo-cache");
     let _ = std::fs::remove_dir_all(&cache);
     let _ = std::fs::remove_dir_all(&serve);
     // 把仓库 registry 复制到临时服务目录

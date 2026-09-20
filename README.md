@@ -57,7 +57,7 @@ Field type is set by `fields[].kind`; `args` uses `{key}` to reference field val
 
 ```jsonc
 {
-  "template_registries": ["https://raw.githubusercontent.com/Jonnyan404/universal-shell/main/registry/"],
+  "template_registries": ["https://raw.githubusercontent.com/Jonnyan404/universal-shell-templates/main/registry/"],
   "programs": [
     {
       "id": "cloud-clipboard-go",
@@ -96,6 +96,7 @@ Default: `~/Library/Application Support/universal-shell/` (Windows: `%APPDATA%/u
 
 ## Remote template library
 
+- **Official library lives in its own repo**: [universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates) holds `templates/*.json` (source of truth) plus the generated, signed `registry/` served over raw. This repo only ships the engine + tooling.
 - **Registry** publishes `manifests.json` (index) + `templates/<id>.json` (lazy-fetched). Browsing pulls the index only; importing pulls the template.
 - **Cache & offline**: both are cached with ETag/If-None-Match; offline shows cached content tagged "offline".
 - **Signature (optional)**: set `registry_pubkeys` (base url → Ed25519 public key) to require Ed25519 verification of `manifests.json`.
@@ -111,10 +112,12 @@ cargo run -p app-egui
 # Tauri
 cd app-tauri && npm install && npm run tauri dev
 
-# Useful shared-lib examples
-cargo run -p shared --example verify_templates
-cargo run -p shared --example generate_registry
-cargo run -p shared --example sign_registry
+# Useful shared-lib examples (the template library lives in its own repo — clone
+# universal-shell-templates next to this one, or point the env vars at a checkout)
+cargo run -p shared --example verify_templates -- ../universal-shell-templates/templates
+cargo run -p shared --example generate_registry -- ../universal-shell-templates/registry ../universal-shell-templates/templates
+cargo run -p shared --example sign_registry -- ../universal-shell-templates/registry/manifests.json
+cargo run -p shared --example registry_demo -- ../universal-shell-templates/registry
 
 # Package (outputs to dist/, includes sha256.txt)
 ./scripts/build-release.sh 0.1.0
@@ -203,7 +206,7 @@ MIT — see [LICENSE](LICENSE).
 
 ```jsonc
 {
-  "template_registries": ["https://raw.githubusercontent.com/Jonnyan404/universal-shell/main/registry/"],
+  "template_registries": ["https://raw.githubusercontent.com/Jonnyan404/universal-shell-templates/main/registry/"],
   "programs": [
     {
       "id": "cloud-clipboard-go",
@@ -242,6 +245,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## 远程模板库
 
+- **官方模板库已拆为独立仓库**：[universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates) 放 `templates/*.json`（单一事实来源）与生成并签名的 `registry/`（raw 直连）；本仓库只留引擎与工具链。
 - **两级结构**：`manifests.json`（索引）+ `templates/<id>.json`（惰性拉取）。浏览只拉清单，导入才拉模板。
 - **缓存与离线**：清单与模板带缓存 + ETag/If-None-Match 增量校验，断网时显示缓存并标注「离线」。
 - **签名（可选）**：配置 `registry_pubkeys` 可强制对 `manifests.json` 做 Ed25519 验签。
@@ -257,10 +261,12 @@ cargo run -p app-egui
 # Tauri
 cd app-tauri && npm install && npm run tauri dev
 
-# shared 库常用示例
-cargo run -p shared --example verify_templates
-cargo run -p shared --example generate_registry
-cargo run -p shared --example sign_registry
+# shared 库常用示例（模板库已拆到独立仓库：把 universal-shell-templates 克隆到
+# 本仓库旁边，或用环境变量指向任意 checkout）
+cargo run -p shared --example verify_templates -- ../universal-shell-templates/templates
+cargo run -p shared --example generate_registry -- ../universal-shell-templates/registry ../universal-shell-templates/templates
+cargo run -p shared --example sign_registry -- ../universal-shell-templates/registry/manifests.json
+cargo run -p shared --example registry_demo -- ../universal-shell-templates/registry
 
 # 打包（输出到 dist/，含 sha256.txt）
 ./scripts/build-release.sh 0.1.0

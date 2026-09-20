@@ -1,6 +1,7 @@
 //! 端到端安装验证：对指定模板真实下载、解压到临时目录、跑一次 --version/--help。
 //!
-//! 用法：cargo run -p shared --example e2e_download -- <id...>   (缺省=全部)
+//! 用法：cargo run -p shared --example e2e_download [--] [<id...>]   (缺省=全部)
+//! 模板库目录：环境变量 `US_TEMPLATES_DIR`，默认 `../templates`（相对 shared crate）。
 //! 适合 CI 里挑代表性模板做全流程验证（下载→解压→可执行）。
 
 use std::path::PathBuf;
@@ -13,7 +14,17 @@ fn main() {
     data_dir.push("cc-shell-e2e3");
     let _ = std::fs::remove_dir_all(&data_dir);
 
-    let tpl_dir = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../templates"));
+    let tpl_dir = std::env::var("US_TEMPLATES_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../templates")));
+    if !tpl_dir.is_dir() {
+        eprintln!(
+            "模板库目录不存在: {}（用 US_TEMPLATES_DIR 指定，官方模板库：\
+             https://github.com/Jonnyan404/universal-shell-templates）",
+            tpl_dir.display()
+        );
+        std::process::exit(2);
+    }
     let mut programs: Vec<shared::Program> = Vec::new();
     for entry in std::fs::read_dir(&tpl_dir).unwrap().flatten() {
         let raw = std::fs::read_to_string(entry.path()).unwrap();
