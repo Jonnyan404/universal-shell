@@ -554,6 +554,10 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .sett-effective .eff-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sett-effective .eff-ping { flex: 0 0 auto; color: var(--ok); font-size: 11px; }
 .sett-item .kind-tag { font-size: 10px; border: 1px solid var(--accent); border-radius: 4px; padding: 0 5px; flex: 0 0 auto; white-space: nowrap; color: var(--text); }
+/* 代理条目的标签改用 muted 边框，与加速条目区分开。
+   注意这个类名是 main.js 里拼出来的（`kind-tag kind-${e.kind}`），
+   字面量搜 "kind-proxy" 找不到它 —— 别把它当成死代码删掉。 */
+.sett-item .kind-tag.kind-proxy { border-color: var(--muted); }
 .sett-item .op-edit { flex: 0 0 auto; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 13px; }
 .sett-item .op-edit:hover { color: var(--accent); }
 .sett-token { display: flex; gap: 6px; align-items: center; }
