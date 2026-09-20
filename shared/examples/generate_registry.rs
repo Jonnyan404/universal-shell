@@ -10,12 +10,11 @@
 //! 作为工具链，因此这里必须支持显式传入两个目录（见其 .github/workflows/update-registry.yml）。
 //!
 //! 生成：
-//!   <out_dir>/manifests.json            轻量索引(revision 由模板内容派生，可重复生成且稳定)
+//!   <out_dir>/manifests.json            轻量索引
 //!   <out_dir>/templates/<id>.json       每个模板拷贝一份
 //!
 //! 说明：此处「清单」由模板的轻量字段(id/name/category/description/repo)实时生成，
 //! 保持与模板库单一事实来源一致；模板库里已删除的模板，其生成的快照会被清理。
-//! 生成是幂等的（内容相同则产物逐字节相同），所以 CI 可以用「生成后 git 有无 diff」做一致性校验。
 
 use std::path::PathBuf;
 
@@ -73,7 +72,7 @@ fn main() {
     }
 
     let manifest = shared::Manifest {
-        revision: content_revision(&texts),
+        revision: chrono_now(),
         categories,
         templates: indices,
     };
@@ -107,18 +106,11 @@ fn main() {
     println!("templates: {:?}", texts.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>());
 }
 
-/// 清单 revision：由模板内容派生（不是时间戳），保证「同样的模板 → 同样的产物」。
-/// 好处：客户端仍能在内容变化时刷新缓存，而 CI 可以用「生成后 git 无 diff」判断模板库是否需要提交，
-/// 不会因为时钟噪声每晚产生一次没有意义的提交。
-fn content_revision(texts: &[(String, String)]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    for (id, content) in texts {
-        hasher.update(id.as_bytes());
-        hasher.update(b"\0");
-        hasher.update(content.as_bytes());
-        hasher.update(b"\0");
-    }
-    let digest = hasher.finalize();
-    format!("rev-{}", shared::registry_sign::hex(&digest[..8]))
+fn chrono_now() -> String {
+    // 简化：用 SystemTime 秒数生成可读 revision
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("rev-{secs}")
 }
