@@ -104,14 +104,15 @@
 
 > 目标：模板（下载规则）与壳本体解耦。模板单一事实来源与生成产物（`registry/`，客户端 raw 直连）搬到
 > [universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates)；
-> 本仓库只保留 schema 与工具链（生成/签名/校验的 Rust example），模板库 CI 反过来 checkout 本仓库当工具链。
+> 本仓库只保留 schema 与工具链（生成/签名/校验的 Rust example），模板库仓库保持零代码、零 CI
+> （不与本仓库产生构建期耦合，也就不需要跨仓库凭据）。
 
 | # | 任务 | 验收标准 | 状态 |
 |---|---|---|---|
 | I1 | 模板与生成产物迁出（`templates/`、`registry/`） | 模板库仓库含 `templates/`、`registry/`（含 `manifests.sig`）与 `example-third-party/`；本仓库两者清空 | ☑ |
 | I2 | 工具链支持外部目录（CLI 参数 + 环境变量） | `generate_registry <out_dir> <templates_dir>`、`verify_templates <dir...>`、`US_TEMPLATES_DIR(S)`/`US_REGISTRY_DIR`、`e2e_download` 可直接就地验证模板库仓库 | ☑ |
 | I3 | 生成器清理过期快照 | `registry/templates/` 与 `templates/` 集合一致（无 `age`/`brook`/`lazygit` 残留） | ☑ |
-| I4 | CI 迁移：update-registry / verify-templates 到模板库仓库 | 模板 PR 校验生成物是否同步；main push 自动生成+签名+提交；每日 verify + e2e | ☑ |
+| I4 | 模板库仓库保持独立：零代码、零 CI、文档不引用本仓库 | 模板库内无工具链/CI/跨仓库链接；改模板后由本仓库侧本地生成+签名并一起提交 | ☑ (曾试过把 CI 放模板库，因需跨仓库凭据且违背「零耦合」而移除；历史已重写) |
 | I5 | 默认源与文档同步 | `DEFAULT_REGISTRY` 指向新仓库 `registry/` raw；README/AGENTS/SKILL/ROADMAP 更新；字体子集脚本改从模板库取字 | ☑ |
 
 

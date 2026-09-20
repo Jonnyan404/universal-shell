@@ -4,15 +4,15 @@
 
 - 本仓库即 universal-shell（配置驱动的万能应用壳）——核心逻辑在 `shared/`（纯 Rust，零 UI 依赖），`app-tauri/` 为主界面，`app-egui/` 为轻量备用界面。
 - **模板库已拆到独立仓库** [universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates)：
-  - 那里是模板单一事实来源（`templates/*.json`）与生成产物（`registry/`：`manifests.json` + `manifests.sig` + `templates/<id>.json`），其 CI 在模板变更后自动「生成 + 签名 + 提交」。
+  - 那里是模板单一事实来源（`templates/*.json`）与生成产物（`registry/`：`manifests.json` + `manifests.sig` + `templates/<id>.json`）。
   - 本仓库**不再存放模板**，只保留 schema（`shared/src/config.rs`）与工具链。加/改模板请去那个仓库提 PR。
   - 工具链用法（模板库目录用参数或环境变量传入，本地一般把模板库 clone 到本仓库旁边）：
     - 生成：`cargo run -p shared --example generate_registry -- <out_dir> <templates_dir>`（env：`US_REGISTRY_OUT_DIR` / `US_TEMPLATES_DIR`）
     - 校验：`cargo run -p shared --example verify_templates -- <templates_dir...>`（env：`US_TEMPLATES_DIRS`）
     - 端到端下载：`US_TEMPLATES_DIR=... cargo run -p shared --example e2e_download -- <id...>`
     - 签名与客户端行为自测：`sign_registry` / `registry_demo`（env：`US_REGISTRY_DIR`）
+  - 模板库仓库**零代码、零依赖、无 CI**（这样它不与本仓库产生任何构建期耦合，也就不需要跨仓库凭据）：生成/签名/校验都在本仓库侧跑，产物 `registry/` 与模板一起提交；模板库自身不带生成逻辑。
   - 例：`cargo run -p shared --example generate_registry -- ../universal-shell-templates/registry ../universal-shell-templates/templates`
-  - 模板库仓库的 CI 会 checkout 本仓库当工具链；**本仓库是私有仓库**，跨仓库 checkout 用不了那边的 `GITHUB_TOKEN`，故需在模板库仓库配置 `TOOLCHAIN_TOKEN`（可读本仓库的 PAT）。未配置时那边 CI 不报红，只跳过生成/校验并给 warning。
 - 内置程序（壳自带的少量程序）仍是 `shared/builtin/programs.json`，不属于模板库。
 
 ## 工作习惯（必须遵守）
