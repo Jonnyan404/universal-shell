@@ -21,6 +21,19 @@ pub const DEFAULT_REGISTRY: &str =
 /// 配套内置注册表的 demo 公钥（sign_registry 固定测试种子对应公钥）。
 pub const DEFAULT_REGISTRY_PUBKEY: &str =
     "4cb5abf6ad79fbf5abbccafcc269d85cd2651ed4b885b5869f241aedf0a5ba29";
+/// 模板库拆分前的旧默认源（本仓库 `registry/`）。加载配置时会把老地址迁移到
+/// [`DEFAULT_REGISTRY`]，避免已保存 `template_registries` 的老配置 404。
+pub const LEGACY_REGISTRY: &str =
+    "https://raw.githubusercontent.com/Jonnyan404/universal-shell/main/registry/";
+
+/// 注册表基地址迁移：旧仓库地址（末尾斜杠可选）→ 新仓库地址，其它地址原样返回。
+pub fn migrate_registry_base(base: &str) -> String {
+    let legacy = LEGACY_REGISTRY.trim_end_matches('/');
+    if base.trim_end_matches('/') == legacy {
+        return DEFAULT_REGISTRY.to_string();
+    }
+    base.to_string()
+}
 
 /// 运行状态快照，供 UI 显示
 #[derive(Debug, Clone)]
@@ -181,13 +194,22 @@ impl ShellManager {
         // 迁移旧代理配置结构（accelerate_prefix / http_proxy → preset / saved_proxies）
         cfg.proxy.fixup();
         self.programs = cfg.programs;
-        // 未显式配置注册表时使用内置 GitHub 源（附 demo 公钥签名校验）
+        // 未显式配置注册表时使用内置 GitHub 源（附 demo 公钥签名校验）；
+        // 模板库已拆仓库：老配置里存的旧地址（LEGACY_REGISTRY）在这里迁移到新地址。
         self.template_registries = if cfg.template_registries.is_empty() {
             vec![DEFAULT_REGISTRY.to_string()]
         } else {
             cfg.template_registries
+                .iter()
+                .map(|b| migrate_registry_base(b))
+                .collect()
         };
-        let mut pubkeys = cfg.registry_pubkeys;
+        // 公钥映射以「源基地址」为 key，随地址迁移一起改写 key
+        let mut pubkeys: BTreeMap<String, String> = cfg
+            .registry_pubkeys
+            .into_iter()
+            .map(|(base, key)| (migrate_registry_base(&base), key))
+            .collect();
         if !pubkeys
             .keys()
             .any(|b| self.template_registries.iter().any(|r| r == b))
@@ -1512,6 +1534,41 @@ mod tests {
         assert_eq!(
             mgr.registry_pubkeys.get(DEFAULT_REGISTRY).map(|s| s.as_str()),
             Some(DEFAULT_REGISTRY_PUBKEY)
+        );
+    }
+
+    /// 模板库拆仓库：老配置里的旧源地址（含公钥 key）加载时自动迁移到新地址。
+    #[test]
+    fn legacy_registry_url_is_migrated_on_load() {
+        let dir = std::env::temp_dir().join("cc-legacy-registry");
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        let cfg_path = dir.join("cfg.json");
+        // 老配置：旧源地址（末尾不带斜杠的变体）+ 以旧地址为 key 的公钥
+        let cfg = format!(
+            r#"{{"programs":[],"template_registries":["{}"],"registry_pubkeys":{{"{}":"{}"}}}}"#,
+            LEGACY_REGISTRY.trim_end_matches('/'),
+            LEGACY_REGISTRY,
+            DEFAULT_REGISTRY_PUBKEY
+        );
+        std::fs::write(&cfg_path, cfg).unwrap();
+        mgr.load_config(&cfg_path).unwrap();
+
+        assert_eq!(mgr.template_registries, vec![DEFAULT_REGISTRY.to_string()]);
+        assert_eq!(
+            mgr.registry_pubkeys
+                .get(DEFAULT_REGISTRY)
+                .map(|s| s.as_str()),
+            Some(DEFAULT_REGISTRY_PUBKEY)
+        );
+        assert!(
+            !mgr.registry_pubkeys.contains_key(LEGACY_REGISTRY),
+            "旧地址不应残留"
+        );
+        // 其它自定义源不受影响
+        assert_eq!(
+            migrate_registry_base("https://example.com/registry/"),
+            "https://example.com/registry/"
         );
     }
 
