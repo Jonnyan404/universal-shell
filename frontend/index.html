@@ -43,27 +43,27 @@
         <div class="status-desc" id="prog-desc" hidden></div>
       </div>
 
-      <!-- 更新设置条：默认折叠，点状态栏「更新设置」展开 -->
-      <div id="upd-settings" class="upd-settings-strip" hidden>
-        <div class="upd-card-main">
-          <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
-          <span class="upd-ver" id="upd-current">—</span>
-          <span class="upd-arrow">→</span>
-          <span class="upd-key" data-i18n="th.latest_ver">最新版本</span>
-          <span class="upd-ver" id="upd-latest">—</span>
-          <span class="upd-pin" id="upd-pin" hidden></span>
-        </div>
-        <div id="upd-controls" class="upd-settings"></div>
-        <div class="upd-check">
-          <span class="upd-checked-at" id="upd-checked-at"></span>
-          <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
-        </div>
-      </div>
-
       <!-- 程序管理 -->
       <section id="manage-view" class="view manage-view">
+        <!-- 更新设置条：默认折叠，点状态栏「更新设置」展开。
+             必须留在管理页内部：移动端管理页是覆盖全屏的固定二级页，
+             放外面会被它整块盖住，还会在卡片流主页上跟 #mob-shell 抢横向空间。 -->
+        <div id="upd-settings" class="upd-settings-strip" hidden>
+          <div class="upd-card-main">
+            <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
+            <span class="upd-ver" id="upd-current">—</span>
+            <span class="upd-arrow">→</span>
+            <span class="upd-key" data-i18n="th.latest_ver">最新版本</span>
+            <span class="upd-ver" id="upd-latest">—</span>
+            <span class="upd-pin" id="upd-pin" hidden></span>
+          </div>
+          <div id="upd-controls" class="upd-settings"></div>
+          <div class="upd-check">
+            <span class="upd-checked-at" id="upd-checked-at"></span>
+            <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
+          </div>
+        </div>
         <div class="manage-body">
-          <div class="status-desc" id="prog-desc" hidden></div>
           <form id="field-form"></form>
           <div id="env-section" class="env-section" hidden>
             <div class="env-title"><span data-i18n="edit.env">环境变量（派生只读）</span></div>

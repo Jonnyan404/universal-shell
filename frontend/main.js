@@ -392,7 +392,7 @@ function switchView(v) {
   el.logView.hidden = v !== "log";
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) dlBtn.hidden = v !== "manage";
-  if (el.updateSettings) el.updateSettings.hidden = v !== "manage";
+  // 更新设置条在 #manage-view 内部，跟着 manageView 一起显示/隐藏，这里不再单独控制
   if (v === "manage") {
     el.statusbar.hidden = false;
     if (current) {
@@ -460,20 +460,19 @@ async function renderUpdateSettings() {
   const isHttp = !!current.http_enabled;
   const isLocal = !current.repo && !isHttp;
   if (isLocal) {
-    // 本地程序：没有更新设置，全靠隐藏（按钮 + 折叠条都消失）
-    const forLocal = current.repo === "" && !isHttp;
+    // 本地程序：没有更新设置，按钮和折叠条一起消失
     box.hidden = true;
-    toggle.hidden = forLocal;
+    toggle.hidden = true;
     return;
   }
-  box.hidden = false;
   toggle.hidden = false;
   box.dataset.programId = current.id;
   const st = statuses.find((s) => s.id === current.id)?.status;
   updateUpdateCard(st);
 
-  // 折叠状态：默认折叠（persist per program）
-  const expanded = isUpdateCardExpanded(current.id);
+  // 折叠状态：默认折叠（persist per program）。
+  // 移动端没有状态栏、也就没有那个「展开/收起」按钮，所以一律展开，否则永远打不开。
+  const expanded = isUpdateCardExpanded(current.id) || isMobile();
   box.hidden = !expanded;
   const renderToggle = () => {
     toggle.classList.toggle("open", !!expanded);

@@ -196,10 +196,10 @@ upd.goto_download: 前往下载
 upd.fail: '检查更新失败：%{err}'
 upd.current_version: 'v%{ver}'
 upd.channel: 更新通道
-upd.stable: 最新稳定版
-upd.pre: 最新（含预发布）
+upd.stable: 稳定版
+upd.pre: 预发布
 upd.version: 指定版本
-upd.auto: 自动（随更新通道）
+upd.auto: 自动
 upd.list_fail: '获取版本列表失败：%{err}'
 upd.loading: 加载中…
 upd.expand: 展开更新设置

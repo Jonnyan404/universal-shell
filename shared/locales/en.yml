@@ -196,10 +196,10 @@ upd.goto_download: Download
 upd.fail: 'Update check failed: %{err}'
 upd.current_version: 'v%{ver}'
 upd.channel: Update channel
-upd.stable: Latest stable
-upd.pre: Latest (incl. prerelease)
+upd.stable: Stable
+upd.pre: Prerelease
 upd.version: Specific version
-upd.auto: Auto (follow channel)
+upd.auto: Auto
 upd.list_fail: 'Failed to list versions: %{err}'
 upd.loading: Loading…
 upd.expand: Expand update settings
