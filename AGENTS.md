@@ -12,6 +12,7 @@
     - 端到端下载：`US_TEMPLATES_DIR=... cargo run -p shared --example e2e_download -- <id...>`
     - 签名与客户端行为自测：`sign_registry` / `registry_demo`（env：`US_REGISTRY_DIR`）
   - 例：`cargo run -p shared --example generate_registry -- ../universal-shell-templates/registry ../universal-shell-templates/templates`
+  - 模板库仓库的 CI 会 checkout 本仓库当工具链；**本仓库是私有仓库**，跨仓库 checkout 用不了那边的 `GITHUB_TOKEN`，故需在模板库仓库配置 `TOOLCHAIN_TOKEN`（可读本仓库的 PAT）。未配置时那边 CI 不报红，只跳过生成/校验并给 warning。
 - 内置程序（壳自带的少量程序）仍是 `shared/builtin/programs.json`，不属于模板库。
 
 ## 工作习惯（必须遵守）

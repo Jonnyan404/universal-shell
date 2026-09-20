@@ -96,7 +96,7 @@ Default: `~/Library/Application Support/universal-shell/` (Windows: `%APPDATA%/u
 
 ## Remote template library
 
-- **Official library lives in its own repo**: [universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates) holds `templates/*.json` (source of truth) plus the generated, signed `registry/` served over raw. This repo only ships the engine + tooling.
+- **Official library lives in its own repo**: [universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates) holds `templates/*.json` (source of truth) plus the generated, signed `registry/` served over raw. This repo only ships the engine + tooling. That repo's CI checks this one out as the toolchain; since this repo is private, it needs a `TOOLCHAIN_TOKEN` secret (a PAT with read access) — without it the CI skips generate/verify with a warning.
 - **Registry** publishes `manifests.json` (index) + `templates/<id>.json` (lazy-fetched). Browsing pulls the index only; importing pulls the template.
 - **Cache & offline**: both are cached with ETag/If-None-Match; offline shows cached content tagged "offline".
 - **Signature (optional)**: set `registry_pubkeys` (base url → Ed25519 public key) to require Ed25519 verification of `manifests.json`.
@@ -245,7 +245,7 @@ MIT — see [LICENSE](LICENSE).
 
 ## 远程模板库
 
-- **官方模板库已拆为独立仓库**：[universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates) 放 `templates/*.json`（单一事实来源）与生成并签名的 `registry/`（raw 直连）；本仓库只留引擎与工具链。
+- **官方模板库已拆为独立仓库**：[universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates) 放 `templates/*.json`（单一事实来源）与生成并签名的 `registry/`（raw 直连）；本仓库只留引擎与工具链。那个仓库的 CI 会把本仓库 checkout 当工具链，因本仓库是私有仓库，需在其 Secrets 配置 `TOOLCHAIN_TOKEN`（可读本仓库的 PAT）；未配置时那边 CI 会跳过生成/校验并给 warning。
 - **两级结构**：`manifests.json`（索引）+ `templates/<id>.json`（惰性拉取）。浏览只拉清单，导入才拉模板。
 - **缓存与离线**：清单与模板带缓存 + ETag/If-None-Match 增量校验，断网时显示缓存并标注「离线」。
 - **签名（可选）**：配置 `registry_pubkeys` 可强制对 `manifests.json` 做 Ed25519 验签。
