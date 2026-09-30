@@ -6,3 +6,4 @@ dist/
 # 生成的 locale JSON（由 build.rs 从 shared/locales/*.yml 生成）
 app-tauri/src/locales/
 frontend/locales/
+.workbuddy-ai/
