@@ -246,8 +246,9 @@ jobs:
     name: Publish multi-arch Docker image
     needs: release
     runs-on: ubuntu-latest
-    # 仅 release 事件自动发布镜像；手动发布走 docker-publish.yml（workflow_dispatch）
-    if: github.event_name == 'release'
+    # 暂时停用（2026-11-17，恢复待定）：发版不再自动推镜像。
+    # 恢复时把下面一行换回：if: github.event_name == 'release'
+    if: ${{ false }}
     permissions:
       contents: read
       packages: write
