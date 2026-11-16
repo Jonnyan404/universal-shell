@@ -7,7 +7,7 @@ members = ["shared", "app-tauri/src-tauri", "web-server", "app-cli"]
 exclude = ["app-egui"]
 
 [workspace.package]
-version = "0.1.8"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 authors = ["Universal Shell"]

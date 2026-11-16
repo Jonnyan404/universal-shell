@@ -34,8 +34,9 @@ Get the package for your OS from **Releases**.
 | Platform | Artifact |
 |---|---|
 | macOS | `.dmg` |
-| Windows | `.msi` or `.exe` |
-| Linux | binary |
+| Windows | `.msi` or `-setup.exe` |
+| Linux | `.deb` / `.rpm` / `.AppImage` |
+| Headless server (any OS) | `universal-shell-cli-*` (the `us-web` binary) |
 
 ### 2. First-run workflow (remote template library)
 
@@ -192,8 +193,9 @@ MIT — see [LICENSE](LICENSE).
 | 平台 | 产物 |
 |---|---|
 | macOS | `.dmg` |
-| Windows | `.msi` 或 `.exe` |
-| Linux | 二进制 |
+| Windows | `.msi` 或 `-setup.exe` |
+| Linux | `.deb` / `.rpm` / `.AppImage` |
+| 无桌面服务器（任意系统） | `universal-shell-cli-*`（即 `us-web` 二进制） |
 
 ### 2. 首次使用（远程模板库流程）
 
