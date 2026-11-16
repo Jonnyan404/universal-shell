@@ -179,7 +179,7 @@ jobs:
           V="${{ github.event.inputs.version }}"
           TAG="v${V#v}"
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
-            --jq '.assets[] | select(.digest != null and .digest != "")
+            --jq '.assets[] | select(.digest != null and .digest != "" and .name != "sha256.txt")
                    | "\(.digest | sub("^sha256:"; ""))  \(.name)"' \
             | sort -k2 > sha256.txt || true
 
