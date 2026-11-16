@@ -138,10 +138,11 @@ jobs:
       - name: SHA256
         if: env.skip != '1'
         run: |
-          : > dist/sha256.txt
-          find dist -type f -not -name sha256.txt -print0 \
+          OUT="dist/sha256-${{ matrix.label }}.txt"
+          : > "$OUT"
+          find dist -type f -not -name 'sha256-*.txt' -print0 \
             | while IFS= read -r -d '' f; do
-                echo "$(sha256sum "$f" | awk '{print $1}')  ${f#dist/}" >> dist/sha256.txt
+                echo "$(sha256sum "$f" | awk '{print $1}')  ${f#dist/}" >> "$OUT"
               done
         shell: bash
 
@@ -151,38 +152,55 @@ jobs:
           find dist -maxdepth 3 -type f
         shell: bash
 
-      - name: Upload artifacts
-        if: env.skip != '1'
-        uses: actions/upload-artifact@v7
-        with:
-          name: universal-shell-windows-${{ matrix.label }}
-          path: dist/
-          retention-days: 7
-
-  release:
-    name: Publish release
-    needs: build
-    runs-on: ubuntu-latest
-    # 手动触发且勾选了 deploy 时才部署到 release tag v<version>
-    if: github.event.inputs.deploy == 'true'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: universal-shell-windows-*
-          path: dist/
-          merge-multiple: true
-
-      - name: Upload assets to Release
+      # 部署时安装包直接从 runner 传到 Release，不经 artifact（私有库配额很小）
+      - name: Publish assets to release
+        if: env.skip != '1' && github.event.inputs.deploy == 'true'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ github.event.inputs.version }}
           # overwrite=true 时先删除同名旧资产再上传，实现"追加/覆盖"
           overwrite: ${{ github.event.inputs.overwrite_assets != 'false' }}
           files: |
-            dist/**/*
+            dist/cli/**/*
+            dist/bundle/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 仅「构建不部署」时需要 artifact，供 run 页面下载；保留 1 天
+      - name: Upload artifacts
+        if: env.skip != '1' && github.event.inputs.deploy != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: universal-shell-windows-${{ matrix.label }}
+          path: dist/
+          retention-days: 1
+
+  checksums:
+    name: Merge sha256.txt
+    needs: build
+    runs-on: ubuntu-latest
+    # 手动触发且勾选了 deploy 时才需要
+    if: github.event.inputs.deploy == 'true'
+    steps:
+      - name: Assemble sha256.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          V="${{ github.event.inputs.version }}"
+          TAG="v${V#v}"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            --jq '.assets[] | select(.digest != null and .digest != "")
+                   | "\(.digest | sub("^sha256:"; ""))  \(.name)"' \
+            | sort -k2 > sha256.txt || true
+
+          if [ ! -s sha256.txt ]; then
+            echo "::warning::release assets 没有 digest，回退为下载后本地计算"
+            mkdir -p dl
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dl --clobber
+            ( cd dl && sha256sum * | sort -k2 ) > sha256.txt
+          fi
+
+          echo "== sha256.txt =="
+          cat sha256.txt
+          gh release upload "$TAG" sha256.txt --repo "$GITHUB_REPOSITORY" --clobber

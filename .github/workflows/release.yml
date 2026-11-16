@@ -93,11 +93,15 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             V="${{ github.event.inputs.version }}"
+            V="${V#v}"
+            TAG="v$V"
           else
-            V="${{ github.event.release.tag_name }}"
+            # release 事件：沿用 release 的 tag 原文，避免「tag 不带 v」时拼错资产目标
+            TAG="${{ github.event.release.tag_name }}"
+            V="${TAG#v}"
           fi
-          V="${V#v}"
           echo "value=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
         shell: bash
 
       # ---- cli：无窗口 headless 服务端 us-web（树莓派/NAS/无桌面环境），随各平台打包 ----
@@ -162,17 +166,20 @@ jobs:
             ' _ {} \;
         shell: bash
 
-      - name: SHA256
+      - name: SHA256 (per platform)
+        # 仅用于「预览构建」（无 Release 可传）时的 artifact；发布走 Release 时
+        # sha256.txt 由 checksums job 从资产 digest 统一汇总，不需要各 job 各传一份。
         run: |
-          : > dist/sha256.txt
+          OUT="dist/sha256-${{ matrix.label }}.txt"
+          : > "$OUT"
           if command -v sha256sum >/dev/null; then
             HASH="sha256sum"
           else
             HASH="shasum -a 256"
           fi
-          find dist -type f -not -name sha256.txt -print0 \
+          find dist -type f -not -name 'sha256-*.txt' -print0 \
             | while IFS= read -r -d '' f; do
-                $HASH "$f" | awk -v p="${f#dist/}" '{print $1"  "p}' >> dist/sha256.txt
+                $HASH "$f" | awk -v p="${f#dist/}" '{print $1"  "p}' >> "$OUT"
               done
         shell: bash
 
@@ -181,70 +188,81 @@ jobs:
           find dist -maxdepth 3 -type f
         shell: bash
 
+      # 发布路径：安装包直接从 runner 传到 Release，不经 artifact。
+      # 私有库的 artifact 配额很小（单次全平台约 270 MB），转存一次就把额度吃掉大半。
+      - name: Publish assets to release
+        if: ${{ github.event_name == 'release' || github.event.inputs.deploy == 'true' }}
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          # overwrite=true 时先删同名旧资产再上传，实现「重跑覆盖」
+          overwrite: ${{ github.event.inputs.overwrite_assets != 'false' }}
+          # 不传 dist/sha256-*.txt：汇总版 sha256.txt 由 checksums job 生成
+          files: |
+            dist/cli/**/*
+            dist/bundle/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 预览路径（手动触发且不部署）：仍用 artifact 让 run 页面能直接下载，保留 1 天
       - name: Upload artifacts
+        if: ${{ github.event_name != 'release' && github.event.inputs.deploy != 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: universal-shell-${{ matrix.label }}
           path: dist/
           retention-days: 1
 
-  release:
-    name: Publish release
+  checksums:
+    name: Merge sha256.txt
     needs: build
     runs-on: ubuntu-latest
-    # release 事件，或手动触发且勾选了 deploy 时才部署
+    # release 事件，或手动触发且勾选了 deploy 时才需要
     if: >-
       ${{
         github.event_name == 'release' ||
         (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'true')
       }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
       - name: Resolve target tag
         id: tag
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             # 复用 version 输入，拼出带 v 前缀的 tag：v0.1.0
-            echo "value=v${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+            V="${{ github.event.inputs.version }}"
+            echo "value=v${V#v}" >> "$GITHUB_OUTPUT"
           else
             echo "value=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
           fi
         shell: bash
 
-      - name: Download artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: universal-shell-*
-          path: dist/
-          merge-multiple: true
-
-      - name: Restore execute permissions
-        # upload-artifact 的 zip 会剥掉 +x（全部变 644/755）；恢复可执行产物的执行位，
-        # 保证 Release 里 Linux/macOS 二进制 / .app 内二进制可直接运行
-        run: |
-          find dist -type f \
-            \( -name 'universal-shell-cli-*' \
-               -o -path '*/Contents/MacOS/*' \
-               -o -path '*/bin/*' \) \
-            -exec chmod +x {} +
-        shell: bash
-
-      - name: Upload assets to Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ steps.tag.outputs.value }}
-          # overwrite=true 时先删除同名旧资产再上传，实现"追加/覆盖"
-          overwrite: ${{ github.event.inputs.overwrite_assets != 'false' }}
-          files: |
-            dist/**/*
+      # 各平台已把安装包直接传到 Release，这里只补一份汇总的 sha256.txt。
+      # 优先用 GitHub 为每个资产记录的 sha256 digest（零下载）；取不到才回退为下载后计算。
+      - name: Assemble sha256.txt
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.value }}"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            --jq '.assets[] | select(.digest != null and .digest != "")
+                   | "\(.digest | sub("^sha256:"; ""))  \(.name)"' \
+            | sort -k2 > sha256.txt || true
+
+          if [ ! -s sha256.txt ]; then
+            echo "::warning::release assets 没有 digest，回退为下载后本地计算"
+            mkdir -p dl
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dl --clobber
+            ( cd dl && sha256sum * | sort -k2 ) > sha256.txt
+          fi
+
+          echo "== sha256.txt =="
+          cat sha256.txt
+          gh release upload "$TAG" sha256.txt --repo "$GITHUB_REPOSITORY" --clobber
 
   docker:
     name: Publish multi-arch Docker image
-    needs: release
+    # 原来 needs: release（该 job 已由 checksums 取代）。停用期间不需要任何前置。
     runs-on: ubuntu-latest
     # 暂时停用（2026-11-17，恢复待定）：发版不再自动推镜像。
     # 恢复时把下面一行换回：if: github.event_name == 'release'
