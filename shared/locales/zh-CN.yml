@@ -339,7 +339,7 @@ log.center_open: 在日志中心打开
 log.search_ph: 搜索…
 log.shell_title: 壳操作日志
 manage.view_log: 程序日志
-eg.no_program: '未配置任何受管程序。请以 `universal-shell-egui <shell.json>` 启动，或在「模板库」导入。'
+eg.no_program: '未配置任何受管程序。请在「模板库」导入，或写入 shell.json 后重启。'
 eg.search: '搜索:'
 eg.loaded_offline: '加载完成（%{n} 个源，含离线回退）'
 eg.loaded: '加载完成（%{n} 个源）'

@@ -1,6 +1,6 @@
 //! universal-shell 本地 Web 管理服务（库形态）。
 //!
-//! 不单独打包：由宿主进程（egui / Tauri）内嵌启动，绑定 127.0.0.1 的一个高位端口，
+//! 不单独打包：由宿主进程（Tauri 窗口 / `us-web`）内嵌启动，绑定 127.0.0.1 的一个高位端口，
 //! 供浏览器与桌面窗口访问同一份 SPA。前端资源在编译期内嵌进本 crate。
 
 pub mod rpc;
@@ -37,7 +37,7 @@ const ICON_512: &[u8] = include_bytes!("../../frontend/icons/icon-512.png");
 const LOCALE_ZH: &str = include_str!("../../frontend/locales/zh-CN.json");
 const LOCALE_EN: &str = include_str!("../../frontend/locales/en.json");
 
-/// 运行中的服务句柄：记录实际端口、展示用 URL，并提供停止能力（用于 egui 开关关闭）。
+/// 运行中的服务句柄：记录实际端口、展示用 URL，并提供停止能力。
 pub struct WebServerHandle {
     pub port: u16,
     /// 给用户看的访问地址（当前仅 loopback 模式，F-2 起支持 LAN/token）

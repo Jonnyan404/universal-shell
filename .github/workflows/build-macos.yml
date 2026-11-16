@@ -84,11 +84,6 @@ jobs:
           fi
         shell: bash
 
-      - name: Build egui binary
-        if: env.skip != '1'
-        run: cargo build --release -p app-egui
-        shell: bash
-
       - name: Build CLI (us-web)
         if: env.skip != '1'
         run: cargo build --release -p app-cli
@@ -103,54 +98,6 @@ jobs:
           # 资产名对齐 release.yml：带 macOS- 平台前缀，保证 release 部署时可覆盖同名资产
           cp "target/release/us-web" "$CLI/universal-shell-cli-$VERSION-macOS-${{ matrix.label }}"
           chmod +x "$CLI/universal-shell-cli-$VERSION-macOS-${{ matrix.label }}"
-        shell: bash
-
-      - name: Package egui (macOS .app + .dmg)
-        if: env.skip != '1'
-        run: |
-          VERSION="${{ steps.version.outputs.value }}"
-          cd "$GITHUB_WORKSPACE"
-          APP="universal-shell-egui"
-          EGUI="dist/egui/macos"
-          # 资产名对齐 release.yml：dmg 用 aarch64/x86_64（非 arm64/x86_64 混排），保证可覆盖同名资产
-          if [ "${{ matrix.label }}" = "arm64" ]; then
-            ARCH="aarch64"
-          else
-            ARCH="x86_64"
-          fi
-          APPNAME="$EGUI/$APP.app"
-          mkdir -p "$APPNAME/Contents/MacOS" "$APPNAME/Contents/Resources"
-          cp "target/release/$APP" "$APPNAME/Contents/MacOS/$APP"
-          cp "assets/icons/egui-bundle/icon.icns" "$APPNAME/Contents/Resources/icon.icns"
-          cat > "$APPNAME/Contents/Info.plist" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key><string>Universal Shell</string>
-            <key>CFBundleDisplayName</key><string>Universal Shell</string>
-            <key>CFBundleIdentifier</key><string>com.universal.shell.egui</string>
-            <key>CFBundleVersion</key><string>$VERSION</string>
-            <key>CFBundleShortVersionString</key><string>$VERSION</string>
-            <key>CFBundleExecutable</key><string>$APP</string>
-            <key>CFBundleIconFile</key><string>icon</string>
-            <key>LSMinimumSystemVersion</key><string>12.0</string>
-            <key>NSHighResolutionCapable</key><true/>
-            <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
-          </dict>
-          </plist>
-          PLIST
-          chmod +x "$APPNAME/Contents/MacOS/$APP"
-          STAGE="$EGUI/.dmg-stage"
-          mkdir -p "$STAGE"
-          cp -R "$APPNAME" "$STAGE/"
-          ln -s /Applications "$STAGE/Applications"
-          hdiutil create -volname "Universal Shell $VERSION" -srcfolder "$STAGE" \
-            -ov -format UDZO "$EGUI/$APP-$VERSION-$ARCH.dmg" >/dev/null
-          rm -rf "$STAGE"
-          # dist/**/* 会上传整个 dist，删掉 .app 目录避免其内部文件
-          # (Info.plist / icon.icns / 裸二进制)当独立资产混进 Release
-          rm -rf "$APPNAME"
         shell: bash
 
       - name: Build tauri bundle
@@ -222,8 +169,7 @@ jobs:
         # upload-artifact 的 zip 会剥掉 +x；恢复可执行产物/.app 内二进制的执行位
         run: |
           find dist -type f \
-            \( -name 'universal-shell-egui-*' \
-               -o -name 'universal-shell-cli-*' \
+            \( -name 'universal-shell-cli-*' \
                -o -path '*/Contents/MacOS/*' \) \
             -exec chmod +x {} +
         shell: bash

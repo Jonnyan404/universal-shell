@@ -1,13 +1,13 @@
 # universal-shell
 
-A configuration-driven manager that downloads, configures, and runs third-party CLI programs, with both **egui** and **Tauri** GUIs sharing one core library (`shared`).
+A configuration-driven manager that downloads, configures, and runs third-party CLI programs, with a **Tauri** desktop GUI and a headless web manager sharing one core library (`shared`).
 
 **English** · [中文](#中文文档)
 
 - Downloads/updates program binaries from GitHub into its own data dir (never overwrites itself), verifies SHA256, spawns/stops processes with templated args.
 - **Config-driven UI**: the `fields` in `shell.json` decide which widgets render (string / file / directory / boolean).
 - Multiple programs in tabs, each with its own data dir.
-- Tray resident: closing the window hides to tray; tray can reopen or quit (both Tauri & egui).
+- Tray resident: closing the window hides to tray; tray can reopen or quit.
 
 ---
 
@@ -15,14 +15,17 @@ A configuration-driven manager that downloads, configures, and runs third-party 
 
 ### 0. Pick an interface
 
-| | egui (`app-egui`) | Tauri (`app-tauri`) | CLI (`us-web`, `app-cli`) |
-|---|---|---|---|
-| What it is | Lightweight native GUI | Full-featured desktop app (system WebView) | Headless web manager, no window |
-| Best for | Tray-resident light tool, fastest to start | Polished UI / rich frontend | NAS, Raspberry Pi, headless server |
-| Rendering | Native drawing, no WebView | System WebView | Browser only |
-| File picker | rfd | tauri dialog plugin | manual / upload via web |
+| | Tauri (`app-tauri`) | CLI (`us-web`, `app-cli`) |
+|---|---|---|
+| What it is | Full-featured desktop app (system WebView) | Headless web manager, no window |
+| Best for | Polished UI / rich frontend | NAS, Raspberry Pi, headless server |
+| Rendering | System WebView | Browser only |
+| File picker | tauri dialog plugin | manual / upload via web |
 
-Yes, all three share the same config, data directory and template library — safe to switch between them anytime.
+Both share the same config, data directory and template library — safe to switch between them anytime.
+
+> The former **egui** build (`app-egui`) is archived: its source stays in the repo for reference but it is
+> no longer built, packaged or shipped. See [ROADMAP](ROADMAP.md#关键决策记录) for the reasoning.
 
 ### 1. Download
 
@@ -106,11 +109,11 @@ Default: `~/Library/Application Support/universal-shell/` (Windows: `%APPDATA%/u
 Prerequisites: [Rust](https://rustup.rs/) (stable), [Node.js](https://nodejs.org/); macOS Xcode CLT; Linux Tauri deps (`libwebkit2gtk-4.1-dev` etc., see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/#linux)).
 
 ```bash
-# egui (fastest start)
-cargo run -p app-egui
-
-# Tauri
+# Tauri (desktop app + embedded web manager)
 cd app-tauri && npm install && npm run tauri dev
+
+# Headless web manager only (no window)
+cargo run -p app-cli -- --port 0
 
 # Useful shared-lib examples (the template library lives in its own repo — clone
 # universal-shell-templates next to this one, or point the env vars at a checkout)
@@ -123,15 +126,21 @@ cargo run -p shared --example registry_demo -- ../universal-shell-templates/regi
 ./scripts/build-release.sh 0.1.0
 ```
 
-### egui vs Tauri
+### Archived egui build
 
-| | egui (`app-egui`) | Tauri (`app-tauri`) |
-|---|---|---|
-| Render | native, no WebView | system WebView |
-| Size | ~20 MB, single binary | depends on webview |
-| Dynamic form | Rust-native render | JS render + backend commands |
-| File dialog | rfd | tauri dialog plugin |
-| Best for | lightweight tray-resident tool | polished UI / frontend ecosystem |
+`app-egui/` still lives in this repo, but it is **excluded from the workspace** (`Cargo.toml: exclude`),
+from `scripts/build-release.sh`, and from every CI workflow. It is not built, not packaged, and not shipped.
+
+Reasons (see [ROADMAP — 决策记录](ROADMAP.md#关键决策记录)):
+
+- The Tauri window and the headless `us-web` server already cover its two use cases; keeping a third
+  app meant implementing every new feature 2–3 times while `app-egui` gradually fell behind
+  (no log center, no template diff, no binary upload, no LAN toggle, no theme switch; 258 of 486 i18n keys).
+- Release assets showed no meaningful downloads, so the duplicated maintenance served no users.
+
+To revive it: drop the empty `[workspace]` table and the inlined `version`/`edition`/`license`/`authors`
+from `app-egui/Cargo.toml` (restore `workspace = true` inheritance), remove `exclude`, add it back to
+`members`, then restore the packaging steps in `scripts/build-release.sh` and the CI workflows.
 
 ## Security
 
@@ -149,14 +158,14 @@ MIT — see [LICENSE](LICENSE).
 
 # universal-shell（中文）
 
-配置驱动的程序管理壳：在图形界面里下载、配置、启动第三方命令行程序，**egui** 与 **Tauri** 两个前端共享同一个核心库 (`shared`)。
+配置驱动的程序管理壳：在图形界面里下载、配置、启动第三方命令行程序，**Tauri** 桌面界面与无窗口 Web 管理服务共享同一个核心库 (`shared`)。
 
 [English](#universal-shell) · 中文文档
 
 - 从 GitHub 自动下载/更新受管程序二进制到独立数据目录（天然防覆盖），SHA256 校验、参数模板替换、启动/停止子进程。
 - **配置驱动界面**：`shell.json` 里的 `fields` 决定渲染什么控件（string / file / directory / boolean）。
 - 多程序多 Tab，每个程序独立数据目录。
-- 托盘常驻：关窗即隐藏到托盘，托盘可唤出/退出（Tauri 与 egui 双端）。
+- 托盘常驻：关窗即隐藏到托盘，托盘可唤出/退出。
 
 ---
 
@@ -164,14 +173,17 @@ MIT — see [LICENSE](LICENSE).
 
 ### 0. 先选界面
 
-| | egui（`app-egui`） | Tauri（`app-tauri`） | CLI（`us-web`，`app-cli`） |
-|---|---|---|---|
-| 是什么 | 轻量原生 GUI | 完整桌面应用（系统 WebView） | 无窗口 Web 管理服务 |
-| 适合 | 托盘常驻轻工具，启动最快 | 界面精致 / 前端生态 | 树莓派 / NAS / 无桌面服务器 |
-| 渲染 | 原生绘制，无 WebView | 系统 WebView | 仅浏览器 |
-| 文件选择 | rfd | tauri dialog 插件 | 手填 / 网页上传 |
+| | Tauri（`app-tauri`） | CLI（`us-web`，`app-cli`） |
+|---|---|---|
+| 是什么 | 完整桌面应用（系统 WebView） | 无窗口 Web 管理服务 |
+| 适合 | 界面精致 / 前端生态 | 树莓派 / NAS / 无桌面服务器 |
+| 渲染 | 系统 WebView | 仅浏览器 |
+| 文件选择 | tauri dialog 插件 | 手填 / 网页上传 |
 
-三者共用同一份配置、数据目录和模板库，可随时切换。
+两者共用同一份配置、数据目录和模板库，可随时切换。
+
+> 原 **egui** 版（`app-egui`）已归档：源码留在仓库里备查，但不再构建、打包或分发。
+> 原因见 [ROADMAP 决策记录](ROADMAP.md#关键决策记录)。
 
 ### 1. 下载
 
@@ -255,11 +267,11 @@ MIT — see [LICENSE](LICENSE).
 前置依赖：[Rust](https://rustup.rs/)（stable）、[Node.js](https://nodejs.org/)；macOS 需 Xcode CLT；Linux 需 Tauri 依赖（`libwebkit2gtk-4.1-dev` 等，见 [Tauri 前置](https://v2.tauri.app/start/prerequisites/#linux)）。
 
 ```bash
-# egui（启动最快）
-cargo run -p app-egui
-
-# Tauri
+# Tauri（桌面应用 + 内嵌 Web 管理）
 cd app-tauri && npm install && npm run tauri dev
+
+# 仅无窗口 Web 管理服务
+cargo run -p app-cli -- --port 0
 
 # shared 库常用示例（模板库已拆到独立仓库：把 universal-shell-templates 克隆到
 # 本仓库旁边，或用环境变量指向任意 checkout）

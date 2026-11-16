@@ -44,7 +44,7 @@
 | # | 任务 | 验收标准 | 状态 |
 |---|---|---|---|
 | D1 | 托盘/最小化到托盘（tray-icon） | 最小化隐藏，托盘可唤出/退出 | ☑ (Tauri: 内置 tray-icon feature + 关闭即隐藏 + 托盘菜单显隐/退出; egui: tray-icon crate 主线程建盘 + 后台线程转发菜单/点击) |
-| D2 | 打包：egui + tauri 各平台安装包 | 两版可分发，Release 发布时多平台矩阵打包 | ☑ (scripts/build-release.sh：macOS egui=通用 .app+.dmg，Windows=egui .exe+.msi / tauri=.app/.msi；GitHub Actions release 事件触发，矩阵含 linux/macOS/windows 的 x64+arm64，egui 安装包含 ARM64 Windows runner) |
+| D2 | 打包：各平台安装包（现为 tauri + cli；egui 产物 2026-11 归档） | 可分发，Release 发布时多平台矩阵打包 | ☑ (scripts/build-release.sh 现仅产 tauri 安装包；GitHub Actions release 事件触发，矩阵含 linux/macOS/windows 的 x64+arm64。原 egui=.app+.dmg / .exe+.msi 及 ARM64 Windows runner 一并移除) |
 | D3 | README 更新（模板源、配置、安全说明） | — | ☑ (README 补全：远程模板库、packaging、配置含 template_registries、校验/签名/安全说明) |
 
 ## 阶段 E — 本地实例管理（Tauri）
@@ -56,9 +56,11 @@
 | E3 | 删除实例（含二进制/日志/字段值清理） | 删除后配置与磁盘数据一并清理 | ☑ |
 | E4 | 应用内日志查看（stdout/stderr 尾段） | 管理/批量页可打开日志模态并刷新 | ☑ |
 
-## 阶段 F — 内嵌 Web 管理界面（Tauri + egui 双端，不单独打包）
+## 阶段 F — 内嵌 Web 管理界面（Tauri 窗口 + 浏览器/移动端，不单独打包）
 
-> 目标：Tauri 与 egui 两进程内嵌同一 web 服务（`web-server` crate），浏览器打开 `http://127.0.0.1:端口` 即得完整管理界面；Tauri 窗口与浏览器共用同一份 SPA（单一前端）。egui 加「Web 管理」开关控制启停。
+> 目标：Tauri 进程内嵌同一 web 服务（`web-server` crate），浏览器打开 `http://127.0.0.1:端口` 即得完整管理界面；Tauri 窗口与浏览器共用同一份 SPA（单一前端）。
+>
+> ⚠️ 本节为历史记录：egui 端已于 2026-11 归档（见 [关键决策记录](#关键决策记录)），文中「egui 双端」「egui 加 Web 管理开关」等表述不再适用于当前发布形态。
 
 ### F-1 骨架（本期）
 
@@ -122,8 +124,8 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
 
 ## 关键决策记录
 
-- **前端**：egui 与 Tauri 双实现，核心逻辑全部在 `shared/` 复用
-- **主前端**：Tauri 为主界面（模板浏览/搜索体验 + 前端迭代快），egui 为轻量备用（托盘常驻场景）
+- **前端**：核心逻辑全部在 `shared/` 复用；桌面界面为 Tauri（单一前端 SPA），另有无窗口 `us-web`（`app-cli`）覆盖无桌面场景
+- **主前端**：Tauri 为主界面（模板浏览/搜索体验 + 前端迭代快）；~~egui 为轻量备用（托盘常驻场景）~~ → 2026-11 已归档，见下方条目
 - **模板源**：两级结构（清单 + 模板惰性拉取），本地缓存可离线回退
 - **模板库拆分**：模板库独立成仓库 `universal-shell-templates`（模板源 `templates/*.json` + 生成并签名的 `registry/` 都在那边，由该仓库 CI 负责生成/签名/提交）；本仓库只留引擎与工具链，生成/校验工具改为「目录可传入」（参数 + `US_TEMPLATES_*`/`US_REGISTRY_*` 环境变量），避免同一套 schema 与校验逻辑维护两份；默认源 `DEFAULT_REGISTRY` 指向新仓库 raw。壳自带的少量内置程序（`shared/builtin/programs.json`）不属于模板库，仍在本仓库。
 - **信任模型**：远程模板会引导下载并执行第三方二进制；默认安全字段值 + 来源记录 + 可选 sha256/签名
@@ -131,6 +133,10 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
 - **Web 能力模型**：前端零 `window.__TAURI__` 依赖；原生能力（文件对话框/Finder reveal）后移为服务端端点（`/api/native/pick`、`/api/native/reveal`，rfd/`open` 在服务端执行）；`/api/capabilities` 声明可用能力，本机窗口原生体验、远程浏览器自动降级（手填/input file）
 - **Web 安全默认**：绑定 127.0.0.1 + 随机高位端口；LAN/token 需显式开启；egui 开关默认关，tauri 服务 loopback 随主界面常启
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
+- **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。
+  - 依据：① 功能面已被覆盖——桌面用 Tauri、无桌面用 `us-web`，egui 独占场景仅剩「托盘常驻且不起 webview」；② 双份维护成本真实——ROADMAP 中 B7/B8、C4、C5、D1、F1、F10 均为双端条目，且 egui 已落后 5 项（日志中心、模板 diff、二进制上传、局域网开关、主题切换），i18n 258/486；③ Release 资产下载量趋近于 0（egui 与 tauri 同量级），重复维护未服务到用户。
+  - 归档形态：目录保留，`app-egui/Cargo.toml` 内联了原从 workspace 继承的字段并加空 `[workspace]` 表，因此可独立 `cargo metadata/build`（`cd app-egui && cargo build`），不污染根 workspace 的依赖图。
+  - 复活条件：删 `app-egui/Cargo.toml` 的 `[workspace]` 表并把 `version/edition/license/authors` 与 `shared` 等依赖改回 `workspace = true`；根 `Cargo.toml` 删 `exclude`、加回 `members`；恢复 `scripts/build-release.sh` 与工作流里的 egui 步骤。
 
 ## 阶段 H — 初次使用引导（待确认）
 
@@ -164,8 +170,8 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
 - `web-server/src/rpc.rs`：新增 `is_first_run`（检查文件存在）和 `ack_first_run`（touch 文件）
 - `shared/src/config.rs`：无新字段（标记文件独立于 shell.json）
 
-**实现点（egui）**
-- `app-egui/src/main.rs`：启动时检测 first_run_done 文件；弹 egui::Window 引导弹窗；点关闭/确认后写文件
+**实现点（egui，已归档，仅作参考）**
+- `app-egui/src/main.rs`：启动时检测 first_run_done 文件；弹 egui::Window 引导弹窗；点关闭/确认后写文件。若复活 egui 端再按此实现，当前只需 SPA 一处。
 
 **优点**
 - 最直观、用户理解成本为零

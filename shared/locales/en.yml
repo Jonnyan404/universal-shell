@@ -339,7 +339,7 @@ log.center_open: Open in Log Center
 log.search_ph: 'Search…'
 log.shell_title: Shell operation log
 manage.view_log: Program log
-eg.no_program: 'No managed programs configured. Start with `universal-shell-egui <shell.json>` or import from the template library.'
+eg.no_program: 'No managed programs configured. Import one from the template library, or add it to shell.json and restart.'
 eg.search: 'Search:'
 eg.loaded_offline: 'Loaded (%{n} sources, with offline fallback)'
 eg.loaded: 'Loaded (%{n} sources)'

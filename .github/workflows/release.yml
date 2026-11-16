@@ -72,21 +72,19 @@ jobs:
           npm install
         shell: bash
 
-      - name: Install Linux egui runtime deps
+      - name: Install Linux build deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb x11-utils libxkbcommon0 libxcb1 libegl1 \
-            libglib2.0-dev libgtk-3-dev libayatana-appindicator3-dev libxdo-dev \
-            libfontconfig-dev \
+          sudo apt-get install -y libglib2.0-dev libgtk-3-dev libayatana-appindicator3-dev \
+            libxdo-dev libegl1 \
             libwebkit2gtk-4.1-dev libssl-dev librsvg2-dev xdg-utils
         shell: bash
 
       - name: Install WiX Toolset (Windows .msi)
         if: runner.os == 'Windows'
         run: |
-          cargo install cargo-wix --locked
-          # cargo-wix 需要 candle/light（WiX v3，经 PATH 暴露）；用 chocolatey 装
+          # tauri 打 .msi 需要 candle/light（WiX v3，经 PATH 暴露）；用 chocolatey 装
           choco install wixtoolset -y --no-progress
         shell: pwsh
 
@@ -100,24 +98,6 @@ jobs:
           fi
           V="${V#v}"
           echo "value=$V" >> "$GITHUB_OUTPUT"
-        shell: bash
-
-      # ---- egui：各平台原生自产自的安装包（不复用本地 build-release.sh，其专为单机多目标设计）----
-      - name: Build egui binary
-        env:
-          # 注入 release tag 版本：App 内版本/自更新检查与发布一致（shared::version::build_version）
-          UNIVERSAL_SHELL_VERSION: ${{ steps.version.outputs.value }}
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            if echo "${{ matrix.label }}" | grep -q arm64; then
-              TGT="aarch64-pc-windows-msvc"
-            else
-              TGT="x86_64-pc-windows-msvc"
-            fi
-            cargo build --release --target "$TGT" -p app-egui
-          else
-            cargo build --release -p app-egui
-          fi
         shell: bash
 
       # ---- cli：无窗口 headless 服务端 us-web（树莓派/NAS/无桌面环境），随各平台打包 ----
@@ -147,100 +127,6 @@ jobs:
           fi
         shell: bash
 
-      - name: Package egui (Windows .exe + .msi)
-        if: runner.os == 'Windows'
-        run: |
-          VERSION="${{ steps.version.outputs.value }}"
-          APP="universal-shell-egui"
-          EGUI="dist/egui/windows"
-          if echo "${{ matrix.label }}" | grep -q arm64; then
-            TGT="aarch64-pc-windows-msvc"
-          else
-            TGT="x86_64-pc-windows-msvc"
-          fi
-          mkdir -p "$EGUI"
-          cp "target/$TGT/release/$APP.exe" "$EGUI/$APP-$VERSION-$TGT.exe"
-          # choco 装的 WiX v3 在安装时才加 PATH，当前 bash 会话拿不到；
-          # 直接定位 bin 目录(含 candle/light)并通过 --bin-path 传给 cargo-wix
-          # (用数组避免路径中的空格被拆成多个参数)
-          WIX_ARGS=()
-          if command -v candle >/dev/null 2>&1; then
-            WIX_ARGS=(--bin-path "$(dirname "$(command -v candle)")")
-          else
-            WIXBIN=""
-            for p in /c/Program\ Files*/WiX\ Toolset\ v*/bin; do
-              if [ -d "$p" ]; then WIXBIN="$p"; break; fi
-            done
-            if [ -n "$WIXBIN" ]; then
-              WIX_ARGS=(--bin-path "$WIXBIN")
-            fi
-          fi
-          (cd app-egui && cargo wix --nocapture --no-build -p app-egui \
-            --target "$TGT" --target-bin-dir "$GITHUB_WORKSPACE/target/$TGT/release" \
-            "${WIX_ARGS[@]}" \
-            -o "../$EGUI/$APP-$VERSION-$TGT.msi")
-        shell: bash
-
-      - name: Package egui (macOS .app + .dmg)
-        if: runner.os == 'macOS'
-        run: |
-          VERSION="${{ steps.version.outputs.value }}"
-          # egui 是各 runner 原生架构编译，非通用二进制；须带架构区分文件名，
-          # 否则 arm64/x86_64 两个 job 产出同名 dmg 互相覆盖，只留一份且被误标为"通用"
-          if echo "${{ matrix.label }}" | grep -q arm64; then
-            ARCH="aarch64"
-          else
-            ARCH="x86_64"
-          fi
-          cd "$GITHUB_WORKSPACE"
-          APP="universal-shell-egui"
-          EGUI="dist/egui/macos"
-          APPNAME="$EGUI/$APP.app"
-          mkdir -p "$APPNAME/Contents/MacOS" "$APPNAME/Contents/Resources"
-          cp "target/release/$APP" "$APPNAME/Contents/MacOS/$APP"
-          cp "assets/icons/egui-bundle/icon.icns" "$APPNAME/Contents/Resources/icon.icns"
-          cat > "$APPNAME/Contents/Info.plist" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key><string>Universal Shell</string>
-            <key>CFBundleDisplayName</key><string>Universal Shell</string>
-            <key>CFBundleIdentifier</key><string>com.universal.shell.egui</string>
-            <key>CFBundleVersion</key><string>$VERSION</string>
-            <key>CFBundleShortVersionString</key><string>$VERSION</string>
-            <key>CFBundleExecutable</key><string>$APP</string>
-            <key>CFBundleIconFile</key><string>icon</string>
-            <key>LSMinimumSystemVersion</key><string>12.0</string>
-            <key>NSHighResolutionCapable</key><true/>
-            <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
-          </dict>
-          </plist>
-          PLIST
-          chmod +x "$APPNAME/Contents/MacOS/$APP"
-          STAGE="$EGUI/.dmg-stage"
-          mkdir -p "$STAGE"
-          cp -R "$APPNAME" "$STAGE/"
-          ln -s /Applications "$STAGE/Applications"
-          hdiutil create -volname "Universal Shell $VERSION" -srcfolder "$STAGE" \
-            -ov -format UDZO "$EGUI/$APP-$VERSION-$ARCH.dmg" >/dev/null
-          rm -rf "$STAGE"
-          # dist/**/* 会上传整个 dist，删掉 .app 目录避免其内部文件
-          # (Info.plist / icon.icns / 裸二进制)当独立资产混进 Release
-          rm -rf "$APPNAME"
-        shell: bash
-
-      - name: Package egui (Linux binary)
-        if: runner.os == 'Linux'
-        run: |
-          VERSION="${{ steps.version.outputs.value }}"
-          APP="universal-shell-egui"
-          EGUI="dist/egui/linux"
-          mkdir -p "$EGUI"
-          cp "target/release/$APP" "$EGUI/$APP-$VERSION-${{ matrix.label }}"
-          chmod +x "$EGUI/$APP-$VERSION-${{ matrix.label }}"
-        shell: bash
-
       # ---- tauri：各平台原生产出自带安装包（Windows 用 nsis+msi，WiX 由上一步装好；NSIS 由 tauri bundler 自动下载）----
       # 只把最终可分发的安装包拷入 dist/bundle，丢弃 tauri 中间目录
       # （AppImage/deb 的展开内容、control、*.so、gschemas、desktop 等大量无关文件），
@@ -261,7 +147,7 @@ jobs:
             --config "{\"version\":\"$VERSION\"}")
           mkdir -p dist/bundle
           # 仅保留最终安装包，丢开 tauri 的中间/展开文件；
-          # 统一改名为 universal-shell-tauri-<原名>，与 egui/cli 前缀保持一致。
+          # 统一改名为 universal-shell-tauri-<原名>，与 universal-shell-cli-* 前缀保持一致。
           # tauri 原名带 productName "universal-shell" 前缀，但分隔符因包类型而异：
           # AppImage/deb/dmg 是下划线（universal-shell_0.1.8_arch.xxx），
           # rpm 是连字符（universal-shell-0.1.8-1.arch.rpm），两种都要剥掉，
@@ -339,8 +225,7 @@ jobs:
         # 保证 Release 里 Linux/macOS 二进制 / .app 内二进制可直接运行
         run: |
           find dist -type f \
-            \( -name 'universal-shell-egui-*' \
-               -o -name 'universal-shell-cli-*' \
+            \( -name 'universal-shell-cli-*' \
                -o -path '*/Contents/MacOS/*' \
                -o -path '*/bin/*' \) \
             -exec chmod +x {} +

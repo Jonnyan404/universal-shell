@@ -69,8 +69,7 @@ jobs:
 
       - name: Install WiX Toolset (Windows .msi)
         run: |
-          cargo install cargo-wix --locked
-          # cargo-wix 需要 candle/light（WiX v3，经 PATH 暴露）；用 chocolatey 装
+          # tauri 打 .msi 需要 candle/light（WiX v3，经 PATH 暴露）；用 chocolatey 装
           choco install wixtoolset -y --no-progress
         shell: pwsh
 
@@ -97,7 +96,7 @@ jobs:
           UNIVERSAL_SHELL_VERSION: ${{ steps.version.outputs.value }}
         run: |
           VERSION="${{ steps.version.outputs.value }}"
-          # nsis+msi：NSIS 由 tauri bundler 自动下载，msi 用 cargo-wix 已装好的 WiX
+          # nsis+msi：NSIS 由 tauri bundler 自动下载，msi 用前面装好的 WiX
           # （不加 --target：arm64 runner 原生即 aarch64-pc-windows-msvc，产物在 target/release/bundle）
           (cd app-tauri && npx tauri build --bundles nsis,msi \
             --config "{\"version\":\"$VERSION\"}")
@@ -108,17 +107,6 @@ jobs:
               b=$(basename "$1"); b=${b#universal-shell_}
               cp "$1" "dist/bundle/universal-shell-tauri-$b"
             ' _ {} \;
-        shell: bash
-
-      - name: Build egui binary
-        if: env.skip != '1'
-        run: |
-          if [ "${{ matrix.label }}" = "arm64" ]; then
-            TGT="aarch64-pc-windows-msvc"
-          else
-            TGT="x86_64-pc-windows-msvc"
-          fi
-          cargo build --release --target "$TGT" -p app-egui
         shell: bash
 
       - name: Build CLI (us-web)
@@ -145,37 +133,6 @@ jobs:
           mkdir -p "$CLI"
           # 资产名对齐 release.yml：带 windows- 平台前缀，保证 release 部署时可覆盖同名资产
           cp "target/$TGT/release/us-web.exe" "$CLI/universal-shell-cli-$VERSION-windows-${{ matrix.label }}.exe"
-        shell: bash
-
-      - name: Package egui (Windows .exe + .msi)
-        if: env.skip != '1'
-        run: |
-          VERSION="${{ steps.version.outputs.value }}"
-          APP="universal-shell-egui"
-          EGUI="dist/egui/windows"
-          if [ "${{ matrix.label }}" = "arm64" ]; then
-            TGT="aarch64-pc-windows-msvc"
-          else
-            TGT="x86_64-pc-windows-msvc"
-          fi
-          mkdir -p "$EGUI"
-          cp "target/$TGT/release/$APP.exe" "$EGUI/$APP-$VERSION-$TGT.exe"
-          # choco 装的 WiX v3 在安装时才加 PATH，当前 bash 会话拿不到；
-          # 直接定位 bin 目录(含 candle/light)并通过 --bin-path 传给 cargo-wix
-          # (用数组避免路径中的空格被拆成多个参数)
-          WIX_ARGS=()
-          if command -v candle >/dev/null 2>&1; then
-            WIX_ARGS=(--bin-path "$(dirname "$(command -v candle)")")
-          else
-            WIXBIN="$(ls -d "/c/Program Files"*/WiX\ Toolset\ v*/bin 2>/dev/null | head -1)"
-            if [ -n "$WIXBIN" ]; then
-              WIX_ARGS=(--bin-path "$WIXBIN")
-            fi
-          fi
-          (cd app-egui && cargo wix --nocapture --no-build -p app-egui \
-            --target "$TGT" --target-bin-dir "$GITHUB_WORKSPACE/target/$TGT/release" \
-            "${WIX_ARGS[@]}" \
-            -o "../$EGUI/$APP-$VERSION-$TGT.msi")
         shell: bash
 
       - name: SHA256
