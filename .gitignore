@@ -7,3 +7,5 @@ dist/
 app-tauri/src/locales/
 frontend/locales/
 .workbuddy-ai/
+# 本地 agent 工作状态与记忆（非项目产物）
+.workbuddy/
