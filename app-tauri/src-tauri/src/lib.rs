@@ -1790,9 +1790,11 @@ pub fn run() {
                     .expect("spawn us-autostart");
             }
 
-            // 内嵌 Web 管理（F-4）：与浏览器同源同入口；主窗口直达 loopback 服务。
-            // 失败不阻断桌面 UI——桌面仍走自带资源，仅少了 Web 管理。
-            {
+            // 内嵌 Web 管理（F-4）：与浏览器同源同入口。
+            // 窗口在服务起来之后才创建（tauri.conf 里 `create=false`），URL 直接指向 loopback，
+            // 从而避免「先渲染 splash 再 navigate」的二次整页加载（启动时可见白闪 + 一次多余渲染）。
+            // 服务启动失败时回退到内置 splash 页，不阻断进程（与旧行为一致）。
+            let web_url = {
                 let st = app.state::<AppState>();
                 let cfg = st.config_path.clone();
                 // 端口/绑定取配置（默认 127.0.0.1 + 随机高位；指定端口被占用时自动回退）
@@ -1806,15 +1808,35 @@ pub fn run() {
                         web_server::enable_native_pick();
                         let url = h.url.clone();
                         let _ = app.manage(WebServerState(Mutex::new(Some(h))));
-                        if let Some(w) = app.get_webview_window("main") {
-                            let _ = w.navigate(tauri::Url::parse(&url).expect("loopback url"));
-                        }
+                        Some(url)
                     }
                     Err(e) => {
                         let _ = st.manager.lock().map(|m| {
                             m.log_op(&t!("log.web_start_fail", err = format!("{e:#}")))
                         });
+                        None
                     }
+                }
+            };
+
+            match app.config().app.windows.first().cloned() {
+                Some(mut wcfg) => {
+                    // 只覆盖 url：标题/尺寸/最小尺寸等仍由 tauri.conf.json 单一来源决定。
+                    if let Some(url) = &web_url {
+                        wcfg.url = tauri::WebviewUrl::External(
+                            tauri::Url::parse(url).expect("loopback url"),
+                        );
+                    }
+                    tauri::WebviewWindowBuilder::from_config(app.handle(), &wcfg)?.build()?;
+                }
+                // 配置缺窗口条目（不该发生）：至少给一个能显示 splash 的窗口，别让进程空转。
+                None => {
+                    tauri::WebviewWindowBuilder::new(
+                        app.handle(),
+                        "main",
+                        tauri::WebviewUrl::App("index.html".into()),
+                    )
+                    .build()?;
                 }
             }
             Ok(())
