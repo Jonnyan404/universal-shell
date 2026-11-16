@@ -158,8 +158,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ github.event.inputs.version }}
-          # overwrite=true 时先删除同名旧资产再上传，实现"追加/覆盖"
-          overwrite: ${{ github.event.inputs.overwrite_assets != 'false' }}
+          # overwrite_files=true 时先删除同名旧资产再上传，实现"追加/覆盖"
+          overwrite_files: ${{ github.event.inputs.overwrite_assets != 'false' }}
           files: |
             dist/cli/**/*
             dist/bundle/**/*

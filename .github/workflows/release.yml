@@ -195,8 +195,8 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          # overwrite=true 时先删同名旧资产再上传，实现「重跑覆盖」
-          overwrite: ${{ github.event.inputs.overwrite_assets != 'false' }}
+          # overwrite_files=true 时先删同名旧资产再上传，实现「重跑覆盖」
+          overwrite_files: ${{ github.event.inputs.overwrite_assets != 'false' }}
           # 不传 dist/sha256-*.txt：汇总版 sha256.txt 由 checksums job 生成
           files: |
             dist/cli/**/*
