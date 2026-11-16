@@ -20,7 +20,7 @@
 
 - **完成并验证通过的工作，必须立即 commit，这是一个好习惯，方便出问题时追溯。**
   - commit 之前先 `git add` 只纳入本批次相关文件，写清晰简洁的英文 commit message（祈使句，参考仓库历史风格，如 "Fix version check when config file is missing"）。
-  - 用户授权可 push 时，commit 后一并 push（默认推 origin/main）。
+  - **常设授权**：完成并验证通过的工作，commit 后直接 push（默认 `origin/main`），不必再逐次征求同意。推送前必须先把对应检查跑绿（见下），不要推未验证的改动。
 - 改代码后运行对应检查：
   - Rust：**不要 `cargo build`**，最多用 `cargo run -p <crate>` 以开发模式运行调试；表格/行为验证用 `cargo run -p shared --example verify_templates` 等。
   - Python：`python -m compileall` 或项目现有测试/检查方式。
