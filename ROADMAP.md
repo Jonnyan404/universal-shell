@@ -166,7 +166,10 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
     - 后端新增 `workspace_list` 聚合（`kind` / `state` / `supervisor` / `native` / 服务全字段），派生服务（`origin = program:*`）不单列，避免同一对象出现两次。
     - 移动端：卡片流改为工作台列表，底部 tab 收敛为 程序 / 模板库 / 日志；详情仍走二级页。
     - 深链接：`?view=library|log`、`?sel=<id>`（直达某条）。
-  - **已知未做**：① 改参数触发的重装会让服务**短暂中断**（重启以应用新参数），未做「先启动新的再切流量」；② Windows `system`（提权）场景已有真机证据：CI 在 `windows-latest` 上生成 BootTrigger + HighestAvailable 的任务，`schtasks /Create`、`/Query`、`/Delete` 全部通过（run 45157356081）；③ 派生条目仍在每次同步时按当前字段值重建，若用户在界面上手改派生条目会被覆盖（`origin` 已标明来源）；④ 旧批量视图的 CSS（`.batch-*`）仍在样式表里，模板库还在复用其中一部分，未进一步拆分。
+  - **包装器归宿主（2026-11-23）**：`us-svc` 不再是发布产物——`us-service` 是库，`run_cli()` 由 `us-svc`、`us-web`、桌面端共用。`Ctx::new` 优先同目录的 `us-svc`（开发态），没有就退回宿主程序，因此安装包里不再需要第二个二进制。
+    - 顺带修掉一个真 bug：从界面切 native 时 `current_exe` 是 `us-web`，而它当时没有 `run` 子命令 → 生成的 plist 指向一个跑不起来的命令。现在宿主实现了 `run`，并用「临时移走 us-svc」的方式验证过。
+    - 同时修掉 `app-tauri` 的编译错误（两处 `Program` 字面量缺 `supervisor` / `native`）——CI 只测 `us-service`，这个问题会拖到发版才炸。
+  - **已知未做**：① 运行参数**真的**变化时仍会重启服务（几百毫秒中断），未做「先启动新的再切流量」；改名/改描述已不再触发；② Windows `system`（提权）场景已有真机证据：CI 在 `windows-latest` 上生成 BootTrigger + HighestAvailable 的任务，`schtasks /Create`、`/Query`、`/Delete` 全部通过（run 45157356081）；③ 派生条目仍在每次同步时按当前字段值重建，若用户在界面上手改派生条目会被覆盖（`origin` 已标明来源）；④ 旧批量视图的 CSS（`.batch-*`）仍在样式表里，模板库还在复用其中一部分，未进一步拆分。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。
   - 依据：① 功能面已被覆盖——桌面用 Tauri、无桌面用 `us-web`，egui 独占场景仅剩「托盘常驻且不起 webview」；② 双份维护成本真实——ROADMAP 中 B7/B8、C4、C5、D1、F1、F10 均为双端条目，且 egui 已落后 5 项（日志中心、模板 diff、二进制上传、局域网开关、主题切换），i18n 258/486；③ Release 资产下载量趋近于 0（egui 与 tauri 同量级），重复维护未服务到用户。
