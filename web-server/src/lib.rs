@@ -31,7 +31,7 @@ const SPA_INDEX: &str = include_str!("../../frontend/index.html");
 const SPA_STYLES: &str = include_str!("../../frontend/styles.css");
 const SPA_MAIN_JS: &str = include_str!("../../frontend/main.js");
 const SPA_API_JS: &str = include_str!("../../frontend/api.js");
-const SPA_SERVICES_JS: &str = include_str!("../../frontend/services.js");
+const SPA_WORKBENCH_JS: &str = include_str!("../../frontend/workbench.js");
 const SPA_MANIFEST: &str = include_str!("../../frontend/manifest.json");
 const SPA_SW_JS: &str = include_str!("../../frontend/sw.js");
 const ICON_192: &[u8] = include_bytes!("../../frontend/icons/icon-192.png");
@@ -199,7 +199,7 @@ pub fn start_with_state(
                     .route("/styles.css", get(styles))
                     .route("/main.js", get(main_js))
                     .route("/api.js", get(api_js))
-                    .route("/services.js", get(services_js))
+                    .route("/workbench.js", get(workbench_js))
                     .route("/manifest.json", get(manifest))
                     .route("/sw.js", get(sw_js))
                     .route("/icons/icon-192.png", get(icon_192))
@@ -253,8 +253,8 @@ async fn styles() -> impl IntoResponse {
 async fn main_js() -> impl IntoResponse {
     static_body(SPA_MAIN_JS.as_bytes(), "text/javascript")
 }
-async fn services_js() -> impl IntoResponse {
-    static_body(SPA_SERVICES_JS.as_bytes(), "text/javascript")
+async fn workbench_js() -> impl IntoResponse {
+    static_body(SPA_WORKBENCH_JS.as_bytes(), "text/javascript")
 }
 async fn api_js() -> impl IntoResponse {
     static_body(SPA_API_JS.as_bytes(), "text/javascript")

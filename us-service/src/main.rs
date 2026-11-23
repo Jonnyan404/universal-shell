@@ -26,7 +26,6 @@ fn dispatch() -> anyhow::Result<()> {
         "order" => cmd_order(rest),
         "status" => cmd_status(rest),
         "disable" => cmd_disable(rest),
-        "ui" => cmd_ui(rest),
         "-h" | "--help" | "help" => {
             usage();
             Ok(())
@@ -227,20 +226,6 @@ fn cmd_disable(args: &[String]) -> anyhow::Result<()> {
     us_service::uninstall(svc, &path)?;
     println!("已移除 {id} 的系统配置（services.toml 未改动）");
     Ok(())
-}
-
-fn cmd_ui(args: &[String]) -> anyhow::Result<()> {
-    let path = require_config(args)?;
-    Config::load(&path)?;
-    let port: u16 = match flag(args, "--port") {
-        Some(v) => v.parse()?,
-        None => 45980,
-    };
-    let open = has(args, "--open");
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    rt.block_on(us_service::ui::serve(path, port, open))
 }
 
 fn require_config(args: &[String]) -> anyhow::Result<PathBuf> {

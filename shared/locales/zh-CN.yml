@@ -488,9 +488,10 @@ log.runner.stopped: '已停止 %{id}'
 log.check_version_fail: '检查「%{name}」最新版本失败: %{err}'
 
 # 程序 ↔ 服务（系统调度）
-svc.native_notice: 此程序由系统调度接管：开机自启，壳退出也不停。输出日志请在「服务」页查看。
+svc.native_notice: 此程序由系统调度接管：开机自启，壳退出也不停。
 svc.back_to_managed: 改为壳托管
-svc.open_board: 打开服务页
+svc.open_board: 打开调度
+svc.open_sched: 打开调度
 svc.make_native: 开机自启
 
 # 服务看板（主界面「服务」页）
@@ -549,3 +550,50 @@ svc.applied: 已按新参数重新装载
 svc.apply_failed: 已保存，但重新装载失败：%{err}
 svc.summary: 共 %{total} 条，%{running} 条运行中
 svc.native_badge: 系统调度
+
+# 工作台（统一列表 + 详情）
+wb.search_ph: 搜索名称或 id…
+wb.all: 全部
+wb.running: 运行中
+wb.native: 系统调度
+wb.update: 有更新
+wb.tab_cfg: 配置
+wb.tab_sched: 调度
+wb.tab_upd: 更新
+wb.sup_managed: 壳托管
+wb.sup_native: 系统调度
+wb.manual_service: 手工服务
+wb.empty: 没有匹配的项
+wb.select_hint: 从左侧选一项
+wb.bulk_selected: 已选 %{n} 项
+wb.act_start: 启动
+wb.act_stop: 停止
+wb.act_restart: 重启
+wb.act_check: 检查更新
+wb.act_hide: 隐藏
+wb.act_delete: 删除
+wb.done: '%{n} 项已完成'
+wb.partial: '%{ok} 项成功，%{fail} 项失败'
+wb.confirm_delete: 删除选中的 %{n} 项？手工服务会同时从系统卸载。
+wb.f_cmd: 命令
+wb.f_args: 参数（每行一个）
+wb.f_cwd: 工作目录
+wb.f_env: 环境变量（KEY=VALUE）
+wb.f_log: 日志文件
+wb.save: 保存
+wb.saved: 已保存
+wb.sched_delay: 启动延迟（秒）
+wb.sched_restart: 崩溃重启
+wb.sched_scope: 运行范围
+wb.sched_deps: 依赖服务
+wb.sched_wait: 等待超时（秒）
+wb.sched_rport: 就绪端口
+wb.sched_rfile: 就绪文件
+wb.save_sched: 保存并重新装载
+wb.managed_hint: 由本应用托管：关掉它就停。
+wb.native_hint: 由系统调度：开机自启，关掉本应用也不停。
+wb.upd_na: 手工服务没有版本概念。
+wb.applied: 已按新参数重新装载
+wb.svc_cfg_hint: 这条是手工创建的服务，命令与参数直接写入 services.toml。
+wb.new_service: ＋ 新建服务
+wb.f_name: 名称

@@ -145,6 +145,8 @@ async function openExternal(url) {
 
 // ---------- 侧栏 ----------
 function renderSidebar(preferId) {
+  // 列表由工作台统一渲染（程序 + 手工服务）；旧实现保留为兜底
+  if (window.usWorkbench) return window.usWorkbench.renderList(preferId);
   el.tabs.innerHTML = "";
   statuses.forEach((s) => {
     if (s.hidden) return;
@@ -378,7 +380,7 @@ async function confirmAndClearData(p) {
   try {
     await invoke("clear_program_data", { programId: p.id });
     showNotice(t("toast.data_cleared", { name: p.name }));
-    await refreshBatchLocal();
+    if (window.usWorkbench) await window.usWorkbench.load();
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -386,14 +388,14 @@ async function confirmAndClearData(p) {
 
 // ---------- 主视图 ----------
 function switchView(v) {
+  // 批量与服务已并入工作台；这里保留映射，旧调用点不必逐个改
+  if (v === "batch" || v === "services") v = "manage";
   view = v;
   el.manageView.hidden = v !== "manage";
-  el.batchView.hidden = v !== "batch";
   el.libraryView.hidden = v !== "library";
   el.logView.hidden = v !== "log";
-  if (el.servicesView) el.servicesView.hidden = v !== "services";
-  if (v === "services") window.usServices && window.usServices.onShow();
-  else window.usServices && window.usServices.onHide();
+  if (v === "manage") window.usWorkbench && window.usWorkbench.onShow();
+  else window.usWorkbench && window.usWorkbench.onHide();
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) dlBtn.hidden = v !== "manage";
   // 更新设置条在 #manage-view 内部，跟着 manageView 一起显示/隐藏，这里不再单独控制
@@ -407,8 +409,7 @@ function switchView(v) {
   } else {
     // 批量/模板库/日志中心不再显示顶部标题栏（程序名状态条只在管理页需要）
     el.statusbar.hidden = true;
-    if (v === "batch") refreshBatchLocal();
-    else if (v === "library") {
+    if (v === "library") {
       if (!manifest) ensureLibraryFromCache();
       else renderLibrary();
     }
@@ -416,11 +417,7 @@ function switchView(v) {
   if (v !== "log") stopLogCenterTailing();
   renderSidebar();
   document.querySelectorAll(".sidebar-foot .sidebar-settings").forEach((b) => {
-    const activeId =
-      v === "batch" ? "batch-link"
-      : v === "library" ? "library-link"
-      : v === "log" ? "log-center-link"
-      : v === "services" ? "services-link" : "";
+    const activeId = v === "library" ? "library-link" : v === "log" ? "log-center-link" : "";
     b.classList.toggle("active", b.id === activeId);
   });
   if (isMobile()) mobSyncView(v);
@@ -474,7 +471,8 @@ async function renderUpdateSettings() {
     toggle.hidden = true;
     return;
   }
-  toggle.hidden = false;
+  // 更新设置已是工作台的一个 tab，状态栏的折叠开关不再需要
+  toggle.hidden = true;
   box.dataset.programId = current.id;
   const st = statuses.find((s) => s.id === current.id)?.status;
   updateUpdateCard(st);
@@ -863,8 +861,8 @@ function renderActions() {
     back.textContent = t("svc.back_to_managed");
     back.onclick = () => setSupervisor(false);
     const open = document.createElement("button");
-    open.textContent = t("svc.open_board");
-    open.onclick = () => switchView("services");
+    open.textContent = t("svc.open_sched");
+    open.onclick = () => window.usWorkbench && window.usWorkbench.showTab("sched");
     box.append(txt, back, open);
     actions.appendChild(box);
     return;
@@ -1150,8 +1148,7 @@ function handleInstallProgress(p) {
 async function completeInstall(id, error, version) {
   installing.delete(id);
   try {
-    if (view === "batch") await refreshBatchLocal();
-    else if (current?.id === id) await refreshStatusLocal();
+    if (current?.id === id) await refreshStatusLocal();
     else await refreshAllStatuses();
   } catch {}
   syncInstallBtns(id);
@@ -1227,17 +1224,6 @@ document.addEventListener("visibilitychange", () => {
   refreshAllStatuses();
 });
 
-// ---------- 批量管理 ----------
-async function refreshBatchLocal() {
-  try {
-    statuses = await invoke("batch_status_local");
-    renderSidebar();
-    renderBatch();
-  } catch (e) {
-    showNotice(String(e), true);
-  }
-}
-
 async function checkUpdates(btn) {
   if (checkingUpdates) return;
   checkingUpdates = true;
@@ -1251,7 +1237,7 @@ async function checkUpdates(btn) {
     const full = await invoke("batch_status");
     statuses = full;
     renderSidebar();
-    if (view === "batch") renderBatch();
+    if (window.usWorkbench) await window.usWorkbench.load();
     if (current) {
       const cur = statuses.find((it) => it.id === current.id)?.status;
       if (cur) applyStatus(cur);
@@ -1276,459 +1262,10 @@ async function checkUpdates(btn) {
   }
 }
 
-function renderBatch() {
-  const checkedAt = statuses.reduce((m, it) => {
-    const t0 = it.status?.latest_checked_at;
-    return t0 && t0 > m ? t0 : m;
-  }, 0);
-  el.batchCheckedAt.textContent = checkedAt
-    ? t("check.last_checked", { ago: timeAgo(checkedAt) })
-    : t("check.not_checked");
-
-  const mobile = isMobile();
-  el.batchTable.hidden = mobile;
-  el.batchCards.hidden = !mobile;
-  if (mobile) { renderBatchMobile(); return; }
-
-  el.batchBody.innerHTML = "";
-  if (!statuses.length) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 6;
-    td.textContent = t("side.empty");
-    tr.appendChild(td);
-    el.batchBody.appendChild(tr);
-    return;
-  }
-  for (const item of statuses) {
-    const s = item.status;
-    const tr = document.createElement("tr");
-    const tdName = document.createElement("td");
-    tdName.textContent = item.name;
-    if (item.supervisor === "native") {
-      const tag = document.createElement("span");
-      tag.className = "batch-hidden batch-native";
-      tag.textContent = t("svc.native_badge");
-      tdName.appendChild(tag);
-    }
-    if (item.hidden) {
-      const tag = document.createElement("span");
-      tag.className = "batch-hidden";
-      tag.textContent = t("st.hidden");
-      tdName.appendChild(tag);
-    }
-    tr.appendChild(tdName);
-    const tdLocal = document.createElement("td");
-    tdLocal.textContent = s.local_version || "—";
-    tr.appendChild(tdLocal);
-    const tdLatest = document.createElement("td");
-    tdLatest.textContent = s.latest_version ?? t("st.unknown");
-    tr.appendChild(tdLatest);
-    const tdState = document.createElement("td");
-    tdState.textContent = !s.installed ? t("st.not_installed_bare") : s.running ? t("st.running") : t("st.stopped");
-    tdState.className = !s.installed ? "missing" : s.running ? "running" : "stopped";
-    tr.appendChild(tdState);
-    const tdAuto = document.createElement("td");
-    const auto = document.createElement("input");
-    auto.type = "checkbox";
-    auto.checked = s.autostart;
-    auto.addEventListener("change", async () => {
-      auto.disabled = true;
-      try {
-        await invoke("set_autostart", { programId: item.id, enabled: auto.checked });
-        showNotice(t("toast.autostart_updated", { name: item.name }));
-      } catch (e) {
-        auto.checked = !auto.checked;
-        showNotice(String(e), true);
-      } finally {
-        auto.disabled = false;
-      }
-    });
-    tdAuto.appendChild(auto);
-    tr.appendChild(tdAuto);
-    const tdHide = document.createElement("td");
-    const hide = document.createElement("input");
-    hide.type = "checkbox";
-    hide.checked = item.hidden;
-    hide.addEventListener("change", async () => {
-      hide.disabled = true;
-      try {
-        await invoke("set_program_hidden", { programId: item.id, hidden: hide.checked });
-        showNotice(hide.checked ? t("toast.hidden", { name: item.name }) : t("toast.unhidden", { name: item.name }));
-        programs = await invoke("get_programs");
-        if (item.id === current?.id && hide.checked) current = null;
-        await refreshBatchLocal();
-      } catch (e) {
-        hide.checked = !hide.checked;
-        showNotice(String(e), true);
-      } finally {
-        hide.disabled = false;
-      }
-    });
-    tdHide.appendChild(hide);
-    tr.appendChild(tdHide);
-    el.batchBody.appendChild(tr);
-
-    const ops = batchOpButtons(item);
-    const opsRow = document.createElement("tr");
-    opsRow.className = "batch-ops-row";
-    const opsCell = document.createElement("td");
-    opsCell.colSpan = 6;
-    opsCell.appendChild(ops);
-    opsRow.appendChild(opsCell);
-    el.batchBody.appendChild(opsRow);
-    // 方案E: 默认展开设置行（GitHub 远程源才显示）
-    if (item.repo) {
-      const settingsTr = buildBatchSettingsRow(item);
-      settingsTr.id = `batch-settings-${item.id}`;
-      opsRow.after(settingsTr);
-    }
-  }
-}
-
 function hasRemoteSource(item) {
   return !!(item.repo || statusSource(item.id));
 }
 
-const ICONS = {
-  gear: '<path fill="#94a3b8" d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.64-.06.94s.02.63.06.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 15.6 12 3.6 3.6 0 0 1 12 15.6z"/>',
-  start: '<path fill="#4f8cff" d="M4.5 3.2v17.6L19.5 12z"/>',
-  stop: '<rect fill="#ff453a" x="4" y="4" width="16" height="16" rx="2.5"/>',
-  restart: '<path fill="#ff9f0a" d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4z"/>',
-  dir: '<path fill="#eab308" d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2z"/>',
-  edit: '<path fill="#7c5cff" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>',
-  del: '<path fill="#ff453a" d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>',
-  clear: '<path fill="#ff9f0a" d="M6 7V6a2 2 0 0 1 2-2h1l.5-1h5L15 4h1a2 2 0 0 1 2 2v1H6zm.6 3h10.8l-1 10.4a2 2 0 0 1-2 1.85h-4.8a2 2 0 0 1-2-1.85L6.6 10z"/>',
-  dl: '<path fill="#30d158" d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>',
-  ok: '<path fill="#34c759" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>',
-};
-
-function iconSvg(name) {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", "16");
-  svg.setAttribute("height", "16");
-  svg.setAttribute("aria-hidden", "true");
-  svg.innerHTML = ICONS[name];
-  return svg;
-}
-
-function batchIconBtn(ico, titleKey, cls, fn) {
-  const b = document.createElement("button");
-  b.className = "icon-btn" + (cls ? " " + cls : "");
-  b.title = t(titleKey);
-  b.appendChild(iconSvg(ico));
-  b.onclick = fn;
-  return b;
-}
-
-function batchDownloadBtn(item, s) {
-  const isUpToDate = s.installed && s.up_to_date;
-  const dl = document.createElement("button");
-  dl.className = "icon-btn" + (isUpToDate ? " ops-ok" : " ops-dl");
-  dl.dataset.programId = item.id;
-  dl.dataset.installed = s.installed ? "1" : "0";
-  dl.title = isUpToDate ? t("st.latest") : s.installed ? t("dl.update") : t("dl.download");
-  dl.appendChild(iconSvg(isUpToDate ? "ok" : "dl"));
-  dl.disabled = isUpToDate;
-  dl.onclick = () => installProgram(item.id, dl);
-  return dl;
-}
-
-async function batchAct(item, rpc) {
-  const name = item.name || item.id;
-  try {
-    if (rpc !== "stop_program") {
-      const vals = (await invoke("get_values", { programId: item.id }).catch(() => ({}))) || {};
-      await invoke(rpc, { programId: item.id, values: vals });
-    } else {
-      await invoke(rpc, { programId: item.id });
-    }
-    await refreshBatchLocal();
-    // 批量操作以「程序名 + 动词」体现操作对象，避免多程序并发时看不出是谁
-    const okKey = rpc === "start_program" ? "batch.started" : rpc === "restart_program" ? "batch.restarted" : "batch.stopped";
-    showNotice(t(okKey, { name }));
-  } catch (e) { showNotice(String(e), true); }
-}
-
-function batchOpButtons(item) {
-  const s = item.status;
-  const ops = document.createElement("span");
-  ops.className = "batch-ops";
-  if (hasRemoteSource(item)) ops.appendChild(batchDownloadBtn(item, s));
-  const startBtn = batchIconBtn("start", "act.start", "ops-start", () => batchAct(item, "start_program"));
-  startBtn.disabled = !!s.running;
-  ops.appendChild(startBtn);
-  const restartBtn = batchIconBtn("restart", "act.restart", "ops-restart", () => batchAct(item, "restart_program"));
-  restartBtn.disabled = !s.installed;
-  ops.appendChild(restartBtn);
-  const stopBtn = batchIconBtn("stop", "act.stop", "ops-stop", () => batchAct(item, "stop_program"));
-  stopBtn.disabled = !s.running;
-  ops.appendChild(stopBtn);
-  if (item.repo) ops.appendChild(batchIconBtn("dir", "act.open_app_dir", "ops-dir", async () => {
-    try {
-      await invoke("reveal_app_dir", { programId: item.id });
-      showNotice(t("toast.opened_dir"));
-    }
-    catch (e) { showNotice(String(e), true); }
-  }));
-  ops.appendChild(batchIconBtn("edit", "act.edit", "ops-edit", () => openEditModal(programs.find((x) => x.id === item.id))));
-  ops.appendChild(batchIconBtn("clear", "act.clear_data", "ops-clear", () => confirmAndClearData(programs.find((x) => x.id === item.id))));
-  ops.appendChild(batchIconBtn("del", "act.delete", "ops-del", () => confirmAndDelete(programs.find((x) => x.id === item.id))));
-  return ops;
-}
-
-// 方案E: 批量页每行「更新设置」内联展开行（通道 + 指定版本 + 上次检查 + 检查更新）
-function buildBatchSettingsRow(item) {
-  const tr = document.createElement("tr");
-  tr.className = "batch-settings-row";
-  const td = document.createElement("td");
-  td.colSpan = 6;
-  const row = document.createElement("div");
-  row.className = "batch-settings-line";
-  const chanLabel = document.createElement("span");
-  chanLabel.className = "upd-label";
-  chanLabel.textContent = t("upd.channel");
-  row.appendChild(chanLabel);
-  const group = document.createElement("span");
-  group.className = "upd-radios";
-  const prog = programs.find((p) => p.id === item.id);
-  const effChan = prog?.channel === "pre" ? "pre" : "stable";
-  for (const [value, label] of [["stable", t("upd.stable")], ["pre", t("upd.pre")]]) {
-    const lab = document.createElement("label");
-    lab.className = "upd-radio";
-    const inp = document.createElement("input");
-    inp.type = "radio";
-    inp.name = `upd-batch-${item.id}`;
-    inp.value = value;
-    inp.checked = effChan === value;
-    inp.addEventListener("change", async () => {
-      if (!inp.checked) return;
-      try {
-        await invoke("set_channel", { programId: item.id, channel: value });
-        showNotice(t("toast.channel_set", { channel: value === "pre" ? t("upd.pre") : t("upd.stable") }));
-        programs = await invoke("get_programs");
-        renderSidebar();
-      } catch (e) {
-        showNotice(String(e), true);
-      }
-    });
-    lab.appendChild(inp);
-    lab.appendChild(document.createTextNode(" " + label));
-    group.appendChild(lab);
-  }
-  row.appendChild(group);
-
-  // 指定版本选择（与管理页相同的懒加载逻辑）
-  const pin = prog?.version_pin || "";
-  const vLabel = document.createElement("span");
-  vLabel.className = "upd-label";
-  vLabel.textContent = t("upd.version");
-  row.appendChild(vLabel);
-  const sel = document.createElement("select");
-  sel.className = "upd-select";
-  row.appendChild(sel);
-  const verNote = document.createElement("span");
-  verNote.className = "batch-upd-note";
-  row.appendChild(verNote);
-  const autoOpt = document.createElement("option");
-  autoOpt.value = "";
-  autoOpt.textContent = t("upd.auto");
-  autoOpt.selected = !pin;
-  sel.appendChild(autoOpt);
-  if (pin) {
-    const pinOpt = document.createElement("option");
-    pinOpt.value = pin;
-    pinOpt.textContent = pin + " (pin)";
-    pinOpt.selected = true;
-    sel.appendChild(pinOpt);
-  }
-
-  // 会话级缓存：整页重建后复用已拉取的结果
-  const cached = versionListCache[item.id];
-  if (cached) {
-    applyBatchVersions(sel, cached.versions, pin, cached.error);
-  }
-
-  // 懒加载版本列表（复用会话缓存）
-  const ensureVersions = async () => {
-    if (versionListLoaded.has(item.id)) return;
-    versionListLoaded.add(item.id);
-    const loadOpt = document.createElement("option");
-    loadOpt.value = "";
-    loadOpt.textContent = t("upd.loading");
-    loadOpt.selected = true;
-    sel.add(loadOpt);
-    try {
-      const r = await invoke("list_versions", { programId: item.id, limit: 15 });
-      const versions = (r && r.versions) || [];
-      versionListCache[item.id] = { versions, error: "" };
-      applyBatchVersions(sel, versions, pin);
-    } catch (e) {
-      const err = String(e);
-      versionListCache[item.id] = { versions: [], error: err };
-      applyBatchVersions(sel, [], pin, err);
-    }
-  };
-
-  function applyBatchVersions(select, versions, pinVal, error) {
-    // 清掉「自动」之后的选项（含加载中占位），保留第一项自动
-    while (select.options.length > 1) select.remove(1);
-    if (error) {
-      verNote.textContent = t("upd.list_fail", { err: error });
-      verNote.classList.add("error");
-    } else {
-      verNote.textContent = "";
-      verNote.classList.remove("error");
-    }
-    if (error || !versions.length) {
-      const none = document.createElement("option");
-      none.value = "";
-      none.textContent = t("upd.none");
-      none.selected = !pinVal;
-      none.disabled = true;
-      select.appendChild(none);
-    } else {
-      for (const vv of versions) {
-        const opt = document.createElement("option");
-        opt.value = vv.tag;
-        opt.textContent = vv.tag + (vv.prerelease ? " ⚠" : "");
-        opt.selected = vv.tag === pinVal;
-        select.appendChild(opt);
-      }
-      // 钉住的版本不在最近列表内：仍补充一项标注原钉住值
-      if (pinVal && !versions.some((x) => x.tag === pinVal)) {
-        const opt = document.createElement("option");
-        opt.value = pinVal;
-        opt.textContent = pinVal + " (pin)";
-        opt.selected = true;
-        select.appendChild(opt);
-      }
-    }
-    select.value = pinVal || "";
-    select.disabled = false;
-  }
-
-  // 首次交互(点击/聚焦下拉)时才拉版本列表
-  sel.addEventListener("pointerdown", ensureVersions);
-  sel.addEventListener("focus", ensureVersions);
-  sel.addEventListener("change", async () => {
-    try {
-      await invoke("set_version_pin", { programId: item.id, version: sel.value });
-      programs = await invoke("get_programs");
-      renderSidebar();
-    } catch (e) {
-      showNotice(String(e), true);
-    }
-  });
-
-  const right = document.createElement("span");
-  right.className = "batch-settings-right";
-  const at = statuses.find((s) => s.id === item.id)?.status?.latest_checked_at;
-  const lastEl = document.createElement("span");
-  lastEl.className = "upd-label";
-  lastEl.textContent = at
-    ? t("check.last_checked", { ago: timeAgo(at) })
-    : t("check.not_checked");
-  right.appendChild(lastEl);
-  const checkBtn = document.createElement("button");
-  checkBtn.className = "op";
-  checkBtn.textContent = checkingUpdates ? t("dl.checking_short") : t("batch.check");
-  checkBtn.disabled = checkingUpdates;
-  checkBtn.onclick = () => checkUpdates(checkBtn);
-  right.appendChild(checkBtn);
-  row.appendChild(right);
-  td.appendChild(row);
-  tr.appendChild(td);
-  return tr;
-}
-
-// 移动端：批量管理改卡片列表流（G3）
-function renderBatchMobile() {
-  el.batchCards.innerHTML = "";
-  if (!statuses.length) {
-    const empty = document.createElement("div");
-    empty.className = "mb-card mb-empty";
-    empty.textContent = t("side.empty");
-    el.batchCards.appendChild(empty);
-    return;
-  }
-  for (const item of statuses) {
-    const s = item.status;
-    const card = document.createElement("div");
-    card.className = "mb-card";
-    const top = document.createElement("div");
-    top.className = "mb-card-top";
-    const name = document.createElement("span");
-    name.className = "mb-card-name";
-    name.textContent = item.name;
-    if (item.supervisor === "native") {
-      const tag = document.createElement("span");
-      tag.className = "batch-hidden batch-native";
-      tag.textContent = t("svc.native_badge");
-      name.appendChild(tag);
-    }
-    if (item.hidden) {
-      const tag = document.createElement("span");
-      tag.className = "batch-hidden";
-      tag.textContent = t("st.hidden");
-      name.appendChild(tag);
-    }
-    const st = document.createElement("span");
-    st.className = "mb-state" + (!s.installed ? " missing" : s.running ? " running" : " stopped");
-    st.textContent = !s.installed ? t("st.not_installed_bare") : s.running ? t("st.running") : t("st.stopped");
-    top.append(name, st);
-    const ver = document.createElement("div");
-    ver.className = "mb-card-vers";
-    const lv = document.createElement("span");
-    lv.textContent = `${t("th.local_ver")}: ${s.local_version || "—"}`;
-    const uv = document.createElement("span");
-    uv.textContent = `${t("th.latest_ver")}: ${s.latest_version ?? t("st.unknown")}`;
-    ver.append(lv, uv);
-    const toggles = document.createElement("div");
-    toggles.className = "mb-card-toggles";
-    const mkToggle = (label, checked, fn) => {
-      const lab = document.createElement("label");
-      lab.className = "mb-toggle";
-      const box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = checked;
-      lab.append(box, document.createTextNode(label));
-      box.addEventListener("change", fn);
-      return lab;
-    };
-    toggles.appendChild(mkToggle(t("th.autostart"), s.autostart, async (ev) => {
-      const box = ev.target;
-      box.disabled = true;
-      try {
-        await invoke("set_autostart", { programId: item.id, enabled: box.checked });
-        showNotice(t("toast.autostart_updated", { name: item.name }));
-      } catch (e) {
-        box.checked = !box.checked;
-        showNotice(String(e), true);
-      } finally { box.disabled = false; }
-    }));
-    toggles.appendChild(mkToggle(t("th.hidden"), item.hidden, async (ev) => {
-      const box = ev.target;
-      box.disabled = true;
-      try {
-        await invoke("set_program_hidden", { programId: item.id, hidden: box.checked });
-        showNotice(box.checked ? t("toast.hidden", { name: item.name }) : t("toast.unhidden", { name: item.name }));
-        programs = await invoke("get_programs");
-        if (item.id === current?.id && box.checked) current = null;
-        await refreshBatchLocal();
-      } catch (e) {
-        box.checked = !box.checked;
-        showNotice(String(e), true);
-      } finally { box.disabled = false; }
-    }));
-    const ops = batchOpButtons(item);
-    card.append(top, ver, toggles, ops);
-    el.batchCards.appendChild(card);
-  }
-}
-
-// 是否有远程源（含 HTTP 直链）：从已加载 programs 取当前行的 source 判断
 function statusSource(id) {
   const p = programs.find((x) => x.id === id);
   return p && (!!p.http_enabled);
@@ -2825,7 +2362,6 @@ async function refreshAllStatuses() {
   if (changed || !statuses.length) {
     renderSidebar();
     if (isMobile() && mobPage === "prog") renderMobCards();
-    if (view === "batch") renderBatch();
     if (view === "log") renderLogSources();
     if (current) {
       const st = all.find((s) => s.id === current.id)?.status;
@@ -3134,9 +2670,13 @@ async function toggleLang() {
     renderForm();
     renderActions();
     renderSidebar();
-    if (view === "batch") renderBatch();
-    else if (view === "library") renderLibrary();
-    else if (view === "services") window.usServices && window.usServices.onLangChange();
+    if (view === "library") renderLibrary();
+    else if (view === "manage" && window.usWorkbench) {
+      // 工作台的列表与详情都是即时渲染的，切语言后重建一次即可
+      window.usWorkbench.renderList();
+      const id = window.usWorkbench.selectedId();
+      if (id) window.usWorkbench.select(id);
+    }
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -3150,6 +2690,7 @@ function isMobile() {
 let mobPage = "prog"; // prog(卡片主页) / batch / lib / log
 
 function renderMobCards() {
+  if (window.usWorkbench) return window.usWorkbench.renderMobCards();
   el.mobCards.innerHTML = "";
   if (!statuses.length) {
     const empty = document.createElement("div");
@@ -3239,14 +2780,6 @@ function mobSwitchPage(tab) {
   document.body.classList.remove("mob-detail");
   if (tab === "prog") {
     mobShowHome();
-  } else if (tab === "services") {
-    // 服务页在移动端是整页列表，隐藏卡片流外壳避免叠在下面
-    el.mobShell.hidden = true;
-    switchView("services");
-    setMobTab("services");
-  } else if (tab === "batch") {
-    switchView("batch");
-    setMobTab("batch");
   } else if (tab === "lib") {
     switchView("library");
     setMobTab("lib");
@@ -3458,29 +2991,8 @@ document.querySelector("#del-modal-cancel").onclick = closeDelModal;
 document.querySelector("#del-modal-keep").onclick = () => applyDelete(false);
 document.querySelector("#del-modal-purge").onclick = () => applyDelete(true);
 
-// 批量 / 模板库 / 设置 入口
-document.querySelector("#services-link").onclick = () => switchView("services");
-document.querySelector("#batch-link").onclick = () => switchView("batch");
+// 模板库 / 设置 入口（批量与服务已并入工作台）
 document.querySelector("#library-link").onclick = () => switchView("library");
-document.querySelector("#batch-refresh").onclick = async () => {
-  try {
-    await refreshBatchLocal();
-    showNotice(t("toast.refreshed"));
-  } catch (e) {
-    showNotice(String(e), true);
-  }
-};
-document.querySelector("#batch-check-updates").onclick = (e) =>
-  checkUpdates(e.currentTarget);
-document.querySelector("#batch-stop-all").onclick = async () => {
-  try {
-    await invoke("stop_all");
-    showNotice(t("toast.stop_all"));
-    await refreshBatchLocal();
-  } catch (e) {
-    showNotice(String(e), true);
-  }
-};
 document.querySelector("#github-btn").onclick = () => openExternal("https://github.com/Jonnyan404/universal-shell");
 
 // 设置模态
@@ -3558,12 +3070,15 @@ async function boot() {
 
   programs = await invoke("get_programs");
   statuses = (await invoke("batch_status_local")) || [];
+  // 工作台：统一列表（程序 + 手工服务）。列表与详情都由它驱动。
+  const wbItems = window.usWorkbench ? await window.usWorkbench.load() : [];
   renderSidebar();
-  if (isMobile()) renderMobCards();
-  if (programs.length) {
-    await switchCurrent(programs[0].id);
+  if (isMobile()) {
+    renderMobCards();
+    mobShowHome();
+  } else if (wbItems.length) {
+    await window.usWorkbench.select(wbItems[0].id);
   }
-  if (isMobile()) mobShowHome();
 
   registries = await invoke("get_registries");
   registryUrl = registries[0] ?? "";
@@ -3604,7 +3119,21 @@ boot()
   })
   .finally(() => {
     const deep = new URLSearchParams(location.search).get("view");
-    if (deep && ["batch", "library", "log", "services"].includes(deep)) switchView(deep);
+    if (deep && ["library", "log"].includes(deep)) {
+      switchView(deep);
+      return;
+    }
+    // 工作台首次进入：桌面端默认选中第一项（boot 早期可能还拿不到 usWorkbench）
+    if (window.usWorkbench) {
+      const items = window.usWorkbench.items();
+      // ?sel=<id> 可直达某一条（分享 / 刷新后回到原处）
+      const want = new URLSearchParams(location.search).get("sel");
+      if (want && items.some((i) => i.id === want)) {
+        window.usWorkbench.select(want);
+      } else if (!isMobile() && items.length && !window.usWorkbench.selectedId()) {
+        window.usWorkbench.select(items[0].id);
+      }
+    }
   });
 
 

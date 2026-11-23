@@ -488,9 +488,10 @@ log.runner.stopped: 'Stopped %{id}'
 log.check_version_fail: 'Failed to check latest version of "%{name}": %{err}'
 
 # Program <-> service (system scheduling)
-svc.native_notice: 'Managed by the system scheduler: starts at login and survives this app. Its output is under Services.'
+svc.native_notice: 'Managed by the system scheduler: starts at login and survives this app.'
 svc.back_to_managed: Back to app-managed
-svc.open_board: Open services
+svc.open_board: Open schedule
+svc.open_sched: Open schedule
 svc.make_native: Start at login
 
 # Service board (the "Services" view)
@@ -549,3 +550,50 @@ svc.applied: Reloaded with the new settings
 svc.apply_failed: 'Saved, but reloading failed: %{err}'
 svc.summary: '%{total} total, %{running} running'
 svc.native_badge: Scheduled
+
+# Workbench (one list + one detail)
+wb.search_ph: Search name or id…
+wb.all: All
+wb.running: Running
+wb.native: Scheduled
+wb.update: Updates
+wb.tab_cfg: Config
+wb.tab_sched: Schedule
+wb.tab_upd: Updates
+wb.sup_managed: App-managed
+wb.sup_native: Scheduled
+wb.manual_service: manual service
+wb.empty: Nothing matches
+wb.select_hint: Pick an item on the left
+wb.bulk_selected: '%{n} selected'
+wb.act_start: Start
+wb.act_stop: Stop
+wb.act_restart: Restart
+wb.act_check: Check updates
+wb.act_hide: Hide
+wb.act_delete: Delete
+wb.done: '%{n} done'
+wb.partial: '%{ok} succeeded, %{fail} failed'
+wb.confirm_delete: 'Delete the %{n} selected? Manual services are also removed from the scheduler.'
+wb.f_cmd: Command
+wb.f_args: Arguments (one per line)
+wb.f_cwd: Working directory
+wb.f_env: Environment (KEY=VALUE)
+wb.f_log: Log file
+wb.save: Save
+wb.saved: Saved
+wb.sched_delay: Start delay (s)
+wb.sched_restart: Restart on crash
+wb.sched_scope: Scope
+wb.sched_deps: Depends on
+wb.sched_wait: Wait timeout (s)
+wb.sched_rport: Ready port
+wb.sched_rfile: Ready file
+wb.save_sched: Save and reload
+wb.managed_hint: 'Kept alive by this app: closing it stops the program.'
+wb.native_hint: 'Kept alive by the scheduler: starts at login and survives this app.'
+wb.upd_na: A manual service has no version.
+wb.applied: Reloaded with the new settings
+wb.svc_cfg_hint: This is a hand-made service; command and arguments live in services.toml.
+wb.new_service: ＋ New service
+wb.f_name: Name

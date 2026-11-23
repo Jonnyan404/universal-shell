@@ -8,7 +8,7 @@ use log::{info, warn};
 use rust_i18n::t;
 
 use crate::autostart::AutoStart;
-use crate::config::{AssetRule, ExtractMode, Program, ShellConfig, Supervisor};
+use crate::config::{AssetRule, ExtractMode, NativePatch, Program, ShellConfig, Supervisor};
 use crate::extract;
 use crate::github::{GitHub, LatestRelease};
 use crate::runner::Runner;
@@ -1275,9 +1275,7 @@ impl ShellManager {
         &mut self,
         id: &str,
         native: bool,
-        delay_secs: Option<u64>,
-        restart: Option<&str>,
-        scope: Option<&str>,
+        patch: &NativePatch,
         path: &Path,
     ) -> anyhow::Result<Program> {
         self.patch_update(
@@ -1288,15 +1286,7 @@ impl ShellManager {
                 } else {
                     Supervisor::Managed
                 };
-                if let Some(d) = delay_secs {
-                    p.native.delay_secs = d;
-                }
-                if let Some(r) = restart {
-                    p.native.restart = r.to_string();
-                }
-                if let Some(s) = scope {
-                    p.native.scope = s.to_string();
-                }
+                patch.apply(&mut p.native);
             },
             path,
         )

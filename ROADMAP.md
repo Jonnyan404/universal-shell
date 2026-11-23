@@ -136,10 +136,10 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
   - **真相源**：`services.toml` 是唯一事实；launchd plist / systemd unit / 计划任务 XML 都是可重建产物（改参数后重新 `apply` 即可）。
   - **调度器调的是包装器**：`us-svc run --config … --id …`，日志重定向、env 注入、延迟、退出码记录都在包装器里 —— Windows 计划任务不接管 stdout，这层是必需的；延迟也统一在这里做（launchd 无原生 delay），三平台语义一致。
   - **与主项目的关系**：`us-service` 不依赖任何 UI、也不关心命令来自模板下载还是用户自己写。universal-shell 后续以它为 `supervisor` 后端（`managed` / `launchd` / `systemd` / `schtasks`），"模板库"与"自己的服务"作为**两个平级入口**由用户切换，不设主次。
-  - **界面（`us-svc ui`）**：本地看板 = 服务卡片（真实调度状态）+ 启停/重启 + 「启用自启/取消自启」+ 日志抽屉（tail/搜索/跟随）+ 新建/编辑/删除表单。**界面不常驻**，关掉不影响服务运行。
+  - **界面**：`us-svc ui` 的独立看板已**删除**（2026-11-23）。它和主界面做同样的事，是"割裂"的来源之一；诊断需求用 `us-svc list/status/order` 即可，不需要第二套 UI。
   - **Windows 两个硬事实**（已按此实现）：① `schtasks /XML` 只稳定接受 **UTF-16LE + BOM**，声明必须写 `encoding="UTF-16"`，UTF-8 会报 “task XML is malformed”；② 登录触发器**必须限定 `UserId`**，不限定等于"任意用户登录"，非提升终端注册会 `Access is denied`。
   - **权限策略**：`scope=system` 在 Windows 上直接注册（`RunLevel=HighestAvailable`，需管理员账户）；macOS/Linux 要写系统目录，明确要求 `sudo` 重跑，不在程序里偷偷提权。
-  - **主界面接入（2026-11-23）**：服务看板已是 SPA 的一个视图（侧栏「服务」），后端走 `/api/rpc` 的 `services_*` 命令，配置在 `<data_dir>/services.toml`。调度独立：**关掉窗口不影响服务运行**，这正是"生成原生配置"的意义。
+  - **主界面接入（2026-11-23）**：服务与程序已合并进**工作台**（见下），配置在 `<data_dir>/services.toml`。调度独立：**关掉窗口不影响服务运行**，这正是"生成原生配置"的意义。
   - **CI 已真机验证 Windows**：`us-service` 工作流在 `windows-latest` 上真实执行「生成 XML → schtasks /Create → /Query → /Run → 等包装器日志出现服务输出 → /Delete」。UTF-16LE+BOM 与「限定 UserId 的登录触发器可在非提升终端注册」两条社区结论均成立。
   - **已补的运行时能力**：SIGTERM/SIGINT 转发给子进程（集成测试覆盖）；日志超过 8MB 滚到 `.log.1`；`us-svc` 随 Release 分发；`system` 级在 Windows 直接注册（HighestAvailable），macOS/Linux 明确要求 sudo。
   - **启动顺序（2026-11-23）**：`depends_on = ["db"]` + 就绪判定（`ready_port` TCP 可连 / `ready_file` 存在 / 都没有则看进程是否在跑）。
@@ -159,7 +159,14 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
     - 新增 `?view=services` 深链接；它放在 `boot()` 的 `finally` 里应用，因为启动过程中 `switchCurrent` 会把视图抢回管理页，而 boot 中途出错（模板源不可达）也必须能落到目标页。
   - **改参数自动生效（2026-11-23）**：字段值防抖保存后，`native` 程序会在 1.2 s 静默期后调用 `apply_supervisor`：重新派生 → 内容真变了才 `install`（install 内部先卸载，等价于重启）。内容没变返回 `applied=false`，避免输入过程中反复重启。`sync_native_services` 因此改为只报告**内容真的变化**的 id。
   - **`ProgramView` 漏字段（已修）**：上一版接口没返回 `supervisor`，导致管理页的「系统调度」提示与按钮隐藏从未生效；现在 `ProgramView` 带 `supervisor` 与完整的 `native` 规格，批量页也据此打「系统调度」标记。
-  - **已知未做**：① `us-svc ui`（独立看板）的按钮文案仍是页面内写死的中文，未接 i18n；② 改参数触发的重装会让服务**短暂中断**（重启以应用新参数），未做「先启动新的再切流量」；③ Windows `system`（提权）场景已有真机证据：CI 在 `windows-latest` 上生成 BootTrigger + HighestAvailable 的任务，`schtasks /Create`、`/Query`、`/Delete` 全部通过（run 45157356081）；④ 派生条目仍在每次同步时按当前字段值重建，若用户在界面上手改派生条目会被覆盖（`origin` 已标明来源）。
+  - **工作台：三页合一（2026-11-23）**：原先「程序管理 / 批量管理 / 服务」三个入口服务的是同一批对象（Program 及其派生的 Service），外加 `us-svc ui` 第四张脸。现合并为**一个工作台**：
+    - 侧栏 = 统一列表（Program + 手建 Service），带状态点、调度归属、更新标记、复选框；搜索 + 四个筛选（全部 / 运行中 / 系统调度 / 有更新）。
+    - 主区 = 详情，三个 tab（配置 / 调度 / 更新），日志固定底部面板；选中手建服务时配置页换成命令/参数/环境变量表单。
+    - 多选 = 批量：启动 / 停止 / 重启 / 检查更新 / 隐藏 / 删除，按 kind 分派到 `start_program` 或 `services_action`。
+    - 后端新增 `workspace_list` 聚合（`kind` / `state` / `supervisor` / `native` / 服务全字段），派生服务（`origin = program:*`）不单列，避免同一对象出现两次。
+    - 移动端：卡片流改为工作台列表，底部 tab 收敛为 程序 / 模板库 / 日志；详情仍走二级页。
+    - 深链接：`?view=library|log`、`?sel=<id>`（直达某条）。
+  - **已知未做**：① 改参数触发的重装会让服务**短暂中断**（重启以应用新参数），未做「先启动新的再切流量」；② Windows `system`（提权）场景已有真机证据：CI 在 `windows-latest` 上生成 BootTrigger + HighestAvailable 的任务，`schtasks /Create`、`/Query`、`/Delete` 全部通过（run 45157356081）；③ 派生条目仍在每次同步时按当前字段值重建，若用户在界面上手改派生条目会被覆盖（`origin` 已标明来源）；④ 旧批量视图的 CSS（`.batch-*`）仍在样式表里，模板库还在复用其中一部分，未进一步拆分。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。
   - 依据：① 功能面已被覆盖——桌面用 Tauri、无桌面用 `us-web`，egui 独占场景仅剩「托盘常驻且不起 webview」；② 双份维护成本真实——ROADMAP 中 B7/B8、C4、C5、D1、F1、F10 均为双端条目，且 egui 已落后 5 项（日志中心、模板 diff、二进制上传、局域网开关、主题切换），i18n 258/486；③ Release 资产下载量趋近于 0（egui 与 tauri 同量级），重复维护未服务到用户。

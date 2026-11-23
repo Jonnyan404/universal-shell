@@ -11,8 +11,6 @@
 //!    安装来源是上层产品的事，本 crate 只负责"怎么稳定地跑起来"。
 
 pub mod config;
-#[cfg(feature = "ui")]
-pub mod ui;
 pub mod launchd;
 pub mod runner;
 pub mod schtasks;

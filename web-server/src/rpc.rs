@@ -833,19 +833,40 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         // ---------- 服务看板（us-service） ----------
         // 配置放在 <data_dir>/services.toml，与 shell.json 同目录。
         // 锁只用来取 data_dir，随后立刻释放：下面的调用会跑 launchctl/systemctl。
-        // 程序 ↔ 服务打通：把某条程序切成「系统调度」或切回「壳托管」
+        // 程序 ↔ 服务打通：切换生命周期归属，并可一并改调度参数
         "set_supervisor" => {
             let program_id = arg_str(args, "programId");
             let native = arg_str(args, "supervisor") == "native";
-            let delay = args.get("delaySecs").and_then(|v| v.as_u64());
-            let restart = args
-                .get("restart")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let scope = args
-                .get("scope")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
+            let mut patch = shared::config::NativePatch {
+                delay_secs: args.get("delaySecs").and_then(|v| v.as_u64()),
+                restart: args.get("restart").and_then(|v| v.as_str()).map(str::to_string),
+                scope: args.get("scope").and_then(|v| v.as_str()).map(str::to_string),
+                wait_timeout_secs: args.get("waitTimeoutSecs").and_then(|v| v.as_u64()),
+                ..Default::default()
+            };
+            if let Some(v) = args.get("dependsOn").and_then(|v| v.as_array()) {
+                patch.depends_on = Some(
+                    v.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect(),
+                );
+            }
+            if let Some(v) = args.get("readyPort") {
+                patch.ready_port = Some(
+                    v.as_str()
+                        .and_then(|s| s.trim().parse::<u16>().ok())
+                        .or_else(|| v.as_u64().map(|n| n as u16)),
+                );
+            }
+            if let Some(v) = args.get("readyFile") {
+                patch.ready_file = Some(
+                    v.as_str()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string),
+                );
+            }
+
             let mut mgr = state.manager.lock().unwrap();
             let services_path = mgr.services_config_path();
             let derived_id = format!("prog-{program_id}");
@@ -860,18 +881,10 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             }
 
             let p = mgr
-                .set_supervisor(
-                    &program_id,
-                    native,
-                    delay,
-                    restart.as_deref(),
-                    scope.as_deref(),
-                    &state.config_path,
-                )
+                .set_supervisor(&program_id, native, &patch, &state.config_path)
                 .map_err(|e| format!("{e:#}"))?;
             let changed = mgr.sync_native_services().map_err(|e| format!("{e:#}"))?;
 
-            // 切成 native：同步完立刻装载，否则只是写了配置、开机并不会启动
             let mut apply_note = String::new();
             if native {
                 let dir = mgr.data_dir.clone();
@@ -890,21 +903,110 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 },
             }))
         }
-        // 字段值自动保存之后调用：重新派生并（真变了才）重装系统服务。
-        // 内容不变就返回 applied=false，避免输入过程中反复重启服务。
-        "apply_supervisor" => {
-            let program_id = arg_str(args, "programId");
-            let dir = { state.manager.lock().unwrap().data_dir.clone() };
-            let changed = {
-                let mut mgr = state.manager.lock().unwrap();
-                mgr.sync_native_services().map_err(|e| format!("{e:#}"))?
-            };
-            let derived = format!("prog-{program_id}");
-            if !changed.iter().any(|id| id == &derived) {
-                return Ok(json!({ "applied": false, "reason": "unchanged" }));
+        // 工作台：把「程序」与「手建服务」合成一个列表。
+        // 派生服务（origin = program:*）不再单列，它们由对应程序代表，
+        // 否则同一个东西会在列表里出现两次。
+        "workspace_list" => {
+            let mut mgr = state.manager.lock().unwrap();
+            let services_path = mgr.services_config_path();
+            let vcheck = mgr.load_version_check();
+            let mut items: Vec<Value> = Vec::new();
+
+            for p in mgr.all_programs() {
+                let st = local_status(&mut mgr, &p);
+                let latest = vcheck.get(&p.repo).map(|(v, _)| v.clone());
+                let has_update = latest
+                    .as_deref()
+                    .map(|v| {
+                        !p.repo.is_empty()
+                            && st.local_version != "-"
+                            && shared::version::is_newer(v, &st.local_version)
+                    })
+                    .unwrap_or(false);
+                items.push(json!({
+                    "id": p.id,
+                    "kind": "program",
+                    "name": p.name,
+                    "description": p.description,
+                    "state": if !st.installed { "not_installed" } else if st.running { "running" } else { "stopped" },
+                    "supervisor": p.supervisor.as_str(),
+                    "installed": st.installed,
+                    "hidden": p.hidden,
+                    "version": st.local_version,
+                    "latest_version": latest,
+                    "has_update": has_update,
+                    "depends_on": p.native.depends_on,
+                    "native": json!({
+                        "delay_secs": p.native.delay_secs,
+                        "restart": p.native.restart_or_default(),
+                        "scope": p.native.scope_or_default(),
+                        "depends_on": p.native.depends_on,
+                        "ready_port": p.native.ready_port,
+                        "ready_file": p.native.ready_file,
+                        "wait_timeout_secs": p.native.wait_timeout_secs,
+                    }),
+                    "origin": Value::Null,
+                    "log": mgr.log_dir().join(format!("{}.log", p.id)).display().to_string(),
+                }));
             }
-            crate::services::apply_one(&dir, &derived).map_err(|e| format!("{e:#}"))?;
-            Ok(json!({ "applied": true, "id": derived }))
+
+            if let Ok(cfg) = us_service::config::Config::load(&services_path) {
+                for svc in &cfg.services {
+                    if svc
+                        .origin
+                        .as_deref()
+                        .is_some_and(|o| o.starts_with("program:"))
+                    {
+                        continue;
+                    }
+                    let st = us_service::state(svc, &services_path);
+                    items.push(json!({
+                        "id": svc.id,
+                        "kind": "service",
+                        "name": if svc.name.is_empty() { svc.id.clone() } else { svc.name.clone() },
+                        "description": svc.description,
+                        "state": match st {
+                            us_service::ServiceState::Running => "running",
+                            us_service::ServiceState::Stopped => "stopped",
+                            us_service::ServiceState::NotInstalled => "not_installed",
+                            us_service::ServiceState::Unknown => "unknown",
+                        },
+                        "supervisor": "system",
+                        "installed": st != us_service::ServiceState::NotInstalled,
+                        "hidden": false,
+                        "version": "",
+                        "latest_version": Value::Null,
+                        "has_update": false,
+                        "depends_on": svc.depends_on,
+                        "origin": svc.origin,
+                        "log": svc.log_path(&services_path).display().to_string(),
+                        "command": svc.command,
+                        "args": svc.args,
+                        "env": svc.env,
+                        "cwd": svc.cwd.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                        "delay_secs": svc.delay_secs,
+                        "restart": match svc.restart {
+                            us_service::Restart::Always => "always",
+                            us_service::Restart::OnFailure => "on_failure",
+                            us_service::Restart::Never => "never",
+                        },
+                        "scope": match svc.scope {
+                            us_service::Scope::System => "system",
+                            us_service::Scope::User => "user",
+                        },
+                        "enabled": svc.enabled,
+                        "ready_port": svc.ready_port,
+                        "ready_file": svc.ready_file.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
+                        "wait_timeout_secs": svc.wait_timeout_secs,
+                    }));
+                }
+            }
+
+            Ok(json!({
+                "items": items,
+                "platform": format!("{:?}", us_service::Platform::current()).to_lowercase(),
+                "services_config": services_path.display().to_string(),
+            }))
         }
         "services_list" => {
             let dir = { state.manager.lock().unwrap().data_dir.clone() };

@@ -5635,12 +5635,10 @@ name = "us-service"
 version = "0.3.0"
 dependencies = [
  "anyhow",
- "axum",
  "libc",
  "serde",
  "signal-hook",
  "time",
- "tokio",
  "toml 0.8.23",
  "toml_edit 0.22.27",
 ]

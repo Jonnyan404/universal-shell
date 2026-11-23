@@ -186,6 +186,45 @@ pub struct Program {
     pub native: NativeSpec,
 }
 
+/// 局部更新调度参数：`None` 表示「这次不动这个字段」。
+#[derive(Debug, Clone, Default)]
+pub struct NativePatch {
+    pub delay_secs: Option<u64>,
+    pub restart: Option<String>,
+    pub scope: Option<String>,
+    pub depends_on: Option<Vec<String>>,
+    pub wait_timeout_secs: Option<u64>,
+    /// 外层 Some = 要改；内层 None = 清空
+    pub ready_port: Option<Option<u16>>,
+    pub ready_file: Option<Option<String>>,
+}
+
+impl NativePatch {
+    pub fn apply(&self, spec: &mut NativeSpec) {
+        if let Some(v) = self.delay_secs {
+            spec.delay_secs = v;
+        }
+        if let Some(v) = &self.restart {
+            spec.restart = v.clone();
+        }
+        if let Some(v) = &self.scope {
+            spec.scope = v.clone();
+        }
+        if let Some(v) = &self.depends_on {
+            spec.depends_on = v.clone();
+        }
+        if let Some(v) = self.wait_timeout_secs {
+            spec.wait_timeout_secs = v;
+        }
+        if let Some(v) = self.ready_port {
+            spec.ready_port = v;
+        }
+        if let Some(v) = &self.ready_file {
+            spec.ready_file = v.clone();
+        }
+    }
+}
+
 /// 程序的生命周期归属
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

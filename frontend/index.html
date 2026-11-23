@@ -21,10 +21,18 @@
         <button id="settings-btn" class="settings-btn" data-i18n-title="ui.settings">⚙</button>
         <button id="github-btn" class="settings-btn" data-i18n-title="ui.github"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></button>
       </div>
+      <div class="wb-filter">
+        <input id="wb-q" class="wb-search" type="search" data-i18n-placeholder="wb.search_ph" placeholder="搜索名称或 id…" />
+        <div id="wb-chips" class="wb-chips">
+          <button class="wb-chip on" data-wbf="all" data-i18n="wb.all">全部</button>
+          <button class="wb-chip" data-wbf="running" data-i18n="wb.running">运行中</button>
+          <button class="wb-chip" data-wbf="native" data-i18n="wb.native">系统调度</button>
+          <button class="wb-chip" data-wbf="update" data-i18n="wb.update">有更新</button>
+        </div>
+      </div>
       <nav id="program-tabs" class="room-list"></nav>
       <div class="sidebar-foot">
-        <button id="services-link" class="sidebar-settings" data-i18n-title="ui.services">⏻ <span class="app-btn-label" data-i18n="ui.services">服务</span></button>
-        <button id="batch-link" class="sidebar-settings" data-i18n-title="ui.batch">☰ <span class="app-btn-label" data-i18n="ui.batch">批量管理</span></button>
+        <button id="wb-new" class="sidebar-settings" data-i18n="wb.new_service">＋ 新建服务</button>
         <button id="library-link" class="sidebar-settings" data-i18n-title="ui.library">▤ <span class="app-btn-label" data-i18n="ui.library">模板库</span></button>
         <button id="log-center-link" class="sidebar-settings" data-i18n-title="ui.log_center">📜 <span class="app-btn-label" data-i18n="ui.log_center">日志中心</span></button>
       </div>
@@ -46,31 +54,39 @@
 
       <!-- 程序管理 -->
       <section id="manage-view" class="view manage-view">
-        <!-- 更新设置条：默认折叠，点状态栏「更新设置」展开。
-             必须留在管理页内部：移动端管理页是覆盖全屏的固定二级页，
-             放外面会被它整块盖住，还会在卡片流主页上跟 #mob-shell 抢横向空间。 -->
-        <div id="upd-settings" class="upd-settings-strip" hidden>
-          <div class="upd-card-main">
-            <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
-            <span class="upd-ver" id="upd-current">—</span>
-            <span class="upd-arrow">→</span>
-            <span class="upd-key" data-i18n="th.latest_ver">最新版本</span>
-            <span class="upd-ver" id="upd-latest">—</span>
-            <span class="upd-pin" id="upd-pin" hidden></span>
-          </div>
-          <div id="upd-controls" class="upd-settings"></div>
-          <div class="upd-check">
-            <span class="upd-checked-at" id="upd-checked-at"></span>
-            <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
+        <!-- 工作台：配置 / 调度 / 更新 三个 pane，日志固定在底部（任何 tab 都能看） -->
+        <div class="wb-tabs" id="wb-tabs">
+          <button class="wb-tab on" data-wbtab="cfg" data-i18n="wb.tab_cfg">配置</button>
+          <button class="wb-tab" data-wbtab="sched" data-i18n="wb.tab_sched">调度</button>
+          <button class="wb-tab" data-wbtab="upd" data-i18n="wb.tab_upd">更新</button>
+        </div>
+        <div id="wb-bulk" class="wb-bulk" hidden></div>
+        <div id="pane-sched" class="wb-pane" hidden></div>
+        <div id="pane-upd" class="wb-pane" hidden>
+          <div id="upd-settings" class="upd-settings-strip" hidden>
+            <div class="upd-card-main">
+              <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
+              <span class="upd-ver" id="upd-current">—</span>
+              <span class="upd-arrow">→</span>
+              <span class="upd-key" data-i18n="th.latest_ver">最新版本</span>
+              <span class="upd-ver" id="upd-latest">—</span>
+              <span class="upd-pin" id="upd-pin" hidden></span>
+            </div>
+            <div id="upd-controls" class="upd-settings"></div>
+            <div class="upd-check">
+              <span class="upd-checked-at" id="upd-checked-at"></span>
+              <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
+            </div>
           </div>
         </div>
-        <div class="manage-body">
+        <div class="manage-body" id="pane-cfg">
           <form id="field-form"></form>
           <div id="env-section" class="env-section" hidden>
             <div class="env-title"><span data-i18n="edit.env">环境变量（派生只读）</span></div>
             <div id="env-body"></div>
           </div>
           <div id="actions"></div>
+          <div id="svc-form" hidden></div>
         </div>
         <div id="manage-log" class="manage-log" data-open="1">
           <div id="manage-log-resize" class="manage-log-resize" title=""></div>
@@ -87,39 +103,7 @@
         </div>
       </section>
 
-      <!-- 服务（由系统调度器拉起，界面只做查看/控制） -->
-      <section id="services-view" class="view" hidden></section>
 
-      <!-- 批量管理 -->
-      <section id="batch-view" class="view" hidden>
-        <div class="panel">
-          <div class="batch-toolbar">
-            <span class="spacer"></span>
-            <div class="batch-actions">
-              <div class="batch-btns">
-                <button id="batch-refresh" data-i18n="batch.refresh">刷新状态</button>
-                <button id="batch-check-updates" data-i18n="batch.check">检查更新</button>
-                <button id="batch-stop-all" data-i18n="batch.stop_all">停止所有</button>
-              </div>
-              <div id="batch-checked-at" class="batch-checked-at"></div>
-            </div>
-          </div>
-          <div id="batch-cards" hidden></div>
-          <table class="batch-table">
-            <thead>
-              <tr>
-                <th data-i18n="th.program">程序</th>
-                <th data-i18n="th.local_ver">本地版本</th>
-                <th data-i18n="th.latest_ver">最新版本</th>
-                <th data-i18n="th.status">状态</th>
-                <th data-i18n="th.autostart">开机启动</th>
-                <th data-i18n="th.hidden">隐藏</th>
-              </tr>
-            </thead>
-            <tbody id="batch-body"></tbody>
-          </table>
-        </div>
-      </section>
 
       <!-- 模板库 -->
       <section id="library-view" class="view" hidden>
@@ -181,8 +165,6 @@
   <!-- 移动端：底部 Tab 导航 -->
   <nav id="mob-tabbar" class="mob-tabbar" hidden>
     <button class="mob-tab" data-mtab="prog"><span class="mob-tab-ic">▤</span><span data-i18n="ui.program">程序</span></button>
-    <button class="mob-tab" data-mtab="services"><span class="mob-tab-ic">⏻</span><span data-i18n="ui.services">服务</span></button>
-    <button class="mob-tab" data-mtab="batch"><span class="mob-tab-ic">☰</span><span data-i18n="ui.batch">批量</span></button>
     <button class="mob-tab" data-mtab="lib"><span class="mob-tab-ic">▤</span><span data-i18n="ui.library">模板库</span></button>
     <button class="mob-tab" data-mtab="log"><span class="mob-tab-ic">📜</span><span data-i18n="ui.log_center">日志</span></button>
   </nav>
@@ -405,6 +387,6 @@
 
   <script src="api.js"></script>
   <script src="main.js"></script>
-  <script src="services.js"></script>
+  <script src="workbench.js"></script>
 </body>
 </html>
