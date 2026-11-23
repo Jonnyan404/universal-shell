@@ -173,9 +173,6 @@ pub struct Program {
     /// 不再跟随 channel 的最新；清空回到按 channel 跟随最新。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version_pin: Option<String>,
-    /// 是否在侧栏/主管理列表隐藏（批量管理仍可见）。
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub hidden: bool,
     /// 由谁负责让它活着：
     /// - `managed`（默认）：壳托管子进程，壳退出即结束；
     /// - `native`：注册为系统服务，开机自启、壳退出也不影响，由 `us-service` 生成配置。
@@ -294,10 +291,6 @@ impl NativeSpec {
 
 fn is_zero(v: &u64) -> bool {
     *v == 0
-}
-
-fn is_false(b: &bool) -> bool {
-    !*b
 }
 
 /// HTTP 直链下载源（方案 A：通用 HTTP 源）。
@@ -428,14 +421,13 @@ pub fn os_key() -> &'static str {
 
 impl Program {
     /// 序列化为「模板比对」用规范 JSON 文本：去掉纯运行时字段
-    /// （template_source / imported_at / hidden），只留下模板结构本身。
+    /// （template_source / imported_at），只留下模板结构本身。
     /// struct 字段与 BTreeMap 的序列化顺序确定，同一内容两次输出一致。
     pub fn diff_json(&self) -> String {
         let mut v = serde_json::to_value(self).unwrap_or_default();
         if let Some(obj) = v.as_object_mut() {
             obj.remove("template_source");
             obj.remove("imported_at");
-            obj.remove("hidden");
         }
         serde_json::to_string_pretty(&v).unwrap_or_default()
     }
@@ -570,7 +562,6 @@ mod tests {
             check_sha256: None,
             channel: String::new(),
             version_pin: None,
-            hidden: false,
             supervisor: Supervisor::default(),
             native: NativeSpec::default(),
         }
@@ -626,7 +617,6 @@ mod tests {
             check_sha256: None,
             channel: String::new(),
             version_pin: None,
-            hidden: false,
             supervisor: Supervisor::default(),
             native: NativeSpec::default(),
         };

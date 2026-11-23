@@ -15,7 +15,7 @@
     - 签名与客户端行为自测：`sign_registry` / `registry_demo`（env：`US_REGISTRY_DIR`）
   - 模板库仓库**零代码、零依赖、无 CI**（这样它不与本仓库产生任何构建期耦合，也就不需要跨仓库凭据）：生成/签名/校验都在本仓库侧跑，产物 `registry/` 与模板一起提交；模板库自身不带生成逻辑。
   - 例：`cargo run -p shared --example generate_registry -- ../universal-shell-templates/registry ../universal-shell-templates/templates`
-- 内置程序（壳自带的少量程序）仍是 `shared/builtin/programs.json`，不属于模板库。
+- **壳不内置任何程序**：`shared/builtin/` 已删除（2026-11-23），全新数据目录的程序列表为空，一切程序都来自模板库导入或手动新建。模板库是唯一的内容来源。
 
 ## 工作习惯（必须遵守）
 

@@ -120,8 +120,6 @@ pub struct ShellManager {
     /// 数据目录：存放下载的二进制、日志、运行时配置
     pub data_dir: PathBuf,
     pub programs: Vec<Program>,
-    /// 内置受管程序（编译期嵌入，始终存在；用户同 id 配置优先）
-    pub builtin_programs: Vec<Program>,
     /// 远程模板注册表基地址列表
     pub template_registries: Vec<String>,
     /// 各注册表 base -> Ed25519 公钥(hex)，签名校验
@@ -152,8 +150,6 @@ impl ShellManager {
         Ok(Self {
             data_dir,
             programs: vec![],
-            // 内置程序编译期固定；用户加载 shell.json 时按同 id 覆盖，未覆盖的多保留。
-            builtin_programs: crate::builtin::builtin_programs().to_vec(),
             // 默认内置官方 GitHub 源(附 demo 公钥验签)，保证全新数据目录也能看到官方模板；
             // 若后续加载了 shell.json 且用户显式配置了其它源，由 load_config 覆盖之。
             template_registries: vec![DEFAULT_REGISTRY.to_string()],
@@ -172,19 +168,12 @@ impl ShellManager {
         })
     }
 
-    /// 全部受管程序 = 内置 + 用户配置，用户同 id 优先（覆盖内置）。内置始终并存。
+    /// 全部受管程序（壳不再内置任何程序，列表就是用户配置里的那些）。
+    ///
+    /// 保留这个访问器而不是让调用方直接读 `programs`：字段是 `pub` 的历史包袱，
+    /// 但语义上「受管程序集合」应当只有一个入口，将来要加派生/过滤也只需改这里。
     pub fn all_programs(&self) -> Vec<Program> {
-        let mut all = self.builtin_programs.clone();
-        let mut ids: std::collections::HashSet<String> = all.iter().map(|p| p.id.clone()).collect();
-        for p in &self.programs {
-            if ids.insert(p.id.clone()) {
-                all.push(p.clone());
-            } else if let Some(existing) = all.iter_mut().find(|e| e.id == p.id) {
-                // 用户同 id 覆盖内置
-                *existing = p.clone();
-            }
-        }
-        all
+        self.programs.clone()
     }
 
     /// 加载配置文件(JSON)。支持 `--config` 路径，默认从数据目录读 shell.json
@@ -1144,7 +1133,7 @@ impl ShellManager {
     // ---------- 本地实例管理 ----------
 
     /// 用新定义替换实例（完整编辑 name/description/repo/args/fields 等），
-    /// 保留 id 与 hidden 状态。本地编辑语义：默认值被改过的字段一律跟随新默认
+    /// 保留 id。本地编辑语义：默认值被改过的字段一律跟随新默认
     /// （用户当面声明），其余字段保留原值；新增补默认、删除清值 + 写回配置。
     pub fn update_program(
         &mut self,
@@ -1152,43 +1141,21 @@ impl ShellManager {
         remote: &Program,
         path: &Path,
     ) -> anyhow::Result<()> {
-        let is_builtin = if self.programs.iter().any(|p| p.id == id) {
-            false
-        } else if self.builtin_programs.iter().any(|p| p.id == id) {
-            true
-        } else {
-            anyhow::bail!(t!("err.program_not_found", id = &id));
-        };
-
-        let find = |list: &[Program]| list.iter().find(|p| p.id == id).cloned();
-        let mut current = if is_builtin {
-            find(&self.builtin_programs)
-        } else {
-            find(&self.programs)
-        }
-        .ok_or_else(|| anyhow::anyhow!(t!("err.program_not_found", id = &id)))?;
+        let mut current = self
+            .programs
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!(t!("err.program_not_found", id = &id)))?;
 
         let old_values = self.load_field_values(&current);
-        let hidden = current.hidden;
         let merged = Self::apply_local_edit(&mut current, remote, &old_values);
-        current.hidden = hidden;
         // id 跟随实例(用户不改 id)，避免改动脏掉关联文件
         current.id = id.to_string();
         // apply_local_edit 已按 remote.fields 迁移/补齐字段值
         self.save_field_values(&current, &merged);
 
-        if is_builtin {
-            // 内置程序编译期固定、重启重建：只改内存里的 builtin 槽位会在重启后恢复出厂。
-            // 以用户修改为准——把编辑结果落成用户覆盖写进 shell.json，重启后合并时优先。
-            if let Some(slot) = self.builtin_programs.iter_mut().find(|p| p.id == id) {
-                *slot = current.clone();
-            }
-            if let Some(slot) = self.programs.iter_mut().find(|p| p.id == id) {
-                *slot = current;
-            } else {
-                self.programs.push(current);
-            }
-        } else if let Some(slot) = self.programs.iter_mut().find(|p| p.id == id) {
+        if let Some(slot) = self.programs.iter_mut().find(|p| p.id == id) {
             *slot = current;
         }
         self.save_config(path)
@@ -1212,23 +1179,12 @@ impl ShellManager {
     /// 彻底清空见 [`ShellManager::clear_program_data`]。
     pub fn delete_program(&mut self, id: &str, path: &Path) -> anyhow::Result<()> {
         self.validate_program_id(id)?;
-        let is_builtin = if self.programs.iter().any(|p| p.id == id) {
-            false
-        } else if self.builtin_programs.iter().any(|p| p.id == id) {
-            true
-        } else {
-            anyhow::bail!(t!("err.program_not_found", id = &id));
-        };
-        let p = if is_builtin {
-            self.builtin_programs.remove(
-                self.builtin_programs
-                    .iter()
-                    .position(|x| x.id == id)
-                    .unwrap(),
-            )
-        } else {
-            self.programs.remove(self.programs.iter().position(|x| x.id == id).unwrap())
-        };
+        let idx = self
+            .programs
+            .iter()
+            .position(|x| x.id == id)
+            .ok_or_else(|| anyhow::anyhow!(t!("err.program_not_found", id = &id)))?;
+        let p = self.programs.remove(idx);
         if let Err(e) = self.runner.stop(id) {
             log::warn!("{}", t!("log.stop_failed", id = id, err = format!("{e:#}")));
         }
@@ -1379,41 +1335,6 @@ self.add_program(&copy, path)?;
             self.save_field_values(&copy, &values);
         }
         Ok(copy)
-    }
-
-    /// 设置实例的隐藏状态；写出配置。隐藏后侧栏/主管理不展示，
-    /// 批量管理始终可见，故不会出现「全部程序失联」的情况。
-    pub fn set_hidden(&mut self, id: &str, hidden: bool, path: &Path) -> anyhow::Result<()> {
-        let is_builtin = if self.programs.iter().any(|p| p.id == id) {
-            false
-        } else if self.builtin_programs.iter().any(|p| p.id == id) {
-            true
-        } else {
-            anyhow::bail!(t!("err.program_not_found", id = &id));
-        };
-        {
-            let target = if is_builtin {
-                &mut self.builtin_programs
-            } else {
-                &mut self.programs
-            };
-            if let Some(p) = target.iter_mut().find(|p| p.id == id) {
-                p.hidden = hidden;
-            }
-        }
-        if is_builtin {
-            // 内置隐藏同样要落成用户覆盖，否则重启恢复可见。以用户修改为准。
-            if let Some(cur) = self.builtin_programs.iter().find(|p| p.id == id).cloned() {
-                if let Some(slot) = self.programs.iter_mut().find(|p| p.id == id) {
-                    slot.hidden = hidden;
-                } else {
-                    let mut o = cur;
-                    o.hidden = hidden;
-                    self.programs.push(o);
-                }
-            }
-        }
-        self.save_config(path)
     }
 
     /// 读取某程序合并日志（stdout/stderr 同文件；stderr 行以 \x1F 开头）。返回 (merged, 空)。
@@ -1658,8 +1579,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_registries_falls_back_to_builtin() {
-        let dir = std::env::temp_dir().join("cc-builtin-registry");
+    fn empty_registries_falls_back_to_default() {
+        let dir = std::env::temp_dir().join("cc-default-registry");
         let mut mgr = ShellManager::new(dir.clone()).unwrap();
         let empty = dir.join("empty.json");
         std::fs::write(&empty, r#"{"programs":[]}"#).unwrap();
@@ -1706,36 +1627,27 @@ mod tests {
         );
     }
 
-    /// 内置程序始终存在；用户同 id 配置优先；用户新增程序追加。
+    /// 壳不再内置任何程序：全新数据目录是空的，列表完全来自 shell.json。
     #[test]
-    fn all_programs_merges_builtin_with_user_override() {
+    fn all_programs_comes_from_user_config_only() {
         let dir = std::env::temp_dir().join("cc-all-programs");
+        let _ = std::fs::remove_dir_all(&dir);
         let mut mgr = ShellManager::new(dir.clone()).unwrap();
-        // 全新 manager：内置应立即可见
-        let ids: Vec<String> = mgr.all_programs().iter().map(|p| p.id.clone()).collect();
-        assert!(!ids.is_empty(), "应内置至少一个程序");
-        let builtin_id = ids[0].clone();
+        assert!(mgr.all_programs().is_empty(), "不该再有内置程序");
 
-        // 用户配置：覆盖内置同 id 程序 + 追加一个新程序
-        let mut user = crate::config::ShellConfig::default();
-        let mut override_p = crate::builtin::builtin_programs()[0].clone();
-        override_p.name = "用户改名的内置".to_string();
         let extra: Program = serde_json::from_str(
             r#"{"id":"dufs","name":"dufs","repo":"sigoden/dufs","binary":"dufs","fields":[],"args":[]}"#,
         )
         .unwrap();
-        user.programs = vec![override_p.clone(), extra.clone()];
+        let mut user = crate::config::ShellConfig::default();
+        user.programs = vec![extra];
         let cfg_path = dir.join("cfg.json");
         std::fs::write(&cfg_path, serde_json::to_string(&user).unwrap()).unwrap();
         mgr.load_config(&cfg_path).unwrap();
 
-        let all = mgr.all_programs();
-        let by_id: std::collections::HashMap<String, Program> =
-            all.into_iter().map(|p| (p.id.clone(), p)).collect();
-        // 用户覆盖内置同名程序
-        assert_eq!(by_id.get(&builtin_id).unwrap().name, "用户改名的内置");
-        // 用户新增程序保留
-        assert_eq!(by_id.get("dufs").unwrap().repo, "sigoden/dufs");
+        let ids: Vec<String> = mgr.all_programs().iter().map(|p| p.id.clone()).collect();
+        assert_eq!(ids, vec!["dufs".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 复制模板自动生成不冲突 id；add 拒绝重复 id；template_source 不复用。
@@ -1956,7 +1868,6 @@ mod tests {
             check_sha256: None,
             channel: String::new(),
             version_pin: None,
-            hidden: false,
             supervisor: Supervisor::default(),
             native: NativeSpec::default(),
         };
@@ -1968,24 +1879,31 @@ mod tests {
         assert_eq!(names, names2);
     }
 
-    /// 内置模板编辑后重启不恢复：编辑结果落成用户覆盖进 shell.json，
-    /// 新 manager(模拟重启)加载后仍以用户修改为准。
+    /// 造一份「一个带 port 字段的用户程序」配置：壳已不内置任何程序，测试自己造。
+    fn write_port_program_cfg(path: &Path) {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let json = r#"{"programs":[{"id":"dufs","name":"dufs","binary":"dufs","args":[],
+            "fields":[{"key":"port","kind":"string","label":"Port","default":"9000"}]}]}"#;
+        std::fs::write(path, json).unwrap();
+    }
+
+    /// 编辑落盘后重启仍生效：默认值改成 19000，新 manager 加载后还是 19000。
     #[test]
-    fn builtin_edit_persists_across_restart() {
-        let dir = std::env::temp_dir().join("cc-builtin-persist");
+    fn program_edit_persists_across_restart() {
+        let dir = std::env::temp_dir().join("cc-edit-persist");
         let _ = std::fs::remove_dir_all(&dir);
         let mut mgr = ShellManager::new(dir.clone()).unwrap();
         let cfg = dir.join("cfg.json");
-        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        write_port_program_cfg(&cfg);
         mgr.load_config(&cfg).unwrap();
 
-        let builtin_id = crate::builtin::builtin_programs()[0].id.clone();
-
-        // 把内置 port 默认改掉(9000→19000)
+        // 把 port 默认改掉(9000→19000)
         let mut edited = mgr
             .all_programs()
             .into_iter()
-            .find(|p| p.id == builtin_id)
+            .find(|p| p.id == "dufs")
             .unwrap();
         for f in edited.fields.iter_mut() {
             if f.key == "port" {
@@ -1996,69 +1914,50 @@ mod tests {
                 };
             }
         }
-        mgr.update_program(&builtin_id, &edited, &cfg).unwrap();
-        let after = mgr.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap();
+        mgr.update_program("dufs", &edited, &cfg).unwrap();
+        let after = mgr.all_programs().into_iter().find(|p| p.id == "dufs").unwrap();
         assert_eq!(after.runtime_defaults().get("port").map(String::as_str), Some("19000"));
         assert_eq!(mgr.load_field_values(&after).get("port").map(String::as_str), Some("19000"));
 
         // 模拟重启：全新 manager 从同一配置加载
         let mut mgr2 = ShellManager::new(dir.clone()).unwrap();
         mgr2.load_config(&cfg).unwrap();
-        let reloaded = mgr2.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap();
+        let reloaded = mgr2.all_programs().into_iter().find(|p| p.id == "dufs").unwrap();
         assert_eq!(reloaded.runtime_defaults().get("port").map(String::as_str), Some("19000"));
         assert_eq!(mgr2.load_field_values(&reloaded).get("port").map(String::as_str), Some("19000"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 内置隐藏同样持久化：重启后仍隐藏。
+    /// 更新通道/指定版本落盘后重启仍生效。
     #[test]
-    fn builtin_hidden_persists_across_restart() {
-        let dir = std::env::temp_dir().join("cc-builtin-hidden");
+    fn update_settings_persist_across_restart() {
+        let dir = std::env::temp_dir().join("cc-update-settings");
         let _ = std::fs::remove_dir_all(&dir);
         let mut mgr = ShellManager::new(dir.clone()).unwrap();
         let cfg = dir.join("cfg.json");
-        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
+        write_port_program_cfg(&cfg);
         mgr.load_config(&cfg).unwrap();
-
-        let builtin_id = crate::builtin::builtin_programs()[0].id.clone();
-        mgr.set_hidden(&builtin_id, true, &cfg).unwrap();
-        assert!(mgr.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap().hidden);
-
-        let mut mgr2 = ShellManager::new(dir.clone()).unwrap();
-        mgr2.load_config(&cfg).unwrap();
-        assert!(mgr2.all_programs().into_iter().find(|p| p.id == builtin_id).unwrap().hidden);
-    }
-
-    /// 内置程序的更新通道/指定版本同样作为用户覆盖持久化：重启后仍生效。
-    #[test]
-    fn builtin_update_settings_persist_across_restart() {
-        let dir = std::env::temp_dir().join("cc-builtin-update");
-        let _ = std::fs::remove_dir_all(&dir);
-        let mut mgr = ShellManager::new(dir.clone()).unwrap();
-        let cfg = dir.join("cfg.json");
-        std::fs::write(&cfg, r#"{"programs":[]}"#).unwrap();
-        mgr.load_config(&cfg).unwrap();
-
-        let builtin_id = crate::builtin::builtin_programs()[0].id.clone();
 
         // 预发布通道 + 钉住 v9.9.9
-        mgr.set_update_channel(&builtin_id, "pre", &cfg).unwrap();
-        mgr.set_version_pin(&builtin_id, "v9.9.9", &cfg).unwrap();
-        let p = mgr.all_programs().into_iter().find(|x| x.id == builtin_id).unwrap();
+        mgr.set_update_channel("dufs", "pre", &cfg).unwrap();
+        mgr.set_version_pin("dufs", "v9.9.9", &cfg).unwrap();
+        let p = mgr.all_programs().into_iter().find(|x| x.id == "dufs").unwrap();
         assert_eq!(p.update_channel(), "pre");
         assert_eq!(p.version_pin.as_deref(), Some("v9.9.9"));
 
         // 重启后仍生效
         let mut mgr2 = ShellManager::new(dir.clone()).unwrap();
         mgr2.load_config(&cfg).unwrap();
-        let p2 = mgr2.all_programs().into_iter().find(|x| x.id == builtin_id).unwrap();
+        let p2 = mgr2.all_programs().into_iter().find(|x| x.id == "dufs").unwrap();
         assert_eq!(p2.update_channel(), "pre");
         assert_eq!(p2.version_pin.as_deref(), Some("v9.9.9"));
 
         // 清空钉住即可恢复随通道
-        mgr2.set_version_pin(&builtin_id, "  ", &cfg).unwrap();
-        let p3 = mgr2.all_programs().into_iter().find(|x| x.id == builtin_id).unwrap();
+        mgr2.set_version_pin("dufs", "  ", &cfg).unwrap();
+        let p3 = mgr2.all_programs().into_iter().find(|x| x.id == "dufs").unwrap();
         assert!(p3.version_pin.is_none());
         assert_eq!(p3.update_channel(), "pre"); // 通道不受影响
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// 无 manager 锁的日志追加（下载后台线程用）：落盘且带时间戳行。
@@ -2126,7 +2025,6 @@ mod tests {
             check_sha256: None,
             channel: String::new(),
             version_pin: None,
-            hidden: false,
             supervisor: Supervisor::default(),
             native: NativeSpec::default(),
         };
@@ -2216,18 +2114,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 删除内置程序：会话内从 all_programs 消失；删除后再新建 manager 也不残留。
+    /// 删除程序：会话内从 all_programs 消失；删除后新建 manager 也不残留。
     #[test]
-    fn delete_builtin_removes_it_from_all_programs() {
-        let dir = std::env::temp_dir().join("cc-del-builtin");
+    fn delete_program_removes_it_from_all_programs() {
+        let dir = std::env::temp_dir().join("cc-del-program");
         let _ = std::fs::remove_dir_all(&dir);
-        let builtin_id = crate::builtin::builtin_programs()[0].id.clone();
         let cfg = dir.join("shell.json");
+        write_port_program_cfg(&cfg);
 
         let mut mgr = ShellManager::new(dir.clone()).unwrap();
-        assert!(mgr.all_programs().iter().any(|p| p.id == builtin_id));
-        mgr.delete_program(&builtin_id, &cfg).unwrap();
-        assert!(!mgr.all_programs().iter().any(|p| p.id == builtin_id));
+        mgr.load_config(&cfg).unwrap();
+        assert!(mgr.all_programs().iter().any(|p| p.id == "dufs"));
+        mgr.delete_program("dufs", &cfg).unwrap();
+        assert!(!mgr.all_programs().iter().any(|p| p.id == "dufs"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2622,7 +2521,6 @@ mod tests {
             check_sha256: None,
             channel: String::new(),
             version_pin: None,
-            hidden: false,
             supervisor: Supervisor::Native,
             native: NativeSpec {
                 delay_secs: 5,
@@ -2694,7 +2592,6 @@ mod tests {
             check_sha256: None,
             channel: String::new(),
             version_pin: None,
-            hidden: false,
             supervisor: Supervisor::Native,
             native: NativeSpec::default(),
         };

@@ -133,7 +133,6 @@ th.local_ver: Local version
 th.latest_ver: Latest version
 th.status: Status
 th.autostart: Autostart
-th.hidden: Hidden
 th.actions: Actions
 lib.title: Template library
 lib.local: Local templates
@@ -166,8 +165,6 @@ act.upload: Upload
 act.edit: Edit
 act.delete: Delete
 act.clear_data: Reset data (keep app)
-act.hide: Hide
-act.unhide: Show
 menu.new: 'New program'
 menu.copy: Duplicate
 act.import: Import
@@ -274,7 +271,6 @@ act.export: Export
 act.delete_field: Delete field
 st.autostart: Autostart
 toast.addr_copied: Address copied
-st.hidden: Hidden
 st.empty: (empty)
 st.is_latest: '"%{name}" is already up to date'
 side.empty_suffix: " (import via Template library)"
@@ -386,8 +382,6 @@ err.program_exists: 'Program "%{id}" already exists'
 err.write_file_fail: 'Failed to write file: %{err}'
 op.enable: Enable
 op.disable: Disable
-op.hide: Hide
-op.show: Show
 op.import_local: from local file
 op.import_web: web UI
 op.start: Start program "%{name}"
@@ -403,7 +397,6 @@ op.duplicate: 'Duplicated program "%{name}"'
 op.delete: Delete program "%{name}" (keep data)
 op.delete_entirely: Delete "%{name}" and clear its data
 op.clear_data: Reset "%{name}" data (keep program)
-op.toggle_visibility: '%{showhide} program "%{name}"'
 op.update_sources: 'Updated template sources: %{list}'
 op.web_update: 'Updated web listening settings: %{bind}:%{port}'
 op.proxy_update: 'Updated network acceleration/proxy settings: %{accel_n} acceleration, %{proxy_n} proxies'
@@ -486,7 +479,6 @@ log.runner.stopped: 'Stopped %{id}'
 log.check_version_fail: 'Failed to check latest version of "%{name}": %{err}'
 
 # Program <-> service (system scheduling)
-svc.native_notice: 'Managed by the system scheduler: starts at login and survives this app.'
 svc.back_to_managed: Back to app-managed
 svc.open_board: Open schedule
 svc.open_sched: Open schedule

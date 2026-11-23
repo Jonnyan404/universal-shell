@@ -104,7 +104,6 @@ struct ProgramView {
     args: Vec<String>,
     fields: Vec<FieldView>,
     env: Vec<EnvView>,
-    hidden: bool,
     http_enabled: bool,
     http_version_url: String,
     http_version_json_path: String,
@@ -253,7 +252,6 @@ struct ProgramStatusView {
     id: String,
     name: String,
     repo: String,
-    hidden: bool,
     /// 批量页要知道这条是壳托管还是系统调度（按钮语义不同）
     supervisor: String,
     status: StatusView,
@@ -462,7 +460,6 @@ fn to_view(p: &Program) -> ProgramView {
             .iter()
             .map(|e| EnvView { key: e.key.clone(), value: e.value.clone(), label: e.label.clone() })
             .collect(),
-        hidden: p.hidden,
         http_enabled,
         http_version_url,
         http_version_json_path,
@@ -749,7 +746,6 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
         check_sha256: base.check_sha256.clone(),
         channel: base.channel.clone(),
         version_pin: base.version_pin.clone(),
-        hidden: base.hidden,
         supervisor: base.supervisor,
         native: base.native.clone(),
     }
@@ -777,7 +773,6 @@ fn blank_program(id: &str) -> Program {
         check_sha256: None,
         channel: String::new(),
         version_pin: None,
-        hidden: false,
         supervisor: Default::default(),
         native: Default::default(),
     }
@@ -1006,7 +1001,6 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                     "state": if !st.installed { "not_installed" } else if st.running { "running" } else { "stopped" },
                     "supervisor": p.supervisor.as_str(),
                     "installed": st.installed,
-                    "hidden": p.hidden,
                     "version": st.local_version,
                     "latest_version": latest,
                     "has_update": has_update,
@@ -1048,7 +1042,6 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                         },
                         "supervisor": "system",
                         "installed": st != us_service::ServiceState::NotInstalled,
-                        "hidden": false,
                         "version": "",
                         "latest_version": Value::Null,
                         "has_update": false,
@@ -1165,8 +1158,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                         id: p.id.clone(),
                         name: p.name.clone(),
                         repo: p.repo.clone(),
-                        hidden: p.hidden,
-                        supervisor: p.supervisor.as_str().to_string(),
+                                        supervisor: p.supervisor.as_str().to_string(),
                         status: StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck),
                     }
                 })
@@ -1637,7 +1629,6 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let opt = mgr
                 .programs
                 .iter()
-                .chain(mgr.builtin_programs.iter())
                 .find(|p| p.id == program_id)
                 .cloned();
             let name = opt
@@ -1647,25 +1638,6 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             mgr.clear_program_data(&program_id)
                 .map_err(|e| format!("{e:#}"))?;
             mgr.log_op(&t!("op.clear_data", name = &name));
-            Ok(json!({}))
-        }
-        "set_program_hidden" => {
-            let program_id = arg_str(args, "programId");
-            let hidden = arg_bool(args, "hidden");
-            let mut mgr = state.manager.lock().unwrap();
-            let name = mgr
-                .programs
-                .iter()
-                .find(|p| p.id == program_id)
-                .map(|p| p.name.clone())
-                .unwrap_or_else(|| program_id.clone());
-            mgr.set_hidden(&program_id, hidden, &state.config_path)
-                .map_err(|e| format!("{e:#}"))?;
-            mgr.log_op(&t!(
-                "op.toggle_visibility",
-                showhide = t!(if hidden { "op.hide" } else { "op.show" }),
-                name = &name
-            ));
             Ok(json!({}))
         }
         "import_template_json" => {
@@ -1832,8 +1804,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                     id: p.id.clone(),
                     name: p.name.clone(),
                     repo: p.repo.clone(),
-                    hidden: p.hidden,
-                    supervisor: p.supervisor.as_str().to_string(),
+                                supervisor: p.supervisor.as_str().to_string(),
                     status: StatusView::from_status(&s, &bin, auto),
                 })
                 .collect();

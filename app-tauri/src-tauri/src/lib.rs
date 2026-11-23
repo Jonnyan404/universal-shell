@@ -59,7 +59,6 @@ struct ProgramView {
     fields: Vec<FieldView>,
     /// 环境变量定义（管理页派生只读展示，编辑弹窗可改）
     env: Vec<EnvView>,
-    hidden: bool,
     /// HTTP 源(方案 A)：编辑弹窗回填用
     http_enabled: bool,
     http_version_url: String,
@@ -97,7 +96,6 @@ struct ProgramStatusView {
     id: String,
     name: String,
     repo: String,
-    hidden: bool,
     status: StatusView,
 }
 
@@ -211,7 +209,6 @@ fn to_view(p: &Program) -> ProgramView {
                 label: e.label.clone(),
             })
             .collect(),
-        hidden: p.hidden,
         http_enabled,
         http_version_url,
         http_version_json_path,
@@ -350,8 +347,7 @@ fn batch_status_local(state: State<AppState>) -> Result<Vec<ProgramStatusView>, 
                 id: p.id.clone(),
                 name: p.name.clone(),
                 repo: p.repo.clone(),
-                hidden: p.hidden,
-                status: StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck),
+                        status: StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck),
             }
         })
         .collect())
@@ -425,8 +421,7 @@ fn batch_status(state: State<AppState>) -> Result<Vec<ProgramStatusView>, String
             id: p.id.clone(),
             name: p.name.clone(),
             repo: p.repo.clone(),
-            hidden: p.hidden,
-            status: StatusView::from_status(&s, &bin, auto),
+                status: StatusView::from_status(&s, &bin, auto),
         })
         .collect())
 }
@@ -1122,7 +1117,6 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
         check_sha256: base.check_sha256.clone(),
         channel: base.channel.clone(),
         version_pin: base.version_pin.clone(),
-        hidden: base.hidden,
         supervisor: base.supervisor,
         native: base.native.clone(),
     }
@@ -1174,7 +1168,6 @@ fn add_program(
         check_sha256: None,
         channel: String::new(),
         version_pin: None,
-        hidden: false,
         supervisor: Default::default(),
         native: Default::default(),
     };
@@ -1237,7 +1230,6 @@ fn clear_program_data(state: State<AppState>, program_id: String) -> Result<(), 
     let opt = mgr
         .programs
         .iter()
-        .chain(mgr.builtin_programs.iter())
         .find(|p| p.id == program_id)
         .cloned();
     let name = opt
@@ -1247,29 +1239,6 @@ fn clear_program_data(state: State<AppState>, program_id: String) -> Result<(), 
     mgr.clear_program_data(&program_id)
         .map_err(|e| format!("{e:#}"))?;
     mgr.log_op(&t!("op.clear_data", name = &name));
-    Ok(())
-}
-
-#[tauri::command]
-fn set_program_hidden(
-    state: State<AppState>,
-    program_id: String,
-    hidden: bool,
-) -> Result<(), String> {
-    let mut mgr = state.manager.lock().unwrap();
-    let name = mgr
-        .programs
-        .iter()
-        .find(|p| p.id == program_id)
-        .map(|p| p.name.clone())
-        .unwrap_or_else(|| program_id.clone());
-    mgr.set_hidden(&program_id, hidden, &state.config_path)
-        .map_err(|e| format!("{e:#}"))?;
-    mgr.log_op(&t!(
-        "op.toggle_visibility",
-        showhide = t!(if hidden { "op.hide" } else { "op.show" }),
-        name = &name
-    ));
     Ok(())
 }
 
@@ -1880,7 +1849,6 @@ pub fn run() {
             delete_program,
             delete_program_entirely,
             clear_program_data,
-            set_program_hidden,
             get_registries,
             set_registries,
             get_manifest,

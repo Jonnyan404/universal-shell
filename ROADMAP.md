@@ -127,7 +127,7 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
 - **前端**：核心逻辑全部在 `shared/` 复用；桌面界面为 Tauri（单一前端 SPA），另有无窗口 `us-web`（`app-cli`）覆盖无桌面场景
 - **主前端**：Tauri 为主界面（模板浏览/搜索体验 + 前端迭代快）；~~egui 为轻量备用（托盘常驻场景）~~ → 2026-11 已归档，见下方条目
 - **模板源**：两级结构（清单 + 模板惰性拉取），本地缓存可离线回退
-- **模板库拆分**：模板库独立成仓库 `universal-shell-templates`（模板源 `templates/*.json` + 生成并签名的 `registry/` 都在那边，由该仓库 CI 负责生成/签名/提交）；本仓库只留引擎与工具链，生成/校验工具改为「目录可传入」（参数 + `US_TEMPLATES_*`/`US_REGISTRY_*` 环境变量），避免同一套 schema 与校验逻辑维护两份；默认源 `DEFAULT_REGISTRY` 指向新仓库 raw。壳自带的少量内置程序（`shared/builtin/programs.json`）不属于模板库，仍在本仓库。
+- **模板库拆分**：模板库独立成仓库 `universal-shell-templates`（模板源 `templates/*.json` + 生成并签名的 `registry/` 都在那边，由该仓库 CI 负责生成/签名/提交）；本仓库只留引擎与工具链，生成/校验工具改为「目录可传入」（参数 + `US_TEMPLATES_*`/`US_REGISTRY_*` 环境变量），避免同一套 schema 与校验逻辑维护两份；默认源 `DEFAULT_REGISTRY` 指向新仓库 raw。壳自带的少量内置程序（`shared/builtin/programs.json`）曾不属于模板库、留在本仓库；2026-11-23 已整体删除，见「内置程序移除」。
 - **信任模型**：远程模板会引导下载并执行第三方二进制；默认安全字段值 + 来源记录 + 可选 sha256/签名
 - **Web 界面**：内嵌进 Tauri 与 egui 两进程、不单独打包；SPA 单一起源 `frontend/`，浏览器与 Tauri 窗口共享同一前端、同一服务
 - **Web 能力模型**：前端零 `window.__TAURI__` 依赖；原生能力（文件对话框/Finder reveal）后移为服务端端点（`/api/native/pick`、`/api/native/reveal`，rfd/`open` 在服务端执行）；`/api/capabilities` 声明可用能力，本机窗口原生体验、远程浏览器自动降级（手填/input file）
@@ -183,6 +183,11 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
     - ③ **静默改持久设置**：`native_dispatch("apply")` 在开关关着时会打开「开机自启」——这在 launchd 下无解（装载=plist 在盘上=登录会起来），但原来一声不响。现在返回 `note` 字段，前端当 toast 弹出来；开关本来开着（停止后再启动）时不动开关，也就没有提示。
     - 回归测试：`us-service` 新增 `launchd_stop_is_sticky_and_kick_relaunches`（真装一条 LaunchAgent，`restart = "always"`，停完静置 15 秒仍须是停的，再 `kick` 能起来）。已确认**用旧的 `kill` 实现会失败**，用 `bootout` 通过 —— 15 秒窗口是按实测节流定的，3 秒抓不住。`shared` 新增 `switching_to_native_stops_the_shell_runner`（`/bin/sleep` 起进程 → `set_supervisor(native)` → 断言 Runner 里没有了）。
   - **已知未做**：① 运行参数**真的**变化时仍会重启服务（几百毫秒中断），未做「先启动新的再切流量」；改名/改描述已不再触发；② Windows `system`（提权）场景已有真机证据：CI 在 `windows-latest` 上生成 BootTrigger + HighestAvailable 的任务，`schtasks /Create`、`/Query`、`/Delete` 全部通过（run 45157356081）；③ 派生条目仍在每次同步时按当前字段值重建，若用户在界面上手改派生条目会被覆盖（`origin` 已标明来源）；④ 旧批量视图的 CSS（`.batch-*`）已全部删除，模板库需要的少量工具类已改名保留（`.lib-toolbar` / `.lib-ops` / `.item-tag`）。
+- **内置程序移除 + 隐藏功能清理（2026-11-23）**：
+  - 删掉 `shared/builtin/`（`programs.json` + `builtin.rs`）：壳不再内置任何程序，全新数据目录的列表为空，内容全部来自模板库导入或手动新建。`ShellManager.builtin_programs` 字段、`all_programs()` 的合并逻辑、`update_program` / `delete_program` / `set_hidden` 里的 `is_builtin` 分支、RPC 与 Tauri 的两处 `.chain(builtin_programs)`、`shared/examples/smoke_test.rs`（唯一用途就是跑内置程序）一并删除。
+  - 理由：内置那条 `cloud-clipboard-go-builtin` 实际是个演示条目，用户既没法删干净（删了重启又回来，只能靠隐藏），又和模板库里的同名模板重复；模板库拆仓库后，壳里再留一份「出厂程序」只是多一条需要解释的路径。
+  - 兼容性：`Program` 没有 `deny_unknown_fields`，旧 `shell.json` 里若残留 `hidden` 字段会被忽略；旧配置里由内置程序产生的条目现在就是普通用户程序，照常可用（只是不再有「重启后恢复出厂」这一层）。
+  - 同时删掉已无入口的 `hidden` 概念：`Program.hidden`、`set_program_hidden`（RPC + Tauri 命令及其注册）、`ShellManager::set_hidden`、视图里的 `hidden` 字段、`diff_json` 里的 `obj.remove("hidden")`、以及 8 个孤儿 i18n key（`th.hidden` / `st.hidden` / `act.hide` / `act.unhide` / `op.hide` / `op.show` / `op.toggle_visibility` / `svc.native_notice`）。界面在「工作台三页合一」时就已没有隐藏入口，留着字段只会让旧隐藏项凭空冒出来又藏不回去。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。
   - 依据：① 功能面已被覆盖——桌面用 Tauri、无桌面用 `us-web`，egui 独占场景仅剩「托盘常驻且不起 webview」；② 双份维护成本真实——ROADMAP 中 B7/B8、C4、C5、D1、F1、F10 均为双端条目，且 egui 已落后 5 项（日志中心、模板 diff、二进制上传、局域网开关、主题切换），i18n 258/486；③ Release 资产下载量趋近于 0（egui 与 tauri 同量级），重复维护未服务到用户。

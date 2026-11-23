@@ -133,7 +133,6 @@ th.local_ver: 本地版本
 th.latest_ver: 最新版本
 th.status: 状态
 th.autostart: 开机启动
-th.hidden: 隐藏
 th.actions: 操作
 lib.title: 模板库
 lib.local: 本地模板
@@ -166,8 +165,6 @@ act.upload: 上传
 act.edit: 编辑
 act.delete: 删除
 act.clear_data: 重置数据（保留程序）
-act.hide: 隐藏
-act.unhide: 显示
 menu.new: 新建程序
 menu.copy: 复制
 act.import: 导入
@@ -274,7 +271,6 @@ act.export: 导出
 act.delete_field: 删除字段
 st.autostart: 开机启动
 toast.addr_copied: 地址已复制
-st.hidden: 已隐藏
 st.empty: '(空)'
 st.is_latest: '「%{name}」已是最新版本'
 side.empty_suffix: "(可在「模板库」导入)"
@@ -386,8 +382,6 @@ err.program_exists: '程序「%{id}」已存在'
 err.write_file_fail: '写入文件失败: %{err}'
 op.enable: 开启
 op.disable: 关闭
-op.hide: 隐藏
-op.show: 显示
 op.import_local: 从本地文件
 op.import_web: Web 管理
 op.start: 启动程序「%{name}」
@@ -403,7 +397,6 @@ op.duplicate: 复制程序「%{name}」
 op.delete: 删除程序「%{name}」（保留数据）
 op.delete_entirely: 删除并清空程序「%{name}」数据
 op.clear_data: 重置程序「%{name}」数据（保留程序）
-op.toggle_visibility: '%{showhide}程序「%{name}」'
 op.update_sources: '更新模板源列表：%{list}'
 op.web_update: '更新 Web 监听设置：%{bind}:%{port}'
 op.proxy_update: '更新网络加速/代理设置：加速 %{accel_n} 项、代理 %{proxy_n} 项'
@@ -486,7 +479,6 @@ log.runner.stopped: '已停止 %{id}'
 log.check_version_fail: '检查「%{name}」最新版本失败: %{err}'
 
 # 程序 ↔ 服务（系统调度）
-svc.native_notice: 此程序由系统调度接管：开机自启，壳退出也不停。
 svc.back_to_managed: 改为壳托管
 svc.open_board: 打开调度
 svc.open_sched: 打开调度
