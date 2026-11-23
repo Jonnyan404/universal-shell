@@ -170,6 +170,23 @@ fn native_dispatch(
     }
 }
 
+/// 注销某程序派生出的系统服务（若存在）。
+///
+/// 删程序时必须先做这一步：只删 shell.json 的话，launchd / systemd / 计划任务里
+/// 那条作业还在，开机照样启动一个已删除的程序；而工作台又按 `origin = program:*`
+/// 把派生条目过滤掉了，它就成了界面上看不见、系统里还在跑的幽灵服务。
+fn uninstall_derived(mgr: &mut shared::ShellManager, program_id: &str) {
+    let path = mgr.services_config_path();
+    if !path.exists() {
+        return;
+    }
+    if let Ok(cfg) = us_service::config::Config::load(&path) {
+        if let Some(svc) = cfg.get(&format!("prog-{program_id}")) {
+            let _ = us_service::uninstall(svc, &path);
+        }
+    }
+}
+
 /// 程序的状态。`native` 程序没有壳内的子进程，只能问系统调度器。
 fn local_status(
     mgr: &mut shared::ShellManager,
@@ -1522,8 +1539,10 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 .find(|p| p.id == program_id)
                 .map(|p| p.name.clone())
                 .unwrap_or_else(|| program_id.clone());
+            uninstall_derived(&mut mgr, &program_id);
             mgr.delete_program(&program_id, &state.config_path)
                 .map_err(|e| format!("{e:#}"))?;
+            let _ = mgr.sync_native_services();
             mgr.log_op(&t!("op.delete", name = &name));
             Ok(json!({}))
         }
@@ -1536,8 +1555,10 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 .find(|p| p.id == program_id)
                 .map(|p| p.name.clone())
                 .unwrap_or_else(|| program_id.clone());
+            uninstall_derived(&mut mgr, &program_id);
             mgr.delete_program_entirely(&program_id, &state.config_path)
                 .map_err(|e| format!("{e:#}"))?;
+            let _ = mgr.sync_native_services();
             mgr.log_op(&t!("op.delete_entirely", name = &name));
             Ok(json!({}))
         }
