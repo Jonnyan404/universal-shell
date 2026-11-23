@@ -558,8 +558,14 @@ impl ShellManager {
                     let _ = std::fs::remove_file(&old);
                     let _ = std::fs::rename(&run_target, &old);
                 }
-                let member = rule.member.as_deref();
-                extract::extract_file(dl_path, &rule.format, member, &run_target)
+                // member 与 candidates 一样是模板串（`clip9-cli-v{version}-macos-{arch}/clip9-cli`），
+                // 必须渲染后再去包里匹配。以前这里直接传原文，含占位符的模板永远匹配不上
+                // 真实成员，报「tar.gz 中未找到目标成员」。
+                let member = rule
+                    .member
+                    .as_deref()
+                    .map(|m| program.render_template(m, version, rule, arch));
+                extract::extract_file(dl_path, &rule.format, member.as_deref(), &run_target)
                     .with_context(|| t!("err.extract", path = dl_path.display().to_string()))?;
             }
             ExtractMode::Whole => {
@@ -2167,6 +2173,73 @@ mod tests {
             }
         });
         (port, handle)
+    }
+
+    /// Single 模式的 `member` 与 `candidates` 一样是模板串，必须渲染后再去包里匹配。
+    ///
+    /// 回归：clip9 模板的 member 是 `clip9-cli-v{version}-macos-{arch}/clip9-cli`，
+    /// 以前原样传给解压器，带占位符的字符串永远匹配不上真实成员，下载完却报
+    /// 「tar.gz 中未找到目标成员」。Whole 模式早就渲染了，Single 模式漏了。
+    #[test]
+    fn single_mode_member_template_is_rendered() {
+        let dir = std::env::temp_dir().join("cc-single-member-tpl");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let arch = std::env::consts::ARCH;
+        let os = crate::config::os_key();
+        let p: Program = serde_json::from_str(&format!(
+            r#"{{
+                "id":"clip9tpl","name":"clip9tpl","repo":"o/r","binary":"clip9-cli",
+                "assets":{{"{os}":{{
+                    "candidates":["clip9-cli-v{{version}}-{os}-{{arch}}.tar.gz"],
+                    "format":"tar.gz","mode":"single",
+                    "member":"clip9-cli-v{{version}}-{os}-{{arch}}/clip9-cli"
+                }}}},
+                "fields":[],"args":[]
+            }}"#
+        ))
+        .unwrap();
+
+        // 造一个与上游同布局的包：外层目录名带版本与架构，二进制与 README 同级
+        let pkg = dir.join("asset.tar.gz");
+        let inner_dir = format!("clip9-cli-v1.2.3-{os}-{arch}");
+        let payload = b"#!/bin/sh\necho clip9\n";
+        {
+            let f = std::fs::File::create(&pkg).unwrap();
+            let enc = flate2::write::GzEncoder::new(f, flate2::Compression::fast());
+            let mut b = tar::Builder::new(enc);
+            // 先放 README：若 member 未生效、回退到「取第一个成员」就会抓错
+            let mut hj = tar::Header::new_gnu();
+            hj.set_size(6);
+            hj.set_mode(0o644);
+            hj.set_cksum();
+            b.append_data(&mut hj, format!("{inner_dir}/README.md"), &b"readme"[..])
+                .unwrap();
+            let mut h = tar::Header::new_gnu();
+            h.set_size(payload.len() as u64);
+            h.set_mode(0o755);
+            h.set_cksum();
+            b.append_data(&mut h, format!("{inner_dir}/clip9-cli"), &payload[..])
+                .unwrap();
+            b.into_inner().unwrap().finish().unwrap();
+        }
+
+        let mgr = ShellManager::new(dir.clone()).unwrap();
+        let (rule, names) = p.candidate_names(arch, "1.2.3").unwrap();
+        assert_eq!(names, vec![format!("clip9-cli-v1.2.3-{os}-{arch}.tar.gz")]);
+
+        mgr.apply_download(&p, &rule, arch, "1.2.3", &pkg, None, &|_| {})
+            .expect("member 模板渲染后应能定位到包内二进制");
+
+        let bin = mgr.bin_path(&p);
+        assert_eq!(
+            std::fs::read(&bin).unwrap(),
+            payload,
+            "应取到 clip9-cli 本体而不是 README"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

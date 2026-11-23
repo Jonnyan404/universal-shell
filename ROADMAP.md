@@ -188,6 +188,12 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
   - 理由：内置那条 `cloud-clipboard-go-builtin` 实际是个演示条目，用户既没法删干净（删了重启又回来，只能靠隐藏），又和模板库里的同名模板重复；模板库拆仓库后，壳里再留一份「出厂程序」只是多一条需要解释的路径。
   - 兼容性：`Program` 没有 `deny_unknown_fields`，旧 `shell.json` 里若残留 `hidden` 字段会被忽略；旧配置里由内置程序产生的条目现在就是普通用户程序，照常可用（只是不再有「重启后恢复出厂」这一层）。
   - 同时删掉已无入口的 `hidden` 概念：`Program.hidden`、`set_program_hidden`（RPC + Tauri 命令及其注册）、`ShellManager::set_hidden`、视图里的 `hidden` 字段、`diff_json` 里的 `obj.remove("hidden")`、以及 8 个孤儿 i18n key（`th.hidden` / `st.hidden` / `act.hide` / `act.unhide` / `op.hide` / `op.show` / `op.toggle_visibility` / `svc.native_notice`）。界面在「工作台三页合一」时就已没有隐藏入口，留着字段只会让旧隐藏项凭空冒出来又藏不回去。
+- **single 模式 `member` 未渲染（2026-11-23，模板库 clip9 暴露）**：
+  - 现象：从模板库导入 `clip9` 后点安装，下载成功却报「解压资产 …/clip9-cli-v0.3.0-macos-x86_64.tar.gz 失败: tar.gz 中未找到目标成员」。
+  - 根因在壳，不在模板：`apply_download` 的 `ExtractMode::Single` 分支把 `rule.member` 原样传给 `extract_file`，而 `Whole` 分支有 `program.render_template(...)`。clip9 的 member 是 `clip9-cli-v{version}-macos-{arch}/clip9-cli`，含占位符的串永远匹配不上包内真实路径。`candidates` 一直是渲染过的，所以「下载」这步正常，只有「挑成员」这步挂。
+  - 修法：Single 分支同样 `render_template` 后再匹配。回归测试 `single_mode_member_template_is_rendered`（自造同布局 tar.gz，并先放一个 README 诱饵，确保 member 生效而不是回退「取第一个成员」）；已确认回退修复会以同样文案失败。
+  - 影响面：扫了模板库全部模板，只有 clip9 的三个平台规则踩到（其余 single 模板的 member 均无占位符，whole 模式早已渲染）。三个平台的资产名与包内布局已逐个核对（macos/linux tar.gz、windows zip），模板本身正确，无需改模板库。
+  - 顺带确认：`start_program` / `restart_program` 用的是前端传来的 `values`（界面从 `get_values` 取全量默认值，含 `args_extra`），开机自启走 `load_field_values`，两条路径都能完整展开参数；只有裸调 RPC 不传 `values` 时才会把 `{args_extra}` 当位置参数传下去。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。
   - 依据：① 功能面已被覆盖——桌面用 Tauri、无桌面用 `us-web`，egui 独占场景仅剩「托盘常驻且不起 webview」；② 双份维护成本真实——ROADMAP 中 B7/B8、C4、C5、D1、F1、F10 均为双端条目，且 egui 已落后 5 项（日志中心、模板 diff、二进制上传、局域网开关、主题切换），i18n 258/486；③ Release 资产下载量趋近于 0（egui 与 tauri 同量级），重复维护未服务到用户。
