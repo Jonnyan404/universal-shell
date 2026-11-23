@@ -751,6 +751,39 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         "get_shell_version" => Ok(json!(shared::version::build_version())),
 
         // ---------- 程序视图 / 值 ----------
+        // ---------- 服务看板（us-service） ----------
+        // 配置放在 <data_dir>/services.toml，与 shell.json 同目录。
+        // 锁只用来取 data_dir，随后立刻释放：下面的调用会跑 launchctl/systemctl。
+        "services_list" => {
+            let dir = { state.manager.lock().unwrap().data_dir.clone() };
+            crate::services::list(&dir).map_err(|e| format!("{e:#}"))
+        }
+        "services_log" => {
+            let dir = { state.manager.lock().unwrap().data_dir.clone() };
+            let id = arg_str(args, "id");
+            let tail = args
+                .get("tail")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(300) as usize;
+            crate::services::log(&dir, &id, tail).map_err(|e| format!("{e:#}"))
+        }
+        "services_save" => {
+            let dir = { state.manager.lock().unwrap().data_dir.clone() };
+            let draft: crate::services::Draft = arg_payload(args)?;
+            crate::services::save(&dir, draft).map_err(|e| format!("{e:#}"))
+        }
+        "services_remove" => {
+            let dir = { state.manager.lock().unwrap().data_dir.clone() };
+            let id = arg_str(args, "id");
+            let uninstall = arg_bool(args, "uninstall");
+            crate::services::remove(&dir, &id, uninstall).map_err(|e| format!("{e:#}"))
+        }
+        "services_action" => {
+            let dir = { state.manager.lock().unwrap().data_dir.clone() };
+            let id = arg_str(args, "id");
+            let action = arg_str(args, "action");
+            crate::services::action(&dir, &id, &action).map_err(|e| format!("{e:#}"))
+        }
         "get_programs" => {
             let mgr = state.manager.lock().unwrap();
             Ok(serde_json::to_value(

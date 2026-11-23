@@ -274,6 +274,81 @@ fn cmd_capture(bin: &str, args: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+
+/// 表单里的「每行一个参数」→ 参数数组（行内空格保留）
+pub fn parse_args(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// 表单里的 `KEY=VALUE` 行 → 环境变量表
+pub fn parse_env(text: &str) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut env = std::collections::BTreeMap::new();
+    for (i, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else {
+            bail!("第 {} 行不是 KEY=VALUE：{}", i + 1, line);
+        };
+        let k = k.trim();
+        if k.is_empty() {
+            bail!("第 {} 行缺少变量名", i + 1);
+        }
+        env.insert(k.to_string(), v.trim().to_string());
+    }
+    Ok(env)
+}
+
+pub fn restart_from(s: &str) -> Restart {
+    match s {
+        "always" => Restart::Always,
+        "on_failure" | "onfailure" => Restart::OnFailure,
+        _ => Restart::Never,
+    }
+}
+
+pub fn scope_from(s: &str) -> Scope {
+    match s {
+        "system" => Scope::System,
+        _ => Scope::User,
+    }
+}
+
+/// 读文件尾部最多 n 行（只读末 256KB，日志再大也不卡）
+pub fn read_tail(path: &Path, n: usize) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let len = f.metadata().ok()?.len();
+    const CHUNK: u64 = 256 * 1024;
+    let start = len.saturating_sub(CHUNK);
+    f.seek(SeekFrom::Start(start)).ok()?;
+    let mut buf = String::new();
+    f.take(CHUNK).read_to_string(&mut buf).ok()?;
+    let mut lines: Vec<&str> = buf.lines().rev().take(n).collect();
+    lines.reverse();
+    Some(lines.join("\n"))
+}
+
+/// 日志最后一行（看板卡片上用）
+pub fn last_line(path: &Path) -> Option<String> {
+    read_tail(path, 1)?.lines().last().map(str::to_string)
+}
+
+
+/// 该服务在当前平台的单元文件落点（只算路径，不看是否存在）
+pub fn unit_path_of(s: &Service, config: &Path) -> PathBuf {
+    match Platform::current() {
+        Platform::Launchd => launchd::unit_path(s),
+        Platform::Systemd => systemd::unit_path(s),
+        Platform::Schtasks => schtasks::xml_path(s, &config.to_path_buf()),
+    }
+}
+
 /// 服务在系统里的实际状态（看板/CLI 共用）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]

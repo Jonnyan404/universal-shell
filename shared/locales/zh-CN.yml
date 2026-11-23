@@ -25,6 +25,7 @@ ui.theme.follow_system: 跟随系统
 ui.lang: 切换语言
 ui.settings: 网络设置
 ui.batch: 批量管理
+ui.services: 服务
 ui.library: 模板库
 ui.shell_log: 查看壳自身操作日志
 ui.shell_log_short: 壳日志

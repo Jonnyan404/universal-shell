@@ -25,6 +25,7 @@ ui.theme.follow_system: Follow system
 ui.lang: Switch language
 ui.settings: Network settings
 ui.batch: Batch management
+ui.services: Services
 ui.library: Template library
 ui.shell_log: View shell operation log
 ui.shell_log_short: Shell log

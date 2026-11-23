@@ -8,6 +8,7 @@ description = "Universal shell local web management server (embedded, not shippe
 
 [dependencies]
 shared = { workspace = true }
+us-service = { path = "../us-service" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }

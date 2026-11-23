@@ -23,6 +23,7 @@
       </div>
       <nav id="program-tabs" class="room-list"></nav>
       <div class="sidebar-foot">
+        <button id="services-link" class="sidebar-settings" data-i18n-title="ui.services">⏻ <span class="app-btn-label" data-i18n="ui.services">服务</span></button>
         <button id="batch-link" class="sidebar-settings" data-i18n-title="ui.batch">☰ <span class="app-btn-label" data-i18n="ui.batch">批量管理</span></button>
         <button id="library-link" class="sidebar-settings" data-i18n-title="ui.library">▤ <span class="app-btn-label" data-i18n="ui.library">模板库</span></button>
         <button id="log-center-link" class="sidebar-settings" data-i18n-title="ui.log_center">📜 <span class="app-btn-label" data-i18n="ui.log_center">日志中心</span></button>
@@ -85,6 +86,9 @@
           <pre id="manage-log-content" class="term-body"></pre>
         </div>
       </section>
+
+      <!-- 服务（由系统调度器拉起，界面只做查看/控制） -->
+      <section id="services-view" class="view" hidden></section>
 
       <!-- 批量管理 -->
       <section id="batch-view" class="view" hidden>
@@ -400,5 +404,6 @@
 
   <script src="api.js"></script>
   <script src="main.js"></script>
+  <script src="services.js"></script>
 </body>
 </html>

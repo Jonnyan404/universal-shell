@@ -37,6 +37,7 @@ const el = {
   chips: document.querySelector("#status-chips"),
   form: document.querySelector("#field-form"),
   actions: document.querySelector("#actions"),
+  servicesView: document.querySelector("#services-view"),
   manageLog: document.querySelector("#manage-log"),
   manageLogContent: document.querySelector("#manage-log-content"),
   envBody: document.querySelector("#env-body"),
@@ -390,6 +391,9 @@ function switchView(v) {
   el.batchView.hidden = v !== "batch";
   el.libraryView.hidden = v !== "library";
   el.logView.hidden = v !== "log";
+  if (el.servicesView) el.servicesView.hidden = v !== "services";
+  if (v === "services") window.usServices && window.usServices.onShow();
+  else window.usServices && window.usServices.onHide();
   const dlBtn = document.querySelector("#dl-btn");
   if (dlBtn) dlBtn.hidden = v !== "manage";
   // 更新设置条在 #manage-view 内部，跟着 manageView 一起显示/隐藏，这里不再单独控制
@@ -412,7 +416,12 @@ function switchView(v) {
   if (v !== "log") stopLogCenterTailing();
   renderSidebar();
   document.querySelectorAll(".sidebar-foot .sidebar-settings").forEach((b) => {
-    b.classList.toggle("active", b.id === (v === "batch" ? "batch-link" : v === "library" ? "library-link" : v === "log" ? "log-center-link" : ""));
+    const activeId =
+      v === "batch" ? "batch-link"
+      : v === "library" ? "library-link"
+      : v === "log" ? "log-center-link"
+      : v === "services" ? "services-link" : "";
+    b.classList.toggle("active", b.id === activeId);
   });
   if (isMobile()) mobSyncView(v);
 }
@@ -3374,6 +3383,7 @@ document.querySelector("#del-modal-keep").onclick = () => applyDelete(false);
 document.querySelector("#del-modal-purge").onclick = () => applyDelete(true);
 
 // 批量 / 模板库 / 设置 入口
+document.querySelector("#services-link").onclick = () => switchView("services");
 document.querySelector("#batch-link").onclick = () => switchView("batch");
 document.querySelector("#library-link").onclick = () => switchView("library");
 document.querySelector("#batch-refresh").onclick = async () => {

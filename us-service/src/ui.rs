@@ -2,8 +2,9 @@
 //!
 //! 只绑 127.0.0.1，不常驻也可随时关掉；它是"展示层"，真相仍在配置与调度器里。
 
-use crate::config::{Config, Restart, Scope};
+use crate::config::Config;
 use crate::{state, Ctx, Service, ServiceState};
+use std::collections::BTreeMap;
 use anyhow::{Context, Result};
 use axum::{
     extract::{Query, State},
@@ -13,7 +14,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -104,7 +105,7 @@ struct Row {
 
 async fn list(State(app): State<Arc<App>>) -> Result<Json<ListResp>, (StatusCode, String)> {
     let cfg = Config::load(&app.config).map_err(bad)?;
-    let ctx = Ctx::new(&app.config).map_err(bad)?;
+    // 只为尽早校验配置可读；路径计算改用 crate::unit_path_of
     let mut rows = Vec::new();
     for s in &cfg.services {
         let st = state(s, &app.config);
@@ -130,10 +131,10 @@ async fn list(State(app): State<Arc<App>>) -> Result<Json<ListResp>, (StatusCode
             enabled: s.enabled,
             state: st,
             state_label: st.label().into(),
-            unit: ctx.unit_path_of(s).display().to_string(),
+            unit: crate::unit_path_of(s, &app.config).display().to_string(),
             log: log.display().to_string(),
             log_size: std::fs::metadata(&log).map(|m| m.len()).unwrap_or(0),
-            last_line: last_line(&log).unwrap_or_default(),
+            last_line: crate::last_line(&log).unwrap_or_default(),
         });
     }
     Ok(Json(ListResp {
@@ -145,26 +146,6 @@ async fn list(State(app): State<Arc<App>>) -> Result<Json<ListResp>, (StatusCode
 
 fn bad(e: anyhow::Error) -> (StatusCode, String) {
     (StatusCode::BAD_REQUEST, format!("{e:#}"))
-}
-
-fn last_line(path: &Path) -> Option<String> {
-    let text = read_tail(path, 1)?;
-    text.lines().last().map(str::to_string)
-}
-
-/// 读文件尾部最多 n 行（不做全量读取：日志可能很大）
-fn read_tail(path: &Path, n: usize) -> Option<String> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut f = std::fs::File::open(path).ok()?;
-    let len = f.metadata().ok()?.len();
-    const CHUNK: u64 = 256 * 1024;
-    let start = len.saturating_sub(CHUNK);
-    f.seek(SeekFrom::Start(start)).ok()?;
-    let mut buf = String::new();
-    f.take(CHUNK).read_to_string(&mut buf).ok()?;
-    let mut lines: Vec<&str> = buf.lines().rev().take(n).collect();
-    lines.reverse();
-    Some(lines.join("\n"))
 }
 
 #[derive(Deserialize)]
@@ -195,7 +176,7 @@ async fn log(
         .get(&q.id)
         .ok_or_else(|| (StatusCode::NOT_FOUND, format!("没有 service `{}`", q.id)))?;
     let path = s.log_path(&app.config);
-    let text = read_tail(&path, q.tail.min(5000)).unwrap_or_default();
+    let text = crate::read_tail(&path, q.tail.min(5000)).unwrap_or_default();
     Ok(Json(LogResp {
         id: s.id.clone(),
         log: path.display().to_string(),
@@ -267,15 +248,6 @@ fn enable(s: &Service, config: &Path, cfg: &Config) -> Result<()> {
     crate::install(&items, cfg)
 }
 
-impl Ctx {
-    fn unit_path_of(&self, s: &Service) -> PathBuf {
-        match crate::Platform::current() {
-            crate::Platform::Launchd => crate::launchd::unit_path(s),
-            crate::Platform::Systemd => crate::systemd::unit_path(s),
-            crate::Platform::Schtasks => crate::schtasks::xml_path(s, &self.config),
-        }
-    }
-}
 
 #[derive(Deserialize)]
 struct SaveReq {
@@ -312,57 +284,23 @@ fn default_true_ui() -> bool {
     true
 }
 
-fn parse_args(text: &str) -> Vec<String> {
-    text.lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-fn parse_env(text: &str) -> Result<BTreeMap<String, String>, String> {
-    let mut env = BTreeMap::new();
-    for (i, line) in text.lines().enumerate() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((k, v)) = line.split_once('=') else {
-            return Err(format!("第 {} 行不是 KEY=VALUE：{}", i + 1, line));
-        };
-        let k = k.trim();
-        if k.is_empty() {
-            return Err(format!("第 {} 行缺少变量名", i + 1));
-        }
-        env.insert(k.to_string(), v.trim().to_string());
-    }
-    Ok(env)
-}
-
 async fn save(State(app): State<Arc<App>>, Json(req): Json<SaveReq>) -> Json<ActionResp> {
     let result = (|| -> anyhow::Result<String> {
         let mut cfg = Config::load(&app.config)?;
-        let env = parse_env(&req.env).map_err(|e| anyhow::anyhow!(e))?;
+        let env = crate::parse_env(&req.env)?;
         let svc = Service {
             id: req.id.trim().to_string(),
             name: req.name.trim().to_string(),
             description: req.description.trim().to_string(),
             command: req.command.trim().to_string(),
-            args: parse_args(&req.args),
+            args: crate::parse_args(&req.args),
             env,
             cwd: non_empty(&req.cwd).map(std::path::PathBuf::from),
             log: non_empty(&req.log).map(std::path::PathBuf::from),
             delay_secs: req.delay_secs,
-            restart: match req.restart.as_str() {
-                "always" => Restart::Always,
-                "on_failure" | "onfailure" => Restart::OnFailure,
-                _ => Restart::Never,
-            },
+            restart: crate::restart_from(&req.restart),
             restart_secs: 10,
-            scope: match req.scope.as_str() {
-                "system" => Scope::System,
-                _ => Scope::User,
-            },
+            scope: crate::scope_from(&req.scope),
             enabled: req.enabled,
         };
         let id = svc.id.clone();

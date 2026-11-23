@@ -209,10 +209,16 @@ pub fn config_dir(config_path: &Path) -> PathBuf {
 /// 跨平台生成时要保留「另一平台」的绝对路径：在 macOS 上给 Windows 生成任务时，
 /// `C:\x` 在 `Path::is_absolute()` 眼里是相对路径，直接拼接会毁掉它。
 pub fn absolute(p: &Path) -> PathBuf {
-    if p.is_absolute() || looks_windows_absolute(p) {
+    if p.is_absolute() || looks_windows_absolute(p) || looks_unix_absolute(p) {
         return p.to_path_buf();
     }
     std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// `/etc/x` 在 Windows 上 `is_absolute()` 为 false，但它显然不是「相对于当前目录」。
+/// 跨平台生成时（在 Windows 上为 Linux 生成 unit）必须原样保留。
+fn looks_unix_absolute(p: &Path) -> bool {
+    p.to_string_lossy().starts_with('/')
 }
 
 fn looks_windows_absolute(p: &Path) -> bool {
@@ -293,7 +299,11 @@ command = "/bin/true"
     fn log_path_defaults_next_to_config() {
         let cfg = Config::parse(SAMPLE).unwrap();
         let p = cfg.services[0].log_path(Path::new("/etc/ushell/services.toml"));
-        assert_eq!(p, PathBuf::from("/etc/ushell/logs/dufs.log"));
+        assert_eq!(
+            p,
+            PathBuf::from("/etc/ushell").join("logs").join("dufs.log"),
+            "日志默认落在配置目录的 logs/ 下"
+        );
     }
 
     #[test]
@@ -304,7 +314,7 @@ command = "/bin/true"
         .unwrap();
         assert_eq!(
             rel.services[0].log_path(Path::new("/cfg/services.toml")),
-            PathBuf::from("/cfg/a.log")
+            PathBuf::from("/cfg").join("a.log")
         );
         let abs = Config::parse(
             "[[services]]\nid=\"a\"\ncommand=\"/bin/true\"\nlog=\"/var/log/a.log\"\n",
@@ -312,7 +322,8 @@ command = "/bin/true"
         .unwrap();
         assert_eq!(
             abs.services[0].log_path(Path::new("/cfg/services.toml")),
-            PathBuf::from("/var/log/a.log")
+            PathBuf::from("/var/log/a.log"),
+            "显式绝对路径不该被改写"
         );
     }
 

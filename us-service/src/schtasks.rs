@@ -285,6 +285,6 @@ scope = "{scope}"
     fn xml_path_sits_next_to_config() {
         let (s, _) = build("user", "never");
         let p = xml_path(&s, &PathBuf::from("/cfg/services.toml"));
-        assert_eq!(p, PathBuf::from("/cfg/schtasks/svc.xml"));
+        assert_eq!(p, PathBuf::from("/cfg").join("schtasks").join("svc.xml"));
     }
 }

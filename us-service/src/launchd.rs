@@ -142,7 +142,11 @@ restart = "{restart}"
         assert!(p.contains("/usr/local/bin/us-svc"));
         assert!(p.contains("<string>run</string>"));
         assert!(p.contains("<string>--id</string>"));
-        assert!(p.contains("/cfg/logs/dufs.log"), "日志默认落在配置目录下");
+        let log = s.log_path(&ctx.config);
+        assert!(
+            p.contains(&esc(&log.to_string_lossy())),
+            "plist 里应出现推导出的日志路径: {log:?}"
+        );
         assert!(p.contains("<key>RunAtLoad</key>\n  <true/>"));
         assert!(p.contains("<key>WorkingDirectory</key>\n  <string>/srv</string>"));
         assert!(p.contains("<key>RUST_LOG</key>"));

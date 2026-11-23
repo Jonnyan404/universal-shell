@@ -125,6 +125,7 @@ mod tests {
         Config::parse(toml).unwrap().services.remove(0)
     }
 
+    #[cfg(unix)]
     #[test]
     fn captures_output_and_propagates_exit_code() {
         let log = tmp_log("exit");
@@ -147,6 +148,7 @@ args = ["-c", "echo hello-from-service; echo oops >&2; exit 3"]
         let _ = std::fs::remove_file(&log);
     }
 
+    #[cfg(unix)]
     #[test]
     fn injects_env_and_working_dir() {
         let log = tmp_log("env");
@@ -171,6 +173,7 @@ cwd = "{}"
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
     #[test]
     fn reports_missing_command_instead_of_panicking() {
         let log = tmp_log("missing");
@@ -209,6 +212,7 @@ command = "/definitely/not/here"
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
     #[test]
     fn repeated_runs_append_rather_than_truncate() {
         let log = tmp_log("append");
