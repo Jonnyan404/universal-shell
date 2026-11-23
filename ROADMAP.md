@@ -132,6 +132,11 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
 - **Web 界面**：内嵌进 Tauri 与 egui 两进程、不单独打包；SPA 单一起源 `frontend/`，浏览器与 Tauri 窗口共享同一前端、同一服务
 - **Web 能力模型**：前端零 `window.__TAURI__` 依赖；原生能力（文件对话框/Finder reveal）后移为服务端端点（`/api/native/pick`、`/api/native/reveal`，rfd/`open` 在服务端执行）；`/api/capabilities` 声明可用能力，本机窗口原生体验、远程浏览器自动降级（手填/input file）
 - **Web 安全默认**：绑定 127.0.0.1 + 随机高位端口；LAN/token 需显式开启；egui 开关默认关，tauri 服务 loopback 随主界面常启
+- **服务调度抽成独立 crate（2026-11-23）**：新增 `us-service`（lib `us_service` + 二进制 `us-svc`），把「一条命令 + 参数 + 调度策略」声明成服务，并生成三平台原生启动配置。
+  - **真相源**：`services.toml` 是唯一事实；launchd plist / systemd unit / 计划任务 XML 都是可重建产物（改参数后重新 `apply` 即可）。
+  - **调度器调的是包装器**：`us-svc run --config … --id …`，日志重定向、env 注入、延迟、退出码记录都在包装器里 —— Windows 计划任务不接管 stdout，这层是必需的；延迟也统一在这里做（launchd 无原生 delay），三平台语义一致。
+  - **与主项目的关系**：`us-service` 不依赖任何 UI、也不关心命令来自模板下载还是用户自己写。universal-shell 后续以它为 `supervisor` 后端（`managed` / `launchd` / `systemd` / `schtasks`），"模板库"与"自己的服务"作为**两个平级入口**由用户切换，不设主次。
+  - **已知未做**：system 级不自动提权（明确报错让人自己 sudo）；SIGTERM 未透传给子进程（当前靠 kill）；Windows `schtasks /XML` 对 UTF-8 编码敏感，必要时导出 UTF-16，待真机验证。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。
   - 依据：① 功能面已被覆盖——桌面用 Tauri、无桌面用 `us-web`，egui 独占场景仅剩「托盘常驻且不起 webview」；② 双份维护成本真实——ROADMAP 中 B7/B8、C4、C5、D1、F1、F10 均为双端条目，且 egui 已落后 5 项（日志中心、模板 diff、二进制上传、局域网开关、主题切换），i18n 258/486；③ Release 资产下载量趋近于 0（egui 与 tauri 同量级），重复维护未服务到用户。

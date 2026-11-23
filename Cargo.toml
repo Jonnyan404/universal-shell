@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["shared", "app-tauri/src-tauri", "web-server", "app-cli"]
+members = ["shared", "us-service", "app-tauri/src-tauri", "web-server", "app-cli"]
 # app-egui 已归档：目录与 git 历史保留，但不再参与 workspace 构建、打包与 CI。
 # 该目录自带空 [workspace] 表以便独立构建；如需复活：删掉那里的 [workspace] 表、
 # 把它加回 members 并删掉这行 exclude，再恢复打包脚本/工作流里的 egui 段。

@@ -1,0 +1,21 @@
+[package]
+name = "us-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Declarative local services: generate launchd / systemd / Task Scheduler configs and run them"
+
+[lib]
+name = "us_service"
+path = "src/lib.rs"
+
+[[bin]]
+name = "us-svc"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+time = { workspace = true }
+toml = "0.8"
+anyhow = "1.0"

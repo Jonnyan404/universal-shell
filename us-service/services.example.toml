@@ -1,0 +1,37 @@
+# us-svc 示例配置：一条命令 + 参数 + 调度策略 = 一个开机自启的后台服务。
+#
+#   us-svc gen   services.toml --out ./gen     # 只生成，先看产物
+#   us-svc apply services.toml                 # 装载（system 级需 sudo 手工放行）
+#   us-svc status services.toml                # 看调度器里的真实状态
+#
+# 日志默认落在「本文件所在目录」的 logs/<id>.log。
+
+[[services]]
+id = "dufs"
+name = "dufs 文件服务"
+description = "把 /data 以 HTTP 暴露在 127.0.0.1:5000"
+command = "/usr/local/bin/dufs"
+args = ["-p", "5000", "-A", "/data"]
+# 只在非 0 退出时重启，正常停止不拉起
+restart = "on_failure"
+# 登录后等网络就绪再起
+delay_secs = 5
+env = { RUST_LOG = "info" }
+
+[[services]]
+id = "backup"
+name = "每日备份脚本"
+command = "/bin/sh"
+args = ["-c", "rsync -a ~/work /Volumes/Backup/work"]
+cwd = "/Users/me"
+# 跑完就退出，不需要守护
+restart = "never"
+# 默认 user 作用域；需要登录前就运行再改成 system（macOS 会装到 LaunchDaemons）
+scope = "user"
+
+[[services]]
+id = "paused"
+name = "暂时不要的服务"
+command = "/usr/local/bin/whatever"
+# enabled = false 时 apply 会跳过，但配置保留
+enabled = false

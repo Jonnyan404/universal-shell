@@ -4,6 +4,7 @@
 
 - 本仓库即 universal-shell（配置驱动的万能应用壳）——核心逻辑在 `shared/`（纯 Rust，零 UI 依赖），`app-tauri/` 为主界面（单一前端 SPA + 内嵌 web 服务），`app-cli/` 为无窗口 Web 管理服务（`us-web`）。
   - `app-egui/` **已归档**：源码留在仓库备查，但已在 `Cargo.toml` 里 `exclude`，且不参与打包/CI。**不要再给它加功能**；要复活先看 `ROADMAP.md` 关键决策记录里的复活条件。
+- `us-service/`（lib `us_service` + 二进制 `us-svc`）是**无 UI 依赖**的服务调度 crate：把 `services.toml` 生成 launchd / systemd / 计划任务配置，并由 `us-svc run` 包装器负责日志与退出码。它不关心程序从模板下载还是用户自写；改它不影响 `shared/`，反之亦然。
 - **模板库已拆到独立仓库** [universal-shell-templates](https://github.com/Jonnyan404/universal-shell-templates)：
   - 那里是模板单一事实来源（`templates/*.json`）与生成产物（`registry/`：`manifests.json` + `manifests.sig` + `templates/<id>.json`）。
   - 本仓库**不再存放模板**，只保留 schema（`shared/src/config.rs`）与工具链。加/改模板请去那个仓库提 PR。

@@ -5620,6 +5620,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "us-service"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "time",
+ "toml 0.8.23",
+]
+
+[[package]]
 name = "utf-8"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
