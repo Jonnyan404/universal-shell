@@ -829,24 +829,14 @@ function renderActions() {
   actions.innerHTML = "";
   // 选中手工服务时操作区本来就是隐藏的；此时 current 为 null，别往下走。
   if (!current) return;
-  // 系统调度接管时不显示启停按钮（壳再 spawn 会与调度器双开）。
-  // 托管方式的切换放在「调度」页；这里只留一个回去的入口，避免操作区全空。
-  if (current && current.supervisor === "native") {
-    const group = document.createElement("span");
-    group.className = "act-group";
-    const back = document.createElement("button");
-    back.textContent = "⏻ " + t("svc.back_to_managed");
-    back.onclick = () => setSupervisor(false);
-    group.appendChild(back);
-    actions.appendChild(group);
-    return;
-  }
   // 按钮组整体居中；启停/重启 与 图标组 之间用分隔条隔开
   const group1 = document.createElement("span");
   group1.className = "act-group";
 
-  // 「开机启动」是程序自己的开关：壳启动时代为拉起，写进 program-autostart.json。
-  // 它与托管方式无关 —— 变成系统调度服务是「调度」页的事，别在这里抢了入口。
+  // 「开机启动」是唯一事实来源（program-autostart.json）：
+  //   壳托管   → 壳启动时代为拉起；
+  //   系统调度 → 决定派生服务是否装载到系统启动项。
+  // 两种托管方式都得有这个开关，不能因为切到 native 就把它藏掉。
   const curStatus = statuses.find((s) => current && s.id === current.id)?.status;
   const autoOn = !!(curStatus && curStatus.autostart);
   const autoBtn = document.createElement("button");
@@ -901,6 +891,14 @@ function renderActions() {
     }
   };
   group1.appendChild(restart);
+  // 系统调度下启停走后端 native_dispatch（直接操作系统调度器，不经过壳的
+  // Runner，不会双开），所以按钮照常画完；末尾只多一个回退入口。
+  if (current.supervisor === "native") {
+    const back = document.createElement("button");
+    back.textContent = "⏻ " + t("svc.back_to_managed");
+    back.onclick = () => setSupervisor(false);
+    group1.appendChild(back);
+  }
   actions.appendChild(group1);
 
   // 下载/更新按钮已迁入状态栏（对齐 Tauri），这里只接上绑定
@@ -987,14 +985,18 @@ function applyStatus(st) {
   renderSidebar();
 }
 
-// 只切换「是否开机启动」，不碰 supervisor：壳托管的程序也能自己开自启。
-// 后端写 program-autostart.json，壳下次启动时代为拉起。
+// 只切换「是否开机启动」，不碰 supervisor。壳托管写 program-autostart.json
+// 由壳拉起；系统调度下后端还会同步 services.toml 的 enabled 并装载/卸载
+// 系统启动项，所以两条路径都是同一个开关。
 async function toggleAutostart(wasOn) {
   if (!current) return;
   try {
     await invoke("set_autostart", { programId: current.id, enabled: !wasOn });
     showNotice(t("toast.autostart_updated", { name: current.name }));
     await refreshStatusLocal();
+    if (window.usWorkbench && typeof window.usWorkbench.load === "function") {
+      await window.usWorkbench.load();
+    }
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -1009,6 +1011,11 @@ async function setSupervisor(native) {
     showNotice(r.message || "");
     await reloadPrograms();
     switchCurrent(current.id);
+    // 首次切到 native 时后端会顺手打开开机自启，列表与状态栏都要跟上。
+    await refreshStatusLocal();
+    if (window.usWorkbench && typeof window.usWorkbench.load === "function") {
+      await window.usWorkbench.load();
+    }
   } catch (e) {
     showNotice(String(e), true);
   }

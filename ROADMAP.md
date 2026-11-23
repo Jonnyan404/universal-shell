@@ -150,7 +150,7 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
   - **程序 ↔ 服务打通（2026-11-23）**：`Program.supervisor`（`managed` 默认 / `native`）+ `Program.native`（delay/restart/scope/depends_on/ready_*）。
     - 真相仍在 `shell.json`：切到 `native` 时 `sync_native_services()` 把它**派生成** `services.toml` 条目（id `prog-<程序id>`，带 `origin = "program:<id>"`，参数按当前字段值展开），再 `install` 落到系统；切回 `managed` 先 `uninstall` 再删派生条目。
     - 派生条目在同步时重建，所以改程序字段值后重新切换/同步即可生效；派生条目的手改会被下次同步覆盖（`origin` 已标明来源）。
-    - 管理页在 `native` 下**不再**显示启停按钮（避免壳再 spawn 一个实例造成双开），改为「改为壳托管 / 打开服务页」。
+    - 管理页在 `native` 下曾不再显示启停按钮（担心壳再 spawn 造成双开）；后端启停其实一直由 `native_dispatch` 分派到系统调度器，2026-11-23 已订正为照常显示，见下方「开机启动开关统一」。
   - **补齐的四项（2026-11-23）**：
     - 服务页文案已进 `shared/locales`（`svc.*`，中英各 59 键），语言切换时重建懒创建的抽屉/编辑器，按钮文案不会停在旧语言。
     - 写回 TOML 改为**增量修改**（`toml_edit`）：文件级注释、每个 `[[services]]` 上方的注释、未改动条目的行尾注释全部保留；只有真正改过的条目会被重写。
@@ -172,6 +172,11 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
   - **开机启动 ≠ 系统调度（2026-11-23）**：操作区「开机自启」按钮原先误调 `set_supervisor(true)`，一点就把程序变成系统调度服务，壳托管程序因而没有开机启动入口。现改回 `set_autostart` 开关（`program-autostart.json`，壳启动时代为拉起），`supervisor` 只在「调度」页切换。调度页切换后必须 `reloadPrograms()` 刷新 `main.js` 的 `current/programs` 缓存，否则操作区仍按旧 supervisor 画启停按钮，字段自动保存也不会重新派生 native 服务。
   - **新建入口二选一（2026-11-23）**：「＋ 新建」下拉明确选对象——「新建程序」接 `openEditModal(null)` / `add_program`（手动填参数，本地程序入口），「新建服务」接 `newService()`（写一条命令）；模板库保持侧栏独立入口。`newService()` 开头先切回 `manage` 视图，否则停在模板库 / 日志中心时，表单所在的 `#manage-view` 是隐藏的，点了像没反应。
   - **隐藏功能移除（2026-11-23）**：工作台不再过滤 `hidden`，SPA 侧批量隐藏、右键菜单、移动端过滤与相关 i18n 键全部删除；后端 `set_program_hidden` / `Program.hidden` 保留给已归档的 `app-egui`，不动。
+  - **开机启动开关统一（2026-11-23）**：`program-autostart.json` 成为「是否开机启动」的唯一事实来源，两种托管方式共用操作区同一个开关。此前 `native` 分支在 `renderActions()` 里直接 `return`，把开关一起藏掉；后端又把状态栏 `autostart` 算成「`supervisor == Native` 或 `program_autostart()`」（恒亮）、派生服务 `enabled` 硬编码 `true`，于是出现「开关消失、⏻ 恒亮、想关也关不掉」的不自洽。由此暴露两个真 bug：① 切到 native 不清 `program-autostart.json`，而 `start_autostart_programs()` 与 `ShellManager::start()` 都不检查 supervisor，壳启动时会与 launchd 双开；② native 期间 ⏻ 来自 supervisor，切回 managed 后状态会突变或「幽灵复活」。
+    - 现在：`sync_native_services()` 的派生 `enabled` 跟随 `program_autostart()`；`set_autostart` 在 native 下关闭时先 `uninstall` 系统作业再 `sync`（写 `enabled=false`），开启时 `sync` + `apply_one` 重新装载；`start_autostart_programs()` 跳过 `Native`；6 处状态 `auto` 只读 map。
+    - 首次 `managed → native` 会自动打开开关（否则 `enabled=false` 会让 `plan_for` 跳过该服务，等于切了不生效，也与「开机自启」文案一致）；只保存调度参数或已是 native 时不重置用户手动关掉的开关。
+    - `native` 操作区保留开关 + 启停/重启 + 「改为壳托管」；`set_autostart` / `set_supervisor` 之后刷新工作台列表与状态栏。
+    - 同时订正一个更早的误判：native 下曾把启停/重启按钮整个隐藏，理由是「壳再 spawn 会双开」。但后端 `start_program` / `stop_program` / `restart_program` 早已按 `supervisor` 走 `native_dispatch`（`apply_one` / `us_service::stop`），压根不经过壳的 Runner，不会双开 —— 是 UI 过度隐藏。现恢复按钮。另补边界：开机启动开关关着时派生服务 `enabled=false`、`plan_for` 会跳过它，此时点「启动」会变成空操作，所以 `native_dispatch("apply")` 先自动打开开关再装载。
   - **已知未做**：① 运行参数**真的**变化时仍会重启服务（几百毫秒中断），未做「先启动新的再切流量」；改名/改描述已不再触发；② Windows `system`（提权）场景已有真机证据：CI 在 `windows-latest` 上生成 BootTrigger + HighestAvailable 的任务，`schtasks /Create`、`/Query`、`/Delete` 全部通过（run 45157356081）；③ 派生条目仍在每次同步时按当前字段值重建，若用户在界面上手改派生条目会被覆盖（`origin` 已标明来源）；④ 旧批量视图的 CSS（`.batch-*`）已全部删除，模板库需要的少量工具类已改名保留（`.lib-toolbar` / `.lib-ops` / `.item-tag`）。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。

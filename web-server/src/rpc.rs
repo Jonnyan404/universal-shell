@@ -155,6 +155,12 @@ fn native_dispatch(
     match action {
         // 启动/重启：重新派生 + 装一次（install 内部会先卸载，等价于重启）
         _ if action == "apply" => {
+            // 开机启动开关关着时派生服务是 enabled=false，plan_for 会跳过它，
+            // 启动就成了空操作。系统调度下「启动」= 把服务装载进调度器，
+            // 必然要打开这个开关；状态栏与操作区会随返回的 StatusView 更新。
+            if !mgr.program_autostart(&p.id) {
+                mgr.set_program_autostart(&p.id, true);
+            }
             mgr.sync_native_services().map_err(|e| format!("{e:#}"))?;
             crate::services::apply_one(&dir, &id).map_err(|e| format!("{e:#}"))
         }
@@ -887,6 +893,14 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let mut mgr = state.manager.lock().unwrap();
             let services_path = mgr.services_config_path();
             let derived_id = format!("prog-{program_id}");
+            // 只有「壳托管 → 系统调度」这一次转换才顺手打开开机自启：切到系统
+            // 调度的语义本来就是开机自启。已经是 native 时（比如只保存调度参数）
+            // 不能把用户后来关掉的开关又重置回去。
+            let was_native = mgr
+                .all_programs()
+                .into_iter()
+                .find(|p| p.id == program_id)
+                .is_some_and(|p| p.supervisor == Supervisor::Native);
 
             // 切回托管：先把已经装进系统的条目卸载（sync 之后条目就没了，来不及卸）
             if !native && services_path.exists() {
@@ -900,6 +914,12 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let p = mgr
                 .set_supervisor(&program_id, native, &patch, &state.config_path)
                 .map_err(|e| format!("{e:#}"))?;
+            // 开关状态决定派生服务是否装载；首次切到 native 时默认打开，
+            // 否则 enabled=false 会让 plan_for 跳过这条服务，等于「切了但没生效」。
+            let auto_opened = native && !was_native && !mgr.program_autostart(&program_id);
+            if auto_opened {
+                mgr.set_program_autostart(&program_id, true);
+            }
             let changed = mgr.sync_native_services().map_err(|e| format!("{e:#}"))?;
 
             let mut apply_note = String::new();
@@ -914,7 +934,11 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 "supervisor": p.supervisor.as_str(),
                 "changed": changed,
                 "message": if native {
-                    format!("{} 已切换为系统调度（开机自启）{apply_note}", p.name)
+                    format!(
+                        "{} 已切换为系统调度{}{apply_note}",
+                        p.name,
+                        if auto_opened { "（已开启开机自启）" } else { "" }
+                    )
                 } else {
                     format!("{} 已切回壳托管", p.name)
                 },
@@ -1089,7 +1113,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             };
             let bin = mgr.bin_path(&p);
             let s = local_status(&mut mgr, &p);
-            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
+            let auto = mgr.program_autostart(&p.id);
             let vcheck = mgr.load_version_check();
             Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
         }
@@ -1102,7 +1126,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 .map(|p| {
                     let bin = mgr.bin_path(&p);
                     let s = local_status(&mut mgr, &p);
-                    let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
+                    let auto = mgr.program_autostart(&p.id);
                     ProgramStatusView {
                         id: p.id.clone(),
                         name: p.name.clone(),
@@ -1136,7 +1160,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             mgr.log_op(t!("op.start", name = &p.name).as_ref());
             let bin = mgr.bin_path(&p);
             let s = local_status(&mut mgr, &p);
-            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
+            let auto = mgr.program_autostart(&p.id);
             let vcheck = mgr.load_version_check();
             Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
         }
@@ -1156,7 +1180,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             mgr.log_op(t!("op.stop", name = &p.name).as_ref());
             let bin = mgr.bin_path(&p);
             let s = local_status(&mut mgr, &p);
-            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
+            let auto = mgr.program_autostart(&p.id);
             let vcheck = mgr.load_version_check();
             Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
         }
@@ -1180,7 +1204,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             mgr.log_op(t!("op.restart", name = &p.name).as_ref());
             let bin = mgr.bin_path(&p);
             let s = local_status(&mut mgr, &p);
-            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
+            let auto = mgr.program_autostart(&p.id);
             let vcheck = mgr.load_version_check();
             Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
         }
@@ -1439,12 +1463,33 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
                 return Err(program_not_found(&program_id));
             };
+            let native = p.supervisor == Supervisor::Native;
             mgr.set_program_autostart(&program_id, enabled);
             mgr.log_op(t!(
                 "op.toggle_autostart",
                 onoff = t!(if enabled { "op.enable" } else { "op.disable" }),
                 name = &p.name
             ).as_ref());
+            // 系统调度接管的程序，开关要真正作用到系统启动项，而不是只改一个
+            // 对 native 无效的 JSON：关闭先卸载已注册的作业，再让 sync 把
+            // 派生服务写成 enabled=false；开启则重新装载。
+            if native {
+                let services_path = mgr.services_config_path();
+                let derived_id = format!("prog-{program_id}");
+                if !enabled && services_path.exists() {
+                    if let Ok(cfg) = us_service::config::Config::load(&services_path) {
+                        if let Some(svc) = cfg.get(&derived_id) {
+                            let _ = us_service::uninstall(svc, &services_path);
+                        }
+                    }
+                }
+                mgr.sync_native_services().map_err(|e| format!("{e:#}"))?;
+                if enabled {
+                    let dir = mgr.data_dir.clone();
+                    crate::services::apply_one(&dir, &derived_id)
+                        .map_err(|e| format!("{e:#}"))?;
+                }
+            }
             Ok(json!({}))
         }
         "shell_autostart_enabled" => {
@@ -1693,7 +1738,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                         .map(|p| {
                             let bin = mgr.bin_path(&p);
                             let s = local_status(&mut mgr, &p);
-                            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
+                            let auto = mgr.program_autostart(&p.id);
                             (p, bin, s, auto)
                         })
                         .collect::<Vec<_>>(),

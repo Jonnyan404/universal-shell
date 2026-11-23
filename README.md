@@ -5,7 +5,7 @@ A configuration-driven manager for third-party CLI programs **and local services
 **English** · [中文](#中文文档)
 
 - Downloads/updates program binaries from GitHub into its own data dir (never overwrites itself), verifies SHA256, spawns/stops processes with templated args.
-- **One workbench**: programs and services in a single list. Each program is either **app-managed** (lives and dies with the app) or handed to the **OS scheduler** (starts at login, restarts on crash, ordered by declared dependencies).
+- **One workbench**: programs and services in a single list. Each program is either **app-managed** (lives and dies with the app) or handed to the **OS scheduler** (can start at login via the autostart switch, restarts on crash, ordered by declared dependencies).
 - **Config-driven UI**: the `fields` in `shell.json` decide which widgets render (string / file / directory / boolean).
 - Multiple programs, each with its own data dir.
 - Tray resident: closing the window hides to tray; tray can reopen or quit.
@@ -55,7 +55,7 @@ That's it. Picked templates become instances you can **Start / Stop** right away
 
 ### 3. Use
 
-Set the fields if needed, then press **Start**. By default the program is app-managed: it runs in the background and stops when you quit the app. The **⏻ Enable/Disable autostart** button in the action bar only decides whether the shell launches it at login; it does not change who keeps it running. To make the program survive the app, see the next section.
+Set the fields if needed, then press **Start**. By default the program is app-managed: it runs in the background and stops when you quit the app. The **⏻ Enable/Disable autostart** button in the action bar is the single "start at login" switch: for app-managed programs the shell launches them at login, and for the OS scheduler it decides whether the derived startup item is registered. To make the program survive the app, see the next section.
 
 ### 4. Two ways to keep a program running
 
@@ -63,17 +63,23 @@ Set the fields if needed, then press **Start**. By default the program is app-ma
 |---|---|---|
 | Who starts it | this app | launchd / systemd / Task Scheduler |
 | When the app quits | the program stops | it keeps running |
-| At login | if the app autostarts and the program's autostart switch is on | yes — registered as a startup item |
+| At login | if the app autostarts and the autostart switch is on | if the autostart switch is on — registered as a startup item |
 | After a crash | no restart | restarts per your setting |
 | Good for | tools you want to watch | services that must always be up |
 
-Switch under **Schedule** in the detail pane. Once handed over, the start/stop buttons are
-replaced by a single **Back to app-managed** button (the app would otherwise run a second copy)
-and the status bar marks it with `⏻`.
+Switch under **Schedule** in the detail pane. The start/stop/restart buttons still work after
+handover — they go through the OS scheduler (`native_dispatch`) instead of spawning a second
+copy from the app — and a **Back to app-managed** button is added. The **⏻ autostart** switch
+and the status bar `⏻` work in both modes. Starting a scheduler-managed service whose
+autostart switch is off turns the switch back on first, because "start" means loading the
+service into the scheduler.
 
-**Autostart and the supervisor are independent switches.** Autostart is shell-managed state
-(`program-autostart.json`) and works for app-managed programs too; handing a program to the OS
-scheduler is done only from **Schedule**.
+**One autostart switch, two mechanisms.** The switch is shell-managed state
+(`program-autostart.json`) and works in both modes. Handing a program to the OS scheduler for
+the first time turns it on automatically — that is what "starts at login" means there. Turning
+it off afterwards unregisters the launchd/systemd/Task Scheduler item and marks the derived
+service `enabled = false`; turning it back on reloads it. Saving schedule parameters or
+switching the supervisor never resets a switch you turned off yourself.
 
 **Dependencies**: `depends_on = ["db"]` waits until the dependency is ready — its port is
 reachable, a readiness file exists, or (when neither is declared) the process is running.
@@ -214,7 +220,7 @@ MIT — see [LICENSE](LICENSE).
 [English](#universal-shell) · 中文文档
 
 - 从 GitHub 自动下载/更新受管程序二进制到独立数据目录（天然防覆盖），SHA256 校验、参数模板替换、启动/停止子进程。
-- **一个工作台**：程序与服务同列。每个程序的运行方式二选一——**壳托管**（随应用启停），或交给**系统调度**（开机自启、崩溃重启、按声明的依赖顺序启动）。
+- **一个工作台**：程序与服务同列。每个程序的运行方式二选一——**壳托管**（随应用启停），或交给**系统调度**（可开机自启、崩溃重启、按声明的依赖顺序启动）。
 - **配置驱动界面**：`shell.json` 里的 `fields` 决定渲染什么控件（string / file / directory / boolean）。
 - 多程序并存，每个程序独立数据目录。
 - 托盘常驻：关窗即隐藏到托盘，托盘可唤出/退出。
@@ -264,7 +270,7 @@ MIT — see [LICENSE](LICENSE).
 
 ### 3. 使用
 
-需要时填好字段，点 **启动**。默认是壳托管：程序在后台跑，应用一退它就停。操作区的「**⏻ 启用开机自启 / 取消开机自启**」只决定壳启动时是否自动拉起这个程序，不改变托管方式；想让程序活过应用、由系统开机拉起，见下一节。
+需要时填好字段，点 **启动**。默认是壳托管：程序在后台跑，应用一退它就停。操作区的「**⏻ 启用开机自启 / 取消开机自启**」是「是否开机启动」的唯一开关：壳托管时由壳在启动时代为拉起，系统调度时决定是否为它注册系统启动项。想让程序活过应用，见下一节。
 
 ### 4. 两种运行方式
 
@@ -272,11 +278,13 @@ MIT — see [LICENSE](LICENSE).
 |---|---|---|
 | 谁拉起 | 本应用 | launchd / systemd / 计划任务 |
 | 应用退出 | 程序一起停 | 继续运行 |
-| 登录时 | 应用自启且该程序开了自启开关 | 会，已注册为系统启动项 |
+| 登录时 | 应用自启且该程序开了自启开关 | 开了自启开关才会，已注册为系统启动项 |
 | 崩溃后 | 不会重启 | 按你的设置重启 |
 | 适合 | 你想盯着看的工具 | 必须一直开着的服务 |
 
-在详情页的「**调度**」里切换。交出去之后启停按钮会换成一个「**⏻ 改为壳托管**」按钮（否则应用会再跑一份），状态栏会用 `⏻` 标出。注意这里切换的是**托管方式**；「开机启动」是操作区那个独立开关，两者互不替代。
+在详情页的「**调度**」里切换。交出去之后**启停/重启仍然可用**——它们走 `native_dispatch` 直接操作系统调度器（launchctl / systemctl / 计划任务），不经过应用自己的进程管理，所以不会双开；操作区只多一个「**⏻ 改为壳托管**」按钮。「**⏻ 开机启动**」开关与状态栏的 `⏻` 在两种模式下都有效。若在开关关闭（服务未装载）时点「启动」，会先自动打开开关——系统调度下「启动」就等于把服务装载进调度器。
+
+**一个开关、两套机制。** 开关是壳统一管理的状态（`program-autostart.json`），两种托管方式下都有效。首次把程序交给系统调度时会自动打开它（「开机自启」本来就是这个模式的语义）；之后关掉会注销 launchd / systemd / 计划任务里的启动项，并把派生服务标成 `enabled = false`，再打开则重新装载。保存调度参数或切换托管方式都不会把你手动关掉的开关重置回来。
 
 **依赖顺序**：`depends_on = ["db"]` 会等到依赖「就绪」——端口可连、就绪文件出现，或（两者都没声明时）进程在跑。
 等满超时只记警告并继续，避免一个坏依赖把整条启动链卡死。

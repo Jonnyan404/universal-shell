@@ -589,7 +589,7 @@ wb.sched_rport: 就绪端口
 wb.sched_rfile: 就绪文件
 wb.save_sched: 保存并重新装载
 wb.managed_hint: 由本应用托管：关掉它就停。
-wb.native_hint: 由系统调度：开机自启，关掉本应用也不停。
+wb.native_hint: 由系统调度拉起，关掉本应用也不停。操作区的「开机启动」开关决定是否为它注册系统启动项；关掉即不装载。启停/重启按钮仍可用，走系统调度器。
 wb.upd_na: 手工服务没有版本概念。
 wb.applied: 已按新参数重新装载
 wb.svc_cfg_hint: 这条是手工创建的服务，命令与参数直接写入 services.toml。

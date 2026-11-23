@@ -783,7 +783,10 @@ impl ShellManager {
                 restart: us_service::restart_from(p.native.restart_or_default()),
                 restart_secs: 10,
                 scope: us_service::scope_from(p.native.scope_or_default()),
-                enabled: true,
+                // 「开机启动」是唯一事实来源：壳托管时由壳拉起，系统调度时
+                // 决定这条派生服务是否装载到系统启动项。不要硬编码 true，
+                // 否则用户在系统调度下关掉开关仍会开机自启。
+                enabled: self.program_autostart(&p.id),
                 depends_on: p.native.depends_on.clone(),
                 wait_timeout_secs: if p.native.wait_timeout_secs == 0 {
                     60
@@ -961,6 +964,12 @@ impl ShellManager {
         let programs = self.all_programs();
         for p in &programs {
             if !self.program_autostart(&p.id) {
+                continue;
+            }
+            // 系统调度接管的程序由 launchd/systemd/计划任务拉起；壳再拉一份
+            // 就是双开。开机启动开关仍生效，只是改由 set_autostart 去装载
+            // 或卸载那条派生服务，不在这里走壳的 runner。
+            if p.supervisor == Supervisor::Native {
                 continue;
             }
             let values = self.load_field_values(p);
@@ -2645,6 +2654,103 @@ mod tests {
         mgr.sync_native_services().unwrap();
         let text = std::fs::read_to_string(&services).unwrap();
         assert!(!text.contains("prog-demo"), "切回托管后应删除:\n{text}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 开机启动开关是唯一事实来源：系统调度下派生服务的 enabled 必须跟着它，
+    /// 不能硬编码 true（否则关掉开关仍会开机自启）。
+    #[test]
+    fn native_service_enabled_follows_program_autostart() {
+        use crate::config::{NativeSpec, Supervisor};
+        let dir = std::env::temp_dir().join(format!("us-auto-native-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let p = Program {
+            id: "demo".into(),
+            name: "演示".into(),
+            description: String::new(),
+            category: String::new(),
+            repo: String::new(),
+            binary: "/bin/echo".into(),
+            source: None,
+            assets: Default::default(),
+            arch_map: Default::default(),
+            os_map: Default::default(),
+            fields: Vec::new(),
+            args: vec!["hello".into()],
+            env: Vec::new(),
+            working_dir: ".".into(),
+            template_source: None,
+            imported_at: None,
+            check_sha256: None,
+            channel: String::new(),
+            version_pin: None,
+            hidden: false,
+            supervisor: Supervisor::Native,
+            native: NativeSpec::default(),
+        };
+        let cfg_path = dir.join("shell.json");
+        let cfg = ShellConfig {
+            programs: vec![p],
+            ..Default::default()
+        };
+        std::fs::write(&cfg_path, serde_json::to_string(&cfg).unwrap()).unwrap();
+
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        mgr.load_config(&cfg_path).unwrap();
+        let services = dir.join("services.toml");
+
+        // 默认没开自启 → 派生服务不装载
+        mgr.sync_native_services().unwrap();
+        let text = std::fs::read_to_string(&services).unwrap();
+        assert!(text.contains("enabled = false"), "默认不该开机自启:\n{text}");
+
+        // 打开开关 → 装载
+        mgr.set_program_autostart("demo", true);
+        mgr.sync_native_services().unwrap();
+        let text = std::fs::read_to_string(&services).unwrap();
+        assert!(text.contains("enabled = true"), "打开开关应装载:\n{text}");
+
+        // 关掉 → 再次不装载
+        mgr.set_program_autostart("demo", false);
+        mgr.sync_native_services().unwrap();
+        let text = std::fs::read_to_string(&services).unwrap();
+        assert!(text.contains("enabled = false"), "关掉开关应卸载:\n{text}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 壳拉起自启程序时必须跳过系统调度接管的，否则会与 launchd 双开。
+    #[test]
+    fn autostart_launch_skips_native_programs() {
+        use crate::config::Supervisor;
+        let dir = std::env::temp_dir().join(format!("us-auto-skip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let p: Program = serde_json::from_str(
+            r#"{"id":"demo","name":"demo","binary":"/bin/echo","fields":[],"args":[]}"#,
+        )
+        .unwrap();
+        let mut p = p;
+        p.supervisor = Supervisor::Native;
+        let cfg_path = dir.join("shell.json");
+        let cfg = ShellConfig {
+            programs: vec![p],
+            ..Default::default()
+        };
+        std::fs::write(&cfg_path, serde_json::to_string(&cfg).unwrap()).unwrap();
+
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        mgr.load_config(&cfg_path).unwrap();
+        mgr.set_program_autostart("demo", true);
+        mgr.start_autostart_programs();
+        assert!(
+            !mgr.runner.is_running("demo"),
+            "native 程序不该由壳再拉起一份"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
