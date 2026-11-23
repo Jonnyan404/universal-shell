@@ -155,6 +155,22 @@ pub fn start_with_state(
                         }
                     })
                     .expect("spawn us-sweep");
+                // 内存采样：详情页「内存占用」KPI 和它下面那条曲线靠这个线程喂数据。
+                // 5 秒一点，保留最近 24 个点（约 2 分钟），够看出「是不是在涨」。
+                let mem_stop = stop.clone();
+                let mem_state = state.clone();
+                std::thread::Builder::new()
+                    .name("us-mem".to_string())
+                    .spawn(move || {
+                        while !mem_stop.load(Ordering::SeqCst) {
+                            {
+                                let mut mgr = mem_state.manager.lock().unwrap();
+                                mgr.sample_memory();
+                            }
+                            std::thread::sleep(std::time::Duration::from_secs(5));
+                        }
+                    })
+                    .expect("spawn us-mem");
                 let fwd_stop = stop.clone();
                 let fwd_state = state.clone();
                 std::thread::Builder::new()

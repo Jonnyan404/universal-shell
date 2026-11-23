@@ -94,6 +94,7 @@
                 <button class="wb-tab on" data-wbtab="ov" data-i18n="wb.tab_ov">概览</button>
                 <button class="wb-tab" data-wbtab="cfg" data-i18n="wb.tab_cfg">配置</button>
                 <button class="wb-tab" data-wbtab="sched" data-i18n="wb.tab_sched">调度</button>
+                <button class="wb-tab" data-wbtab="log" data-i18n="wb.tab_log">日志</button>
                 <button class="wb-tab" data-wbtab="upd" data-i18n="wb.tab_upd">更新</button>
               </div>
               <button id="upd-toggle" type="button" class="upd-toggle" hidden>
@@ -122,6 +123,23 @@
                 <div id="svc-form" hidden></div>
               </div>
               <div id="pane-sched" class="wb-pane" hidden></div>
+              <!-- 日志页：整块交给日志窗，不留内边距，终端自己铺满。
+                   id 全部保留——main.js 的尾随 / 折叠 / 复制 / 刷新都按这些 id 找节点。 -->
+              <div id="pane-log" class="wb-pane wb-pane-log" hidden>
+                <div id="manage-log" class="manage-log" data-open="1">
+                  <div id="manage-log-resize" class="manage-log-resize" title=""></div>
+                  <div id="manage-log-head" class="manage-log-head">
+                    <button id="manage-log-toggle" class="log-toggle" data-i18n-title="log.collapse">▾</button>
+                    <span class="manage-log-title" data-i18n="manage.view_log">程序日志</span>
+                    <span id="manage-log-hint" class="manage-log-hint"></span>
+                    <span class="spacer"></span>
+                    <button id="manage-log-open" class="log-action" data-i18n-title="log.center_open">📜</button>
+                    <button id="manage-log-copy" class="log-action" data-i18n-title="act.copy">⧉</button>
+                    <button id="manage-log-refresh" class="log-action" data-i18n-title="act.refresh">↻</button>
+                  </div>
+                  <pre id="manage-log-content" class="term-body"></pre>
+                </div>
+              </div>
               <div id="pane-upd" class="wb-pane" hidden>
                 <div id="upd-empty" class="svc-hint" hidden></div>
                 <div id="upd-program">
@@ -142,20 +160,6 @@
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div id="manage-log" class="manage-log" data-open="1">
-              <div id="manage-log-resize" class="manage-log-resize" title=""></div>
-              <div id="manage-log-head" class="manage-log-head">
-                <button id="manage-log-toggle" class="log-toggle" data-i18n-title="log.collapse">▾</button>
-                <span class="manage-log-title" data-i18n="manage.view_log">程序日志</span>
-                <span id="manage-log-hint" class="manage-log-hint"></span>
-                <span class="spacer"></span>
-                <button id="manage-log-open" class="log-action" data-i18n-title="log.center_open">📜</button>
-                <button id="manage-log-copy" class="log-action" data-i18n-title="act.copy">⧉</button>
-                <button id="manage-log-refresh" class="log-action" data-i18n-title="act.refresh">↻</button>
-              </div>
-              <pre id="manage-log-content" class="term-body"></pre>
             </div>
           </aside>
         </div>

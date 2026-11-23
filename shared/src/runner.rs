@@ -123,6 +123,10 @@ pub struct Runner {
     /// program id -> 启动时刻。用来算「运行时长」；进程退出/被停止时同步清掉。
     /// 只覆盖壳托管的程序——系统调度的程序由 launchd/systemd 拉起，壳看不到启动时刻。
     started: BTreeMap<String, SystemTime>,
+    /// program id -> 最近一次「自己退出」的退出码。sweep 线程据此写事件时间线，
+    /// 让用户看到的是「异常退出 code 1」而不是笼统的「已停止」。
+    /// 主动 stop 不算退出，会先清掉这一项。
+    exits: BTreeMap<String, Option<i32>>,
 }
 
 impl Runner {
@@ -134,9 +138,11 @@ impl Runner {
     pub fn is_running(&mut self, id: &str) -> bool {
         if let Some(child) = self.children.get_mut(id) {
             match child.try_wait() {
-                Ok(Some(_)) => {
+                Ok(Some(st)) => {
                     self.children.remove(id);
                     self.started.remove(id);
+                    // 记下退出码：sweep 线程会把「自己退了」写成一条事件
+                    self.exits.insert(id.to_string(), st.code());
                     false
                 }
                 Ok(None) => true,
@@ -257,6 +263,8 @@ impl Runner {
 
         self.children.insert(id.to_string(), child);
         self.started.insert(id.to_string(), SystemTime::now());
+        // 新一轮运行，上一轮的退出码作废
+        self.exits.remove(id);
         Ok(())
     }
 
@@ -270,6 +278,12 @@ impl Runner {
         self.started.get(id).and_then(|t| t.elapsed().ok()).map(|d| d.as_secs())
     }
 
+    /// 取走「最近一次自行退出」的退出码（取一次就清）。sweep 用它区分
+    /// 「程序自己退了 / 崩了」和「被用户停掉」，只有前者才写退出事件。
+    pub fn take_exit(&mut self, id: &str) -> Option<Option<i32>> {
+        self.exits.remove(id)
+    }
+
     /// 停止指定程序。等待几秒优雅退出，超时强杀。
     pub fn stop(&mut self, id: &str) -> anyhow::Result<()> {
         if !self.is_running(id) {
@@ -277,6 +291,8 @@ impl Runner {
         }
         let mut child = self.children.remove(id).unwrap();
         self.started.remove(id);
+        // 主动停止不是「退出」，别让 sweep 把它写成异常退出事件
+        self.exits.remove(id);
         // 先试 SIGTERM
         child.kill().ok(); // kill() on std Child == SIGKILL on unix
         let wait = child.wait().context(t!("err.runner.wait"))?;

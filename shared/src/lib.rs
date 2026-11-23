@@ -9,6 +9,7 @@ pub mod diff;
 pub mod events;
 pub mod extract;
 pub mod github;
+pub mod insight;
 pub mod locale;
 pub mod ping;
 pub mod progress;

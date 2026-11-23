@@ -2178,21 +2178,54 @@ function logLines(text) {
   return lines;
 }
 
-// 一行 → 一个 div；\x1F 前缀表示 stderr（着色用）
+// 一行 → 一个 div。顺手把时间戳和日志级别染色，跟 D 方案的终端一个观感：
+// 时间戳灰、INFO 绿、WARN 黄、ERROR 红。\x1F 前缀表示 stderr，整行用错误色。
+// 只做「已知形态」的着色，匹配不上就当普通文本，绝不丢字符。
+const LOG_TOKEN =
+  /(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)|(\bINFO\b|\bWARN(?:ING)?\b|\bERROR\b|\bDEBUG\b|\bTRACE\b)/g;
 function logLineEl(line) {
   const isErr = line.startsWith("\u001f");
+  const raw = isErr ? line.slice(1) : line;
   const div = document.createElement("div");
-  div.className = isErr ? "log-err" : "";
-  div.textContent = isErr ? line.slice(1) : line;
+  if (isErr) div.className = "log-err";
+  let last = 0;
+  for (const m of raw.matchAll(LOG_TOKEN)) {
+    if (m.index > last) div.appendChild(document.createTextNode(raw.slice(last, m.index)));
+    const span = document.createElement("span");
+    if (m[1]) {
+      span.className = "t";
+      span.textContent = m[1];
+    } else {
+      const lv = m[2];
+      span.className = lv === "INFO" ? "g" : lv === "ERROR" ? "r" : lv === "DEBUG" || lv === "TRACE" ? "b" : "y";
+      span.textContent = lv;
+    }
+    div.appendChild(span);
+    last = m.index + m[0].length;
+  }
+  if (last < raw.length) div.appendChild(document.createTextNode(raw.slice(last)));
   return div;
 }
+// 概览页的日志卡要复用同一套行渲染，从 workbench.js 里调
+window.usLogLine = logLineEl;
+
+// 最新在前的原始行缓存（上限与日志窗一致）。概览页日志卡读它，
+// 保证「概览里的 6 行」和「日志页里的全文」永远是同一份数据。
+let manageLogTail = [];
+window.usLogTail = (n) => manageLogTail.slice(0, n || 6);
+// 手工服务的日志由 workbench.js 自己拉，拉完把缓存交回来，概览页才看得到
+window.usSetLogTail = (arr) => {
+  manageLogTail = Array.isArray(arr) ? arr.slice(0, MANAGE_LOG_MAX_LINES) : [];
+};
 
 // F-3 管理页小日志窗：整段重渲时倒序铺开，最新一屏就在顶部
 // （倒序后 scrollTop=0 才是「看到最新输出」，滚到底反而是最旧的一行）
 function renderLogBody(container, text) {
   container.innerHTML = "";
+  const lines = logLines(text).reverse(); // 倒序：最新一屏在顶部
+  manageLogTail = lines.slice();
   const frag = document.createDocumentFragment();
-  for (const line of logLines(text).reverse()) frag.appendChild(logLineEl(line));
+  for (const line of lines) frag.appendChild(logLineEl(line));
   container.appendChild(frag);
   trimContainerLines(container, MANAGE_LOG_MAX_LINES);
   container.scrollTop = 0;
@@ -2210,7 +2243,9 @@ function prependLogText(container, delta) {
   const atTop = container.scrollTop <= 4;
   const beforeHeight = container.scrollHeight;
   const frag = document.createDocumentFragment();
-  for (const line of lines.reverse()) frag.appendChild(logLineEl(line));
+  for (const line of lines.slice().reverse()) frag.appendChild(logLineEl(line));
+  // 新行同样插到缓存前面，概览页日志卡才能跟着动
+  manageLogTail = lines.slice().reverse().concat(manageLogTail).slice(0, MANAGE_LOG_MAX_LINES);
   container.insertBefore(frag, container.firstChild);
   trimContainerLines(container, MANAGE_LOG_MAX_LINES);
   container.scrollTop = atTop

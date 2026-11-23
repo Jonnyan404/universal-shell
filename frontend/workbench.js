@@ -23,6 +23,10 @@
     sortKey: "",
     sortDir: 1,
     dense: false,
+    // 详情页概览要的内存曲线与事件时间线。跟列表分开取：这两样比列表项重得多，
+    // 40 个程序全带上会把 workspace_list 撑到几百 KB。
+    insight: null,
+    insightFor: null,
   };
 
   // main.js 的 Program 没有 state 字段，拼出来会是 svc.state.undefined，
@@ -314,6 +318,10 @@
     if (it.kind === "service" && st.tab === "upd") st.tab = "cfg";
     renderList();
     renderInspHead(it);
+    // 内存曲线 / 事件时间线单独取：列表项只带一个 mem_kb，曲线和事件重得多
+    st.insight = null;
+    st.insightFor = null;
+    loadInsight(it.id);
     showTab(st.tab);
     // 窄屏（<1100）检查器变成抽屉：点行才滑出，桌面端常驻不需要这个 class。
     if (openDrawer && window.matchMedia("(max-width: 1100px)").matches) document.body.classList.add("wb-insp-open");
@@ -697,8 +705,82 @@
 
   // ---------- 概览页 ----------
 
-  // 概览只呈现「已有的事实」：字段值、模板快照、状态订阅里的 bin_path / installed。
-  // 不编造运行时长和内存曲线——壳目前没有采集这两个指标。
+  // 内存曲线 + 事件时间线：跟着选中项走。晚到的响应如果已经不是当前选中项就丢掉，
+  // 否则快速点两行时会把上一行的曲线画到这一行上。
+  async function loadInsight(id) {
+    try {
+      const r = await invoke("program_insight", { programId: id });
+      if (!st.selected || st.selected.id !== id) return;
+      st.insight = r || null;
+      st.insightFor = id;
+      if (st.tab === "ov") renderOverview();
+    } catch (e) {
+      /* 取不到就保持原样，别把界面卡在 loading */
+    }
+  }
+
+  // 内存曲线：把采样点画成一条折线。少于两个点不画——一条直线没有信息量，
+  // 反而让人以为「内存一直没变」。
+  function sparkHTML(hist) {
+    if (!Array.isArray(hist) || hist.length < 2) return "";
+    const kb = hist.map((s) => Number(s.rss_kb != null ? s.rss_kb : s.kb) || 0);
+    const max = Math.max(...kb);
+    const min = Math.min(...kb);
+    // 内存几乎不动时（比如一个 sleep），差值归一化会把线压到最底下贴着边框，
+    // 看着像一条下划线。这种情况直接画在中间，表达「平稳」而不是「贴底」。
+    const flat = max - min < Math.max(1, max * 0.02);
+    const n = kb.length;
+    const pts = kb
+      .map((v, i) => {
+        const x = ((i / (n - 1)) * 100).toFixed(2);
+        const y = flat ? 9 : 17 - ((v - min) / Math.max(max - min, 1)) * 15;
+        return `${x},${y.toFixed(2)}`;
+      })
+      .join(" ");
+    return (
+      `<svg class="spark ram" viewBox="0 0 100 18" preserveAspectRatio="none" aria-hidden="true">` +
+      `<polyline points="${pts}"/></svg>`
+    );
+  }
+
+  // KB → 数字 + 单位。小于 1MB 就按 KB 显示，别把 300KB 写成 0.3MB。
+  function fmtMem(kb) {
+    if (!kb) return { v: "—", unit: "" };
+    if (kb < 1024) return { v: String(kb), unit: "KB" };
+    return { v: kb < 10240 ? (kb / 1024).toFixed(1) : String(Math.round(kb / 1024)), unit: "MB" };
+  }
+
+  // 事件文案按 kind 现拼（后端只存 kind / pid / code，存了中文就切不了语言）
+  function eventText(ev) {
+    switch (ev.kind) {
+      case "start":
+        return ev.pid ? t("ev.start", { pid: ev.pid }) : t("ev.start_nopid");
+      case "stop":
+        return t("ev.stop");
+      case "exit":
+        return ev.code == null ? t("ev.exit_nocode") : t("ev.exit", { code: ev.code });
+      case "install":
+        return t("ev.install");
+      case "autostart_on":
+        return t("ev.autostart_on");
+      case "autostart_off":
+        return t("ev.autostart_off");
+      case "sup_native":
+        return t("ev.sup_native");
+      case "sup_managed":
+        return t("ev.sup_managed");
+      default:
+        return esc(ev.kind);
+    }
+  }
+
+  function hhmm(at) {
+    const d = new Date((at || 0) * 1000);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+
+  // 概览按 D 方案的五块排：KPI → 运行配置 → 依赖与关联 → 最近事件 → 日志。
+  // 数字全部来自后端（uptime / RSS / 事件表），没有一处是编的。
   function renderOverview() {
     const box = $("#pane-ov");
     if (!box) return;
@@ -710,11 +792,14 @@
     const p = typeof programs !== "undefined" && programs ? programs.find((x) => x.id === it.id) : null;
     const stt =
       typeof statuses !== "undefined" && statuses ? (statuses.find((x) => x.id === it.id) || {}).status || null : null;
+    const ins = st.insightFor === it.id ? st.insight : null;
 
     const port = it.port || (stt && stt.ready_port) || null;
     const hasVer = it.version && it.version !== "-";
     const ver = hasVer ? "v" + it.version : "—";
     const upd = it.has_update && it.latest_version;
+    const running = it.state === "running";
+    const mem = fmtMem(it.mem_kb || (ins && ins.mem_kb));
     const sup =
       it.kind === "service"
         ? t("wb.manual_service")
@@ -727,47 +812,105 @@
     if (it.kind === "service") {
       rows.push([t("wb.f_cmd"), it.command || "—"]);
       rows.push([t("wb.f_args"), (it.args || []).join(" ") || "—"]);
-      rows.push([t("wb.f_cwd"), it.cwd || "—"]);
-      rows.push([t("wb.f_log"), it.log || "—"]);
+      rows.push([t("wb.ov_cwd"), it.cwd || "—"]);
+      rows.push([t("wb.ov_sup_row"), sup]);
+      rows.push([t("wb.ov_auto"), it.autostart ? t("wb.ov_on") : t("wb.ov_off")]);
     } else {
       rows.push([t("wb.ov_bin"), (stt && stt.bin_path) || (p && p.binary) || "—"]);
       rows.push([t("wb.ov_args"), (p && (p.args || []).join(" ")) || "—"]);
+      rows.push([t("wb.ov_sup_row"), sup]);
+      rows.push([t("wb.ov_auto"), it.autostart ? t("wb.ov_on") : t("wb.ov_off")]);
       rows.push([t("wb.ov_cat"), it.category || "—"]);
       rows.push([t("wb.ov_repo"), (p && p.repo) || "—"]);
-      rows.push([t("wb.ov_auto"), it.autostart ? t("wb.ov_on") : t("wb.ov_off")]);
     }
 
-    const envList = it.kind === "service" ? Object.entries(it.env || {}) : ((p && p.env) || []).map((e) => [e.key, e.value]);
-    const envHTML = envList.length
-      ? `<div class="chips">${envList
-          .map(([k, v]) => `<span class="chip"><b>${esc(k)}</b>=${esc(v === "" ? "—" : v)}</span>`)
-          .join("")}</div>`
-      : `<div class="d-muted">${esc(t("wb.ov_none"))}</div>`;
+    // 依赖与关联：只列真的存在的东西。没有依赖就说没有，不摆两个假 chip。
+    const deps = Array.isArray(it.depends_on) ? it.depends_on.filter(Boolean) : [];
+    const depChips = deps.length
+      ? deps.map((d) => `<span class="chip"><b>depends</b>: ${esc(d)}</span>`).join("")
+      : `<span class="chip">${esc(t("wb.ov_dep_none"))}</span>`;
+    const extraChips =
+      it.kind === "service"
+        ? [
+            it.ready_port ? `<span class="chip"><b>ready</b>: :${esc(it.ready_port)}</span>` : "",
+            it.ready_file ? `<span class="chip"><b>ready</b>: ${esc(it.ready_file)}</span>` : "",
+            it.scope ? `<span class="chip"><b>scope</b>: ${esc(it.scope)}</span>` : "",
+          ]
+            .filter(Boolean)
+            .join("")
+        : `<span class="chip"><b>${esc(t("wb.ov_tmpl"))}</b> ${esc(it.id)}</span>`;
+
+    // 最近事件：后端 ring buffer，跨重启保留（insight.json）
+    const events = (ins && ins.events) || [];
+    const evHTML = events.length
+      ? `<ul class="tl">${events
+          .slice()
+          .reverse()
+          .map((ev) => `<li><span class="t">${hhmm(ev.at)}</span><span class="d">${eventText(ev)}</span></li>`)
+          .join("")}</ul>`
+      : `<div class="d-muted">${esc(t("wb.ov_no_events"))}</div>`;
 
     box.innerHTML =
       `<div class="kpis">` +
       `<div class="kpi"><div class="k">${esc(t("wb.ov_uptime"))}</div>` +
       `<div class="v" style="font-size:15px">${esc(fmtUptime(it.uptime))}</div>` +
-      `<div class="kh">${esc(it.state === "running" ? t("wb.ov_running") : t("wb.ov_stopped"))}</div></div>` +
+      `<div class="kh">${esc(running ? t("wb.ov_running") : t("wb.ov_stopped"))}</div></div>` +
       `<div class="kpi"><div class="k">${esc(t("wb.ov_port"))}</div><div class="v">${port ? ":" + port : "—"}${
         port ? "<small>TCP</small>" : ""
       }</div><div class="kh">${port ? "127.0.0.1" : esc(t("wb.ov_nobind"))}</div></div>` +
+      `<div class="kpi"><div class="k">${esc(t("wb.ov_mem"))}</div>` +
+      `<div class="v">${esc(mem.v)}${mem.unit ? `<small>${esc(mem.unit)}</small>` : ""}</div>` +
+      sparkHTML(ins && ins.mem_hist) +
+      `<div class="kh">${esc(running ? t("wb.ov_mem_live") : t("wb.ov_mem_idle"))}</div></div>` +
       `<div class="kpi"><div class="k">${esc(t("wb.ov_ver"))}</div><div class="v" style="font-size:15px">${esc(ver)}</div>` +
       `<div class="kh${upd ? " up" : ""}">${
         !hasVer ? "—" : upd ? esc(t("wb.ov_upd_to", { v: it.latest_version })) : esc(t("wb.ov_latest"))
       }</div></div>` +
-      `<div class="kpi"><div class="k">${esc(t("wb.ov_sup"))}</div><div class="v" style="font-size:13px">${esc(sup)}</div></div>` +
       `</div>` +
       `<div class="sec"><div class="sec-h">${esc(t("wb.ov_cfg"))}<span class="spacer"></span>` +
       `<span class="hint">${esc(t("wb.ov_snapshot"))}</span></div><div class="sec-b"><dl class="kv">` +
       rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("") +
       `</dl></div></div>` +
-      `<div class="sec"><div class="sec-h">${esc(t("wb.ov_env"))}<span class="spacer"></span>` +
-      `<span class="hint">${envList.length}</span></div><div class="sec-b">${envHTML}</div></div>` +
+      `<div class="sec"><div class="sec-h">${esc(t("wb.ov_dep"))}<span class="spacer"></span>` +
+      `<span class="hint">${esc(
+        it.kind === "service"
+          ? t("wb.ov_dep_hint_svc")
+          : it.supervisor === "native"
+            ? t("wb.ov_dep_hint")
+            : t("wb.ov_dep_hint_managed"),
+      )}</span></div>` +
+      `<div class="sec-b"><div class="chips">${depChips}${extraChips}</div></div></div>` +
+      `<div class="sec"><div class="sec-h">${esc(t("wb.ov_events"))}<span class="spacer"></span>` +
+      `<span class="hint">${events.length}</span></div><div class="sec-b">${evHTML}</div></div>` +
       (it.description
-        ? `<div class="sec" style="margin-bottom:0"><div class="sec-h">${esc(t("wb.ov_desc"))}</div>` +
+        ? `<div class="sec"><div class="sec-h">${esc(t("wb.ov_desc"))}</div>` +
           `<div class="sec-b"><p class="d-desc">${esc(it.description)}</p></div></div>`
-        : "");
+        : "") +
+      `<div class="sec ov-log" style="margin-bottom:0">` +
+      `<div class="manage-log" data-open="1">` +
+      `<div class="manage-log-head"><span class="manage-log-title">${esc(t("wb.ov_log"))}</span>` +
+      `<span class="spacer"></span><button class="log-action" data-ovlog="1">${esc(t("wb.ov_log_expand"))}</button></div>` +
+      `<pre class="term-body ov-term"></pre></div></div>`;
+
+    // 日志卡复用 main.js 的尾随缓存，保证和「日志」页看到的是同一份内容
+    const term = box.querySelector(".ov-term");
+    const tail = typeof window.usLogTail === "function" ? window.usLogTail(6) : [];
+    if (term) {
+      if (!tail.length) {
+        term.textContent = t("wb.ov_log_empty");
+        term.classList.add("ov-term-empty");
+      } else {
+        const frag = document.createDocumentFragment();
+        for (const line of tail) frag.appendChild(window.usLogLine ? window.usLogLine(line) : textNode(line));
+        term.appendChild(frag);
+      }
+    }
+  }
+
+  function textNode(s) {
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d;
   }
 
   // 头像 + 标题 + 副标题：点行后立刻刷，不等 main.js 的 switchCurrent。
@@ -827,11 +970,23 @@
     document.querySelectorAll("#wb-tabs .wb-tab").forEach((b) => {
       b.classList.toggle("on", b.dataset.wbtab === name);
     });
-    const panes = { ov: $("#pane-ov"), cfg: $("#pane-cfg"), sched: $("#pane-sched"), upd: $("#pane-upd") };
+    const panes = {
+      ov: $("#pane-ov"),
+      cfg: $("#pane-cfg"),
+      sched: $("#pane-sched"),
+      log: $("#pane-log"),
+      upd: $("#pane-upd"),
+    };
     for (const [k, node] of Object.entries(panes)) {
       if (node) node.hidden = k !== name;
     }
-    if (name === "ov") renderOverview();
+    if (name === "ov") {
+      // 概览里的曲线/事件是单独取的，切回来时补一次，避免显示上一次的残留
+      if (st.selected && st.insightFor !== st.selected.id) loadInsight(st.selected.id);
+      renderOverview();
+    }
+    // 切到日志页：日志窗刚被显示出来，补一次尾随（隐藏时高度为 0，滚动位置是旧的）
+    if (name === "log" && typeof refreshManageLog === "function") refreshManageLog();
     // 更新卡片在切换时可能已被 main.js 按 program 重新渲染
     if (name === "upd") renderUpdatePane();
   }
@@ -844,11 +999,18 @@
       if (!st.selected || st.selected.id !== it.id) return;
       try {
         const r = await invoke("services_log", { id: it.id, tail: 400 });
+        const lines = r.lines || [];
         const pre = document.getElementById("manage-log-content");
         if (pre) {
-          pre.textContent = (r.lines || []).join("\n");
+          // 跟程序日志共用同一套行渲染，时间戳/级别一样染色
+          pre.innerHTML = "";
+          const frag = document.createDocumentFragment();
+          for (const line of lines) frag.appendChild(window.usLogLine ? window.usLogLine(line) : textNode(line));
+          pre.appendChild(frag);
           pre.scrollTop = pre.scrollHeight;
         }
+        // 服务日志是「旧→新」铺的，缓存按「新→旧」交回去，概览卡才取到最新几行
+        if (typeof window.usSetLogTail === "function") window.usSetLogTail(lines.slice().reverse());
         const hint = document.getElementById("manage-log-hint");
         if (hint) hint.textContent = (r.size / 1024).toFixed(1) + " KB";
       } catch (e) {
@@ -878,6 +1040,8 @@
       if (st.selected) {
         renderInspHead(st.selected);
         if (st.tab === "ov") renderOverview();
+        // 曲线要跟着采样走：每轮轮询补一次 insight，5 秒一个点才动得起来
+        loadInsight(st.selected.id);
       }
       return st.items;
     } catch (e) {
@@ -1107,6 +1271,13 @@
   document.addEventListener("DOMContentLoaded", () => {
     bindTable();
     bindMob();
+    // 概览页日志卡上的「展开」：概览是每次重绘的，只能挂在容器上做事件委托
+    const ov = document.getElementById("pane-ov");
+    if (ov) {
+      ov.addEventListener("click", (e) => {
+        if (e.target.closest("[data-ovlog]")) showTab("log");
+      });
+    }
     const q = document.getElementById("wb-q");
     if (q) {
       q.oninput = () => {

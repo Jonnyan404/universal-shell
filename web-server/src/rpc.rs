@@ -950,6 +950,15 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 mgr.set_program_autostart(&program_id, true);
             }
             let changed = mgr.sync_native_services().map_err(|e| format!("{e:#}"))?;
+            // 调度归属变了是件大事（会改系统的 launchd/systemd 条目），记一条事件
+            if native != was_native {
+                mgr.insight.push_event(
+                    &program_id,
+                    if native { "sup_native" } else { "sup_managed" },
+                    None,
+                    None,
+                );
+            }
 
             let mut apply_note = String::new();
             if native {
@@ -1001,6 +1010,8 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 // 运行时长：只有壳托管的程序才有启动时刻；系统调度的由 launchd/systemd 拉起，
                 // 壳不知道它什么时候起来的，如实给 null 让界面显示「—」。
                 let uptime = mgr.runner.uptime_secs(&p.id);
+                // 常驻内存：后台每 5 秒采一次，还没采到（刚启动 <5s）就是 null
+                let mem_kb = mgr.insight.latest(&p.id);
                 items.push(json!({
                     "id": p.id,
                     "kind": "program",
@@ -1010,6 +1021,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                     "port": port,
                     "autostart": autostart,
                     "uptime": uptime,
+                    "mem_kb": mem_kb,
                     "state": if !st.installed { "not_installed" } else if st.running { "running" } else { "stopped" },
                     "supervisor": p.supervisor.as_str(),
                     "installed": st.installed,
@@ -1051,6 +1063,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                         "autostart": svc.enabled,
                         // 手工服务由 us-service 托管，壳侧同样看不到启动时刻
                         "uptime": Value::Null,
+                        "mem_kb": Value::Null,
                         "state": match st {
                             us_service::ServiceState::Running => "running",
                             us_service::ServiceState::Stopped => "stopped",
@@ -1091,6 +1104,17 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 "items": items,
                 "platform": format!("{:?}", us_service::Platform::current()).to_lowercase(),
                 "services_config": services_path.display().to_string(),
+            }))
+        }
+        // 详情页概览用：内存曲线 + 事件时间线。单独一个 RPC 是因为这两样比列表项重得多，
+        // 40 个程序每个带 24 个采样点 + 12 条事件会把 workspace_list 撑到几百 KB。
+        "program_insight" => {
+            let id = arg_str(args, "programId");
+            let mgr = state.manager.lock().unwrap();
+            Ok(json!({
+                "mem_kb": mgr.insight.latest(&id),
+                "mem_hist": mgr.insight.hist(&id),
+                "events": mgr.insight.events(&id),
             }))
         }
         "services_list" => {
@@ -1498,6 +1522,12 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             };
             let native = p.supervisor == Supervisor::Native;
             mgr.set_program_autostart(&program_id, enabled);
+            mgr.insight.push_event(
+                &program_id,
+                if enabled { "autostart_on" } else { "autostart_off" },
+                None,
+                None,
+            );
             mgr.log_op(t!(
                 "op.toggle_autostart",
                 onoff = t!(if enabled { "op.enable" } else { "op.disable" }),
@@ -1831,14 +1861,14 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         // ---------- 下载安装（后台进度经 WS 事件总线广播） ----------
         "install" => {
             let program_id = arg_str(args, "programId");
-            let (data_dir, program, events) = {
+            let (data_dir, program, events, mgr_handle) = {
                 let mgr = state.manager.lock().unwrap();
                 let p = mgr
                     .all_programs()
                     .into_iter()
                     .find(|p| p.id == program_id)
                     .ok_or_else(|| program_not_found(&program_id))?;
-                (mgr.data_dir.clone(), p, state.events.clone())
+                (mgr.data_dir.clone(), p, state.events.clone(), state.manager.clone())
             };
             std::thread::spawn(move || {
                 use shared::progress::{DownloadProgress, DownloadStage};
@@ -1876,7 +1906,13 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                     );
                 };
                 match shared::ShellManager::install_standalone_with_progress(&data_dir, &program, &on_progress) {
-                    Ok(version) => send("done", 0, 0, true, None, Some(&version)),
+                    Ok(version) => {
+                        // 安装/更新成功记一条事件，详情页的「最近事件」才有得看
+                        if let Ok(mut mgr) = mgr_handle.lock() {
+                            mgr.insight.push_event(&program.id, "install", None, None);
+                        }
+                        send("done", 0, 0, true, None, Some(&version))
+                    }
                     Err(e) => {
                         let err_text = format!("{e:#}");
                         shared::ShellManager::log_op_for(

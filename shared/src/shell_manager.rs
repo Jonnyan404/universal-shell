@@ -140,6 +140,8 @@ pub struct ShellManager {
     pub theme: String,
     /// Web 管理界面监听设置（bind/port；均为默认值时 = 回环 + 随机端口）
     pub web: crate::config::WebSettings,
+    /// 运行指标与事件时间线（内存采样 / 启停 / 异常退出）。详情页概览页读它。
+    pub insight: crate::insight::Insight,
 }
 
 impl ShellManager {
@@ -147,6 +149,8 @@ impl ShellManager {
         std::fs::create_dir_all(&data_dir)
             .with_context(|| t!("err.datadir", path = data_dir.display().to_string()))?;
         let program_autostart = Self::load_program_autostart(&data_dir);
+        // 事件时间线跨重启保留（insight.json）；内存曲线只在内存里
+        let insight = crate::insight::Insight::load(&data_dir);
         Ok(Self {
             data_dir,
             programs: vec![],
@@ -165,6 +169,7 @@ impl ShellManager {
             locale: "auto".to_string(),
             theme: "auto".to_string(),
             web: crate::config::WebSettings::default(),
+            insight,
         })
     }
 
@@ -705,8 +710,29 @@ impl ShellManager {
     }
 
     /// 清扫已退出的子进程并返回 id 列表（F-3/F10：事件推送前端，供 watcher 定时调用）。
+    /// 顺手把「自己退出的」记进事件时间线：`take_exit` 只有真·退出才有值，
+    /// 用户主动 stop 的那条已经在 `stop()` 里清掉了，不会重复记。
     pub fn sweep_exited_programs(&mut self) -> Vec<String> {
-        self.runner.sweep_exited()
+        let exited = self.runner.sweep_exited();
+        for id in &exited {
+            if let Some(code) = self.runner.take_exit(id) {
+                self.insight.push_event(id, "exit", None, code);
+            }
+        }
+        exited
+    }
+
+    /// 给所有「壳托管且在跑」的程序取一次常驻内存。web-server 的后台线程每 5 秒调一次。
+    /// 系统调度托管的程序壳手里没有句柄，取不到也不猜。
+    pub fn sample_memory(&mut self) {
+        let ids: Vec<String> = self.programs.iter().map(|p| p.id.clone()).collect();
+        for id in ids {
+            if let Some(pid) = self.runner.child_pid(&id) {
+                if let Some(kb) = crate::insight::rss_kb(pid) {
+                    self.insight.sample(&id, kb);
+                }
+            }
+        }
     }
 
     /// 该程序是否在运行：仅以壳持有的子进程句柄为准（try_wait 回收僵尸）。
@@ -872,6 +898,10 @@ impl ShellManager {
         };
         self.runner
             .start_async(&program.id, &bin, &args, &env, &wd, &self.log_dir())?;
+        // 新一轮运行：上一轮的内存曲线作废，重新采样
+        let pid = self.runner.child_pid(&program.id);
+        self.insight.clear_hist(&program.id);
+        self.insight.push_event(&program.id, "start", pid, None);
         crate::events::emit(crate::events::Event::ProgramStarted(program.id.clone()));
         Ok(())
     }
@@ -881,6 +911,7 @@ impl ShellManager {
         // 无从探测（不再派生 tasklist/pgrep），由用户手动处理或重新启动覆盖。
         match self.runner.stop(id) {
             Ok(()) => {
+                self.insight.push_event(id, "stop", None, None);
                 crate::events::emit(crate::events::Event::ProgramStopped(id.to_string()));
                 Ok(())
             }
@@ -1201,6 +1232,8 @@ impl ShellManager {
         let _ = std::fs::remove_dir_all(dir.join("pkg"));
         let _ = std::fs::remove_file(dir.join("version"));
         let _ = std::fs::remove_file(dir.join("values.json"));
+        // 程序没了，它的事件时间线也不该留在 insight.json 里
+        self.insight.forget(id);
         self.save_config(path)
     }
 

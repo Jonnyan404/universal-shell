@@ -642,3 +642,30 @@ wb.up_m: 分
 wb.ov_uptime: 运行时长
 wb.ov_running: 正在运行
 wb.ov_stopped: 未运行
+wb.tab_log: 日志
+wb.ov_mem: 内存占用
+wb.ov_mem_live: 每 5 秒采样
+wb.ov_mem_idle: 未运行
+wb.ov_dep: 依赖与关联
+wb.ov_dep_none: 无外部依赖
+wb.ov_dep_hint: 系统调度按序拉起
+wb.ov_dep_hint_svc: us-service 托管
+wb.ov_tmpl: 模板
+wb.ov_events: 最近事件
+wb.ov_no_events: 暂无事件（启停后会出现在这里）
+wb.ov_log: 日志 · stdout
+wb.ov_log_expand: 展开
+wb.ov_log_empty: 暂无输出
+wb.ov_sup_row: 调度归属
+wb.ov_cwd: 工作目录
+ev.start: 由壳启动，pid %{pid}
+ev.start_nopid: 由壳启动
+ev.stop: 手动停止
+ev.exit: 进程退出（code %{code}）
+ev.exit_nocode: 进程退出
+ev.install: 安装 / 更新完成
+ev.autostart_on: 开启开机自启
+ev.autostart_off: 关闭开机自启
+ev.sup_native: 切换为系统调度
+ev.sup_managed: 切回壳托管
+wb.ov_dep_hint_managed: 壳托管不涉及

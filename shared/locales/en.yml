@@ -642,3 +642,30 @@ wb.up_m: m
 wb.ov_uptime: Uptime
 wb.ov_running: Running
 wb.ov_stopped: Not running
+wb.tab_log: Logs
+wb.ov_mem: Memory
+wb.ov_mem_live: sampled every 5s
+wb.ov_mem_idle: not running
+wb.ov_dep: Dependencies
+wb.ov_dep_none: no external deps
+wb.ov_dep_hint: started in order by the system scheduler
+wb.ov_dep_hint_svc: managed by us-service
+wb.ov_tmpl: template
+wb.ov_events: Recent events
+wb.ov_no_events: no events yet (start/stop will show up here)
+wb.ov_log: Log · stdout
+wb.ov_log_expand: Expand
+wb.ov_log_empty: no output yet
+wb.ov_sup_row: Scheduler
+wb.ov_cwd: Working dir
+ev.start: started by shell, pid %{pid}
+ev.start_nopid: started by shell
+ev.stop: stopped manually
+ev.exit: process exited (code %{code})
+ev.exit_nocode: process exited
+ev.install: install / update finished
+ev.autostart_on: autostart enabled
+ev.autostart_off: autostart disabled
+ev.sup_native: switched to system scheduler
+ev.sup_managed: switched back to shell
+wb.ov_dep_hint_managed: not applicable under shell supervision

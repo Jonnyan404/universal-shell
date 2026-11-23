@@ -10,7 +10,7 @@
 
 | 区域 | 形态 | 说明 |
 |---|---|---|
-| 桌面 · 程序 | 左表格 + 右检查器（常驻 400px，<1280 降为 360px，<1100 变抽屉） | 检查器**按 D 方案重写**：头像 + 标题（状态胶囊同行）+ id·分类行 + 动作条 + 四个标签页 + 卡片体 |
+| 桌面 · 程序 | 左表格 + 右检查器（常驻 400px，<1280 降为 360px，<1100 变抽屉） | 检查器**按 D 方案重写**：头像 + 标题（状态胶囊同行）+ id·分类行 + 动作条 + **五个标签页**（概览/配置/调度/日志/更新）；概览页按 D 的五块排：KPI 四宫格 → 运行配置 → 依赖与关联 → 最近事件 → 日志卡 |
 | 桌面 · 侧栏 | 52px 图标窄栏 | 程序 / 模板库 / 日志 / 设置 / 主题 / 语言 / GitHub |
 | 桌面 · 模板库 | 分类分组卡片，组头可折叠 + 计数 | 导入动作保留原流程 |
 | 移动端 · 列表 | 两行列表 + 分类小标题 | 旧卡片流下线 |
@@ -38,10 +38,23 @@
       操作列三个按钮：▶/■ 启停、↻ 重启、⋯ 右键菜单；走 `quickAct()`，启动/重启会先 `get_values` 带字段值，
       否则模板里的 `{port}` / `{token}` 占位符会被渲染成空串。
 - [x] **P9 检查器按 D 重写**：`aside.wb-inspector` 内改成
-      `d-head(avatar + h1[名字 + 状态胶囊] + d-sub[id·分类] + 下载/关闭)` → `d-actions` → `d-tabs(概览/配置/调度/更新)` → `d-body`，
-      概览页换成 **KPI 四宫格 + 运行配置 kv + 环境变量 chips + 说明** 四张卡。
+      `d-head(avatar + h1[名字 + 状态胶囊] + d-sub[id·分类] + 下载/关闭)` → `d-actions` → `d-tabs` → `d-body`。
       `#statusbar` / `#prog-title` / `#prog-sub` / `#status-chips` / `#actions` / `#dl-btn` 这些 id 一个没删，
       `main.js` 的写入点照旧可用。
+- [x] **P10 后端补指标与事件**（D 概览页要的两张卡以前根本没数据源）：
+      - `shared/src/insight.rs`：内存采样环形缓冲（24 点 / 5 秒一点）+ 事件环形缓冲（12 条），
+        事件持久化到 `data_dir/insight.json`，跨重启还在；`rss_kb(pid)` 分平台实现
+        （Linux `/proc/<pid>/statm`、macOS `ps -o rss=`、Windows `tasklist /FO CSV`）。
+      - `Runner` 记 `exits`：`is_running` 回收子进程时存下退出码，`take_exit()` 交给 sweep，
+        **主动 stop 不算退出**（stop 时先清掉），所以时间线上「进程退出（code 1）」只代表真·自己挂了。
+      - `ShellManager` 持有 `insight`，`start/stop/sweep/install/set_autostart/set_supervisor` 各落一条事件；
+        `sample_memory()` 由 web-server 的 `us-mem` 线程每 5 秒调一次。
+      - `workspace_list` 每项多 `mem_kb`（列表只需要这一个数）；新增 `program_insight` RPC 返回
+        `mem_hist` + `events`——曲线和事件比列表项重得多，全塞进列表会把 payload 撑到几百 KB。
+- [x] **P11 日志窗口对齐 D**：日志从「检查器底部常驻条」搬进 **日志标签页**（D 就是这么放的），
+      并新增「日志」tab；样式换成 D 的深色终端：`#0f172a` 底、`#1e293b` logbar、等宽 11.5px，
+      时间戳灰、INFO 绿、WARN 黄、ERROR 红（`logLineEl` 里做 token 化，只染已知形态，绝不丢字符）。
+      概览页底部另有一张 148px 的日志卡，读同一份行缓存（`usLogTail`），点「展开」跳到日志页。
 
 ---
 
@@ -53,9 +66,10 @@
 2. **移动端真机**：390 是模拟器宽度，iOS Safari 的 `env(safe-area-inset-bottom)` 与底部导航叠压需要真机确认。
 3. **可选优化**：表格目前没有「列显隐菜单」（原型 02 有），窄屏靠断点硬砍列；如果后面列还会增加，再补一个列开关。
 4. **可选优化**：`#wb-table` 没有虚拟滚动，40 条无压力；如果目标场景是 500+ 程序再考虑。
-5. **D 原型里刻意没做的两块**：`04-master-detail.html` 的概览页还有「内存占用」KPI（带 sparkline）和「最近事件」时间线。
-   壳现在**既不采集内存、也不留存状态变更事件**，照抄就是造假数据，所以换成了「托管方式」KPI 和「环境变量 / 说明」两张卡。
-   要做的话得先在后端补指标采集（`sysinfo` 之类）和事件表，属于另一个议题。
+5. **指标口径**：内存是 RSS（常驻物理内存），不是 PSS/虚拟内存；5 秒一个点、只留 2 分钟，
+   目的是看趋势不是做监控。要接 Prometheus 之类的话另说。
+6. **Windows 的内存采样**走 `tasklist /FO CSV`，比 `/proc` 慢一个数量级（每次派生进程）。
+   如果 Windows 上程序数量上去了，应该换成 `GetProcessMemoryInfo`（需要加 `windows` crate）。
 
 ### 关键约束（踩过就知道疼）
 
@@ -81,6 +95,14 @@
 - 本机没有外网时 `template_status` 会去拉 GitHub registry 并超时，**RPC 会排队到 2~3 秒**。
   截图脚本的 `CLICK_WAIT` 因此要给到 5~6 秒，否则截到的是「详情还没渲染完」的中间态，
   很容易误判成布局 bug。
+- **事件只存 `kind`，不存文案**。事件要落 `insight.json` 跨重启保留，存了中文就再也切不成英文；
+  界面按 `kind` + `pid` / `code` 现拼（`workbench.js` 的 `eventText`）。
+- 内存曲线和事件走**单独的 `program_insight` RPC**，不进 `workspace_list`：24 个采样点 × 40 个程序
+  会把列表 payload 撑到几百 KB，而列表只需要一个 `mem_kb`。
+- 日志搬进标签页之后，`refreshManageLog()` 在面板隐藏时高度为 0、滚动位置也是旧的，
+  **切到日志页要再补一次**（`showTab('log')` 里已经调了）。
+- 终端 `.term-body` 明暗主题都保持深色（`#0f172a`），不要改成 `var(--panel)`：
+  日志窗是终端，跟着面板变白就不像终端了。
 
 ---
 
@@ -108,12 +130,15 @@ await send("Page.navigate", { url });
 1. **1440**：表格铺满左侧、检查器常驻 400px；九列齐全（状态/名称/分类/版本/端口/托管/自启/**运行时长**/**操作**）；
    表头点「名称」可升/降序；勾 3 行出现批量条且计数 `3 / 40`；点行检查器标题、头像、胶囊、动作条同步刷新；
    自启开关可点；密度按钮在「紧凑 / 宽松」间切换；运行中的程序 `运行时长` 显示 `刚刚 → 1分 → 2分`，操作列变成 ■/↻/⋯。
+   概览页四张 KPI 里内存是真采样（起一个会吃内存的测试进程，曲线从 35MB 一路涨到 200MB+），
+   「最近事件」跟着启停出现 `由壳启动，pid …`，点「展开」跳到日志页。
 2. **1280**：分类列隐藏，检查器降到 360px，其余列不挤（`scrollWidth == clientWidth`）。
 3. **1100**：检查器默认收成抽屉，表格占满；点行抽屉滑出并带关闭按钮；端口列、托管列隐藏。
 4. **390**：搜索框 + 筛选 chips + 两行列表（分组小标题 / 头像 / 名称 / `:端口 · v版本` / 状态点 / 箭头）；
-   点行**立刻**进全屏二级页（不等 RPC），顶部返回栏 + 状态胶囊 + 下载 + 动作条 + 标签页都在，底部导航可用。
+   点行**立刻**进全屏二级页（不等 RPC），顶部返回栏 + 状态胶囊 + 下载 + 动作条 + 五个标签页都在，底部导航可用；
+   日志页是铺满的深色终端。
 5. **模板库**：按分类分组，组头三角可折叠带计数，卡片栅格 4 列不溢出，导入按钮在卡片内换行不裁切。
-6. **深色**：表格、徽标、开关、表单标签、KPI 卡片对比度正常（语义色已改用 `color-mix` 跟主题走）。
+6. **深色**：表格、徽标、开关、表单标签、KPI 卡片、事件时间线对比度正常；终端本来就深色，两种主题一致。
 
 搜索过滤时计数显示 `命中 / 总数`（如 `8 / 40`），不过滤时只显示总数。
 
@@ -121,8 +146,10 @@ await send("Page.navigate", { url });
 
 ## 5. 回滚
 
-本次改动集中在 6 个源文件（`index.html` / `workbench.js` / `styles.css` / `main.js` / `rpc.rs` / `runner.rs`）+ 两个语言包 + `docs/`。
+本次改动集中在 7 个源文件（`index.html` / `workbench.js` / `styles.css` / `main.js` / `rpc.rs` / `runner.rs` / `shell_manager.rs`）
++ 新增 `shared/src/insight.rs` + `web-server/src/lib.rs` 的采样线程 + 两个语言包 + `docs/`。
 若需回退：`git revert <commit>`；`rpc.rs` 的新增字段是**纯增量**，旧前端会忽略，不影响兼容。
+`insight.json` 是新增的数据文件，删掉不影响运行（只是事件时间线清空）。
 
 ---
 
@@ -130,13 +157,16 @@ await send("Page.navigate", { url });
 
 | 文件 | 改了什么 |
 |---|---|
-| `shared/src/runner.rs` | `Runner.started` 记录启动时刻，新增 `uptime_secs()`；退出/停止时清理；补测试 `uptime_tracks_start_and_stop` |
-| `web-server/src/rpc.rs` | `workspace_list` 每项多 `category` / `port` / `autostart` / **`uptime`** |
-| `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；**检查器按 D 重写成 `d-head / d-actions / d-tabs / d-body`**，状态胶囊并入 `h1`；移动端加搜索/筛选 |
-| `frontend/workbench.js` | `COLS` 增 `uptime` / `actions` 两列 + `fmtUptime()` / `actHTML()` / `quickAct()`；`renderOverview()` 改成 KPI + 卡片；`renderInspHead()` 统一头部（并对外导出）；`select()` 移动端先跳转后拉数据 |
-| `frontend/styles.css` | 图标栏、工具条、表格、检查器（D 方案 `.d-*` / `.kpi` / `.sec` / `.kv`）、四档断点、移动端两行列表、模板库分组栅格；语义色改 `color-mix`；`body{margin:0}` |
-| `frontend/main.js` | `renderHeader` / `renderChips` / `switchView` 的头部写入全部转调 `renderInspHead`；`switchCurrent` 先赋值 `current` 再 `switchView`；日志条标题提前到 await 之前；boot 不再抢选中；`#dl-btn` 没文案时不显示 |
-| `shared/locales/zh-CN.yml` / `en.yml` | 补 `wb.col_*`（含 `col_uptime` / `col_act`）、`wb.ov_*`、`wb.density_*`、`wb.tab_ov`、`lib.uncategorized`、`ui.theme`、`toast.exported` 等，各 634 条 |
+| `shared/src/insight.rs` | **新增**：内存采样环形缓冲 + 事件环形缓冲（落盘 `insight.json`）+ 跨平台 `rss_kb(pid)` |
+| `shared/src/runner.rs` | `Runner.started` 记录启动时刻（`uptime_secs()`）、`exits` 记录退出码（`take_exit()`）；补测试 `uptime_tracks_start_and_stop` |
+| `shared/src/shell_manager.rs` | 持有 `insight`；start/stop/sweep 落事件；`sample_memory()`；删程序时 `forget()` |
+| `web-server/src/lib.rs` | 新增 `us-mem` 采样线程（5 秒一次） |
+| `web-server/src/rpc.rs` | `workspace_list` 每项多 `category` / `port` / `autostart` / **`uptime`** / **`mem_kb`**；新增 **`program_insight`** RPC；安装成功 / 自启 / 调度切换各记一条事件 |
+| `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；检查器按 D 重写成 `d-head / d-actions / d-tabs / d-body`，**日志搬进「日志」标签页**；移动端加搜索/筛选 |
+| `frontend/workbench.js` | `COLS` 增 `uptime` / `actions` 两列 + `fmtUptime()` / `actHTML()` / `quickAct()`；概览页按 D 五块重写（KPI + sparkline / 运行配置 / 依赖与关联 / 最近事件 / 日志卡）；`loadInsight()`；`renderInspHead()` 统一头部；`select()` 移动端先跳转后拉数据 |
+| `frontend/styles.css` | 图标栏、工具条、表格、检查器（`.d-*` / `.kpi` / `.spark` / `.sec` / `.kv` / `.tl`）、深色终端（`.term-body` / logbar）、四档断点、移动端两行列表、模板库分组栅格；`body{margin:0}` |
+| `frontend/main.js` | `renderHeader` / `renderChips` / `switchView` 的头部写入全部转调 `renderInspHead`；`logLineEl` 做时间戳/级别 token 化并导出 `usLogLine` / `usLogTail`；`switchCurrent` 先赋值 `current`；boot 不再抢选中 |
+| `shared/locales/zh-CN.yml` / `en.yml` | 补 `wb.col_*`、`wb.ov_*`（含 mem/dep/events/log）、`ev.*` 事件文案、`wb.tab_log` 等，各 671 条 |
 
 > 语言包**只改 `shared/locales/*.yml`**。`frontend/locales/*.json` 是 `web-server/build.rs` 生成的，
 > 且被 `.gitignore` 忽略，直接改 JSON 下次编译就没了。
@@ -147,11 +177,14 @@ await send("Page.navigate", { url });
 
 | 文件 | 说明 |
 |---|---|
-| `shots/impl-desktop-1440.png` | 桌面 1440：九列表格 + 常驻检查器（选中运行中的 clip9，运行时长 2 分） |
+| `shots/impl-desktop-1440.png` | 桌面 1440：九列表格 + 检查器概览（运行时长 / 端口 / **内存 + 曲线** / 版本，依赖与关联，最近事件） |
 | `shots/impl-desktop-1280.png` | 1280：分类列隐藏，检查器 360px |
-| `shots/impl-desktop-dark.png` | 深色主题 |
+| `shots/impl-desktop-ov-log.png` | 概览页滚到底：D 同款深色日志卡（148px，「展开」跳日志页） |
+| `shots/impl-desktop-log.png` | 日志标签页：深色终端铺满检查器 |
+| `shots/impl-desktop-dark.png` | 深色主题（时间线 / chips / 日志卡对比度） |
 | `shots/impl-tablet-1100.png` | 1100：检查器收起，表格占满 |
 | `shots/impl-tablet-1100-drawer.png` | 1100：点行后抽屉滑出 |
 | `shots/impl-mobile-390.png` | 手机 390：两行列表 |
-| `shots/impl-mobile-390-detail.png` | 手机 390：全屏二级页（胶囊 + 动作条 + 标签页） |
+| `shots/impl-mobile-390-detail.png` | 手机 390：全屏二级页概览（含内存曲线） |
+| `shots/impl-mobile-390-log.png` | 手机 390：二级页日志页（深色终端铺满） |
 | `shots/impl-library-1440.png` | 模板库分组卡片 |
