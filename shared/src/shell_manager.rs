@@ -1287,6 +1287,13 @@ impl ShellManager {
         patch: &NativePatch,
         path: &Path,
     ) -> anyhow::Result<Program> {
+        // 交给系统调度之前先把壳手里的进程停掉：派生服务一装上去（launchd 的
+        // RunAtLoad、systemd 的 enable --now）就会立刻起来，壳的子进程还在的话
+        // 就是同一个程序双开，抢同一个端口/文件锁。本来就没跑时 stop 会报错，
+        // 忽略即可（要停的只是「可能存在的」那一份）。
+        if native {
+            let _ = self.stop(id);
+        }
         self.patch_update(
             id,
             &|p| {
@@ -2755,4 +2762,47 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// 壳托管 → 系统调度必须先停掉壳手里的进程。
+    ///
+    /// 否则派生服务一装上去（launchd 的 RunAtLoad、systemd 的 enable --now）就
+    /// 立刻起一份，而壳的子进程还活着 —— 同一个程序双开，抢同一个端口。
+    #[cfg(unix)]
+    #[test]
+    fn switching_to_native_stops_the_shell_runner() {
+        use crate::config::NativePatch;
+        let dir = std::env::temp_dir().join(format!("us-sup-stop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let p: Program = serde_json::from_str(
+            r#"{"id":"demo","name":"demo","binary":"/bin/sleep","fields":[],"args":["30"]}"#,
+        )
+        .unwrap();
+        let cfg_path = dir.join("shell.json");
+        let cfg = ShellConfig {
+            programs: vec![p],
+            ..Default::default()
+        };
+        std::fs::write(&cfg_path, serde_json::to_string(&cfg).unwrap()).unwrap();
+
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        mgr.load_config(&cfg_path).unwrap();
+        let p = mgr
+            .all_programs()
+            .into_iter()
+            .find(|p| p.id == "demo")
+            .unwrap();
+        let values = mgr.load_field_values(&p);
+        mgr.start(&p, &values).unwrap();
+        assert!(mgr.runner.is_running("demo"), "壳托管下应先跑起来");
+
+        mgr.set_supervisor("demo", true, &NativePatch::default(), &cfg_path)
+            .unwrap();
+        assert!(
+            !mgr.runner.is_running("demo"),
+            "切到系统调度前没停壳里的进程，会和调度器双开"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

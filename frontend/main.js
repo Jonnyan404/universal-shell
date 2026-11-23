@@ -852,7 +852,8 @@ function renderActions() {
     try {
       const st = await invoke("start_program", { programId: current.id, values });
       applyStatus(st);
-      showNotice(t("toast.started"));
+      // 后端可能顺带改了「开机自启」（native 下启动=装载），要如实说出来
+      showNotice((st && st.note) || t("toast.started"));
       refreshManageLog();
     } catch (e) {
       showNotice(String(e), true);
@@ -884,7 +885,7 @@ function renderActions() {
     try {
       const st = await invoke("restart_program", { programId: current.id, values });
       applyStatus(st);
-      showNotice(t("toast.restarted"));
+      showNotice((st && st.note) || t("toast.restarted"));
       refreshManageLog();
     } catch (e) {
       showNotice(String(e), true);

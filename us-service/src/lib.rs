@@ -562,6 +562,18 @@ pub fn kick(s: &Service, restart: bool) -> Result<()> {
     match Platform::current() {
         Platform::Launchd => {
             let target = format!("gui/{}/{}", current_uid(), s.label());
+            // 被 `stop`（bootout）卸载过的作业不在域里，`kickstart` 会报
+            // "Could not find service"。plist 还在就重新 bootstrap —— 它本身
+            // 就会按 RunAtLoad 把进程拉起来，所以不必再 kickstart。
+            if !launchd_loaded(&target) {
+                let plist = launchd::unit_path(s);
+                if !plist.exists() {
+                    bail!("{} 未装载：先启用「开机自启」", s.title());
+                }
+                let domain = format!("gui/{}", current_uid());
+                let path = plist.to_string_lossy().into_owned();
+                return run_ok("launchctl", &["bootstrap", &domain, &path]);
+            }
             if restart {
                 run_ok("launchctl", &["kickstart", "-k", target.as_str()])
             } else {
@@ -583,11 +595,23 @@ pub fn kick(s: &Service, restart: bool) -> Result<()> {
 }
 
 /// 停止（不卸载）
+///
+/// launchd 的 `kill SIGTERM` 会被 KeepAlive 拉回来：派生服务的默认 restart 是
+/// on_failure，plist 里就是 `KeepAlive = { SuccessfulExit = false }`，而被信号杀掉
+/// 的进程算异常退出。实测 8 秒左右（launchd 的重启节流）就换了个新 pid 回来 ——
+/// 界面上点「停止」等于没点。所以这里改用 `bootout` 卸载作业，它真的会停下来。
+/// plist 仍留在磁盘上，下次登录 launchd 照旧按 RunAtLoad 拉起，这与 systemd 的
+/// `systemctl stop`（保持 enabled）语义一致：停的是「现在」，不是「开机自启」。
+///
+/// 作业本来就没装载（比如「开机自启」关着）时视为已停止，不再报错。
 pub fn stop(s: &Service) -> Result<()> {
     match Platform::current() {
         Platform::Launchd => {
             let target = format!("gui/{}/{}", current_uid(), s.label());
-            run_ok("launchctl", &["kill", "SIGTERM", &target])
+            if !launchd_loaded(&target) {
+                return Ok(());
+            }
+            run_ok("launchctl", &["bootout", &target])
         }
         Platform::Systemd => run_ok("systemctl", &["--user", "stop", &s.id]),
         Platform::Schtasks => {
@@ -595,6 +619,15 @@ pub fn stop(s: &Service) -> Result<()> {
             run_ok("schtasks", &["/End", "/TN", &name])
         }
     }
+}
+
+/// launchd 域里是否装载了该作业（`launchctl print` 成功即已装载）
+fn launchd_loaded(target: &str) -> bool {
+    std::process::Command::new("launchctl")
+        .args(["print", target])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -705,5 +738,96 @@ enabled = false
         assert!(written[0].exists());
         assert!(std::fs::read_to_string(&written[0]).unwrap().contains("ExecStart="));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 真机 launchd 回归测试：`stop` 必须真的停住，`kick` 必须能把它再拉起来。
+    ///
+    /// 老实现用 `launchctl kill SIGTERM`，而 `restart = "always"` 在 plist 里就是
+    /// `KeepAlive = true` —— 被杀的进程几秒内就被 launchd 拉回来，界面上点「停止」
+    /// 等于没点。这里装一条真的 LaunchAgent 来验：停完静置 3 秒仍然停着，
+    /// 再 kick 能重新装载起来。
+    ///
+    /// 没有图形会话（bootstrap 被拒）时跳过，不让 CI 因为环境而红。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn launchd_stop_is_sticky_and_kick_relaunches() {
+        use std::time::{Duration, Instant};
+
+        /// 中途 panic 也要把作业卸掉，别在机器上留一条幽灵 LaunchAgent
+        struct Cleanup<'a> {
+            svc: &'a Service,
+            cfg: &'a Path,
+            dir: std::path::PathBuf,
+        }
+        impl Drop for Cleanup<'_> {
+            fn drop(&mut self) {
+                let _ = uninstall(self.svc, self.cfg);
+                let _ = std::fs::remove_dir_all(&self.dir);
+            }
+        }
+
+        let dir = std::env::temp_dir().join(format!("us-svc-launchd-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 包装器：调度器按 `<wrapper> run --config … --id …` 调它，
+        // 这里忽略参数直接睡 30 秒，模拟一个长驻服务。
+        let wrapper = dir.join("wrapper.sh");
+        std::fs::write(&wrapper, "#!/bin/sh\nexec /bin/sleep 30\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let cfg_path = dir.join("services.toml");
+        let cfg = Config::parse(&format!(
+            r#"
+[[services]]
+id = "ci-stop"
+command = "/bin/sleep"
+args = ["30"]
+restart = "always"
+log = "{}"
+enabled = true
+"#,
+            dir.join("ci-stop.log").display()
+        ))
+        .unwrap();
+        cfg.save(&cfg_path).unwrap();
+        let svc = cfg.get("ci-stop").unwrap().clone();
+        let _guard = Cleanup { svc: &svc, cfg: &cfg_path, dir: dir.clone() };
+
+        let c = Ctx::with_wrapper(&cfg_path, &wrapper);
+        let items = plan_for(&cfg, &c, Platform::Launchd).unwrap();
+        if let Err(e) = install(&items, &cfg) {
+            eprintln!("跳过：本机装载不了 LaunchAgent（{e:#}）");
+            return;
+        }
+
+        let wait_running = |want: bool, secs: u64| {
+            let deadline = Instant::now() + Duration::from_secs(secs);
+            while Instant::now() < deadline {
+                if state(&svc, &cfg_path).is_running() == want {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            false
+        };
+        assert!(wait_running(true, 10), "装载后服务没有起来");
+
+        stop(&svc).unwrap();
+        assert!(wait_running(false, 5), "stop 之后进程还在");
+        // 回归点就在这里。实测：`launchctl kill SIGTERM` 之后，KeepAlive=true 的作业
+        // 会在 ~8 秒（launchd 的重启节流）后换一个新 pid 回来 —— 所以这里必须等够
+        // 一个节流周期，3 秒的窗口是抓不住老实现的。
+        std::thread::sleep(Duration::from_secs(15));
+        assert!(
+            !state(&svc, &cfg_path).is_running(),
+            "stop 之后又被 launchd 拉起来了：说明还在用 kill 而不是 bootout"
+        );
+
+        kick(&svc, false).unwrap();
+        assert!(wait_running(true, 10), "kick 没能把停掉的服务重新装载起来");
     }
 }

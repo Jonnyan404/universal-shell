@@ -145,24 +145,34 @@ struct StatusView {
 /// 把 `native` 程序的启停交给系统调度器。
 ///
 /// 壳自己 spawn 会和调度器抢同一个端口/文件锁（双开），所以这里必须绕开 Runner。
+/// 返回 `Some(提示)` 表示这次操作顺带改了「开机自启」开关，调用方要把它告诉用户 ——
+/// 悄悄改掉一个持久设置比改掉它本身更糟。
 fn native_dispatch(
     mgr: &mut shared::ShellManager,
     p: &Program,
     action: &str,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let dir = mgr.data_dir.clone();
     let id = format!("prog-{}", p.id);
     match action {
         // 启动/重启：重新派生 + 装一次（install 内部会先卸载，等价于重启）
         _ if action == "apply" => {
-            // 开机启动开关关着时派生服务是 enabled=false，plan_for 会跳过它，
-            // 启动就成了空操作。系统调度下「启动」= 把服务装载进调度器，
-            // 必然要打开这个开关；状态栏与操作区会随返回的 StatusView 更新。
-            if !mgr.program_autostart(&p.id) {
+            // 开关关着时派生服务是 enabled=false（plist / unit 已被删掉），
+            // plan_for 会跳过它，启动就成了空操作。系统调度下「启动」= 把服务
+            // 装载进调度器，而装载本身就意味着登录时会起来，所以必须把开关打开，
+            // 否则 toml 说「不自启」而 plist 已经在盘上，配置和现实对不上。
+            let auto_opened = !mgr.program_autostart(&p.id);
+            if auto_opened {
                 mgr.set_program_autostart(&p.id, true);
             }
             mgr.sync_native_services().map_err(|e| format!("{e:#}"))?;
-            crate::services::apply_one(&dir, &id).map_err(|e| format!("{e:#}"))
+            crate::services::apply_one(&dir, &id).map_err(|e| format!("{e:#}"))?;
+            Ok(auto_opened.then(|| {
+                format!(
+                    "「{}」已启动，并同时开启开机自启：系统调度下「启动」就是把服务装载进调度器",
+                    p.name
+                )
+            }))
         }
         "stop" => {
             let path = crate::services::config_path(&dir);
@@ -170,9 +180,12 @@ fn native_dispatch(
             let svc = cfg
                 .get(&id)
                 .ok_or_else(|| format!("系统里没有 {id}：先在该程序上启用「开机自启」"))?;
-            us_service::stop(svc).map_err(|e| format!("{e:#}"))
+            // stop 只停「现在」，不动开关：plist 还在，下次登录仍会起来
+            // （与 systemd 的 stop 保持 enabled 一致）。
+            us_service::stop(svc).map_err(|e| format!("{e:#}"))?;
+            Ok(None)
         }
-        _ => Ok(()),
+        _ => Ok(None),
     }
 }
 
@@ -212,6 +225,27 @@ fn local_status(
         Err(_) => false,
     };
     s
+}
+
+/// 启停类 RPC 的统一返回：状态视图 + 可选提示。
+///
+/// `note` 用来把「这次操作顺带改了什么持久设置」告诉用户（比如 native 程序
+/// 启动时同时打开了开机自启），前端拿到后直接当 toast 弹出来。
+fn status_json(
+    mgr: &mut shared::ShellManager,
+    p: &Program,
+    note: Option<String>,
+) -> Value {
+    let bin = mgr.bin_path(p);
+    let s = local_status(mgr, p);
+    let auto = mgr.program_autostart(&p.id);
+    let vcheck = mgr.load_version_check();
+    let mut v = serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck))
+        .unwrap_or(json!({}));
+    if let Some(n) = note {
+        v["note"] = json!(n);
+    }
+    v
 }
 
 #[derive(Serialize, Clone)]
@@ -1152,17 +1186,14 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             if let Err(e) = mgr.apply_key_autostart(&p, &values) {
                 mgr.log_op(t!("log.autostart.set_fail", err = format!("{e:#}")).as_ref());
             }
+            let mut note = None;
             if p.supervisor == Supervisor::Native {
-                native_dispatch(&mut mgr, &p, "apply")?;
+                note = native_dispatch(&mut mgr, &p, "apply")?;
             } else {
                 mgr.start(&p, &values).map_err(|e| format!("{e:#}"))?;
             }
             mgr.log_op(t!("op.start", name = &p.name).as_ref());
-            let bin = mgr.bin_path(&p);
-            let s = local_status(&mut mgr, &p);
-            let auto = mgr.program_autostart(&p.id);
-            let vcheck = mgr.load_version_check();
-            Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
+            Ok(status_json(&mut mgr, &p, note))
         }
         "stop_program" => {
             let program_id = arg_str(args, "programId");
@@ -1178,11 +1209,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 mgr.clear_log(&program_id);
             }
             mgr.log_op(t!("op.stop", name = &p.name).as_ref());
-            let bin = mgr.bin_path(&p);
-            let s = local_status(&mut mgr, &p);
-            let auto = mgr.program_autostart(&p.id);
-            let vcheck = mgr.load_version_check();
-            Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
+            Ok(status_json(&mut mgr, &p, None))
         }
         "restart_program" => {
             let program_id = arg_str(args, "programId");
@@ -1195,18 +1222,15 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             if let Err(e) = mgr.apply_key_autostart(&p, &values) {
                 mgr.log_op(t!("log.autostart.set_fail", err = format!("{e:#}")).as_ref());
             }
+            let mut note = None;
             if p.supervisor == Supervisor::Native {
-                native_dispatch(&mut mgr, &p, "apply")?;
+                note = native_dispatch(&mut mgr, &p, "apply")?;
             } else {
                 mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
                 mgr.start(&p, &values).map_err(|e| format!("{e:#}"))?;
             }
             mgr.log_op(t!("op.restart", name = &p.name).as_ref());
-            let bin = mgr.bin_path(&p);
-            let s = local_status(&mut mgr, &p);
-            let auto = mgr.program_autostart(&p.id);
-            let vcheck = mgr.load_version_check();
-            Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
+            Ok(status_json(&mut mgr, &p, note))
         }
         "stop_all" => {
             let mut mgr = state.manager.lock().unwrap();

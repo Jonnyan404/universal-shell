@@ -69,10 +69,15 @@ Set the fields if needed, then press **Start**. By default the program is app-ma
 
 Switch under **Schedule** in the detail pane. The start/stop/restart buttons still work after
 handover — they go through the OS scheduler (`native_dispatch`) instead of spawning a second
-copy from the app — and a **Back to app-managed** button is added. The **⏻ autostart** switch
-and the status bar `⏻` work in both modes. Starting a scheduler-managed service whose
-autostart switch is off turns the switch back on first, because "start" means loading the
-service into the scheduler.
+copy from the app — and a **Back to app-managed** button is added. Handing a program over stops
+the copy the app was running first, so the scheduler's instance never ends up beside it.
+
+**Stop** on a scheduler-managed program really stops it: on macOS the startup item is unloaded
+(`launchctl bootout`) rather than signalled, because `KeepAlive` would bring a signalled process
+back within seconds. The item stays on disk, so the next login still starts it — same meaning as
+`systemctl stop` leaving a unit enabled. **Start** loads it again; if the autostart switch is off
+(no startup item on disk) starting it must register one, so the switch is turned back on and the
+app says so instead of changing it silently.
 
 **One autostart switch, two mechanisms.** The switch is shell-managed state
 (`program-autostart.json`) and works in both modes. Handing a program to the OS scheduler for
@@ -282,7 +287,9 @@ MIT — see [LICENSE](LICENSE).
 | 崩溃后 | 不会重启 | 按你的设置重启 |
 | 适合 | 你想盯着看的工具 | 必须一直开着的服务 |
 
-在详情页的「**调度**」里切换。交出去之后**启停/重启仍然可用**——它们走 `native_dispatch` 直接操作系统调度器（launchctl / systemctl / 计划任务），不经过应用自己的进程管理，所以不会双开；操作区只多一个「**⏻ 改为壳托管**」按钮。「**⏻ 开机启动**」开关与状态栏的 `⏻` 在两种模式下都有效。若在开关关闭（服务未装载）时点「启动」，会先自动打开开关——系统调度下「启动」就等于把服务装载进调度器。
+在详情页的「**调度**」里切换。交出去之后**启停/重启仍然可用**——它们走 `native_dispatch` 直接操作系统调度器（launchctl / systemctl / 计划任务），不经过应用自己的进程管理；交接时会先把壳正在跑的那份停掉，不会和调度器双开。操作区只多一个「**⏻ 改为壳托管**」按钮。
+
+**停止**是真的停：macOS 上走 `launchctl bootout` 卸载作业，而不是给进程发信号——`KeepAlive` 会在几秒后把被杀的进程重新拉起来（实测约 8 秒）。作业文件仍留在磁盘上，所以下次登录照样会起来，这与 `systemctl stop`（保持 enabled）是同一个语义。**启动**会重新装载它；若此时「开机自启」开关是关着的（磁盘上没有作业文件），装载本身就意味着注册开机启动，因此会顺带把开关打开，并明确告诉你，而不是悄悄改。
 
 **一个开关、两套机制。** 开关是壳统一管理的状态（`program-autostart.json`），两种托管方式下都有效。首次把程序交给系统调度时会自动打开它（「开机自启」本来就是这个模式的语义）；之后关掉会注销 launchd / systemd / 计划任务里的启动项，并把派生服务标成 `enabled = false`，再打开则重新装载。保存调度参数或切换托管方式都不会把你手动关掉的开关重置回来。
 
