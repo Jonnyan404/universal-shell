@@ -69,6 +69,9 @@ html, body { height: 100%; }
 body {
   font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   background: var(--bg); color: var(--text);
+  /* 浏览器默认 margin:8px，body 又是 overflow:hidden + 100vh，
+     结果整个 app 被右下各顶掉 8px：检查器底部的日志条刚好被切掉一截。 */
+  margin: 0;
   display: flex; overflow: hidden; height: 100vh;
 }
 
@@ -655,6 +658,9 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 
   /* 桌面侧栏 / 收窄条 / 状态标题栏：移动端不再使用 */
   .sidebar, .sidebar-edge, .statusbar { display: none !important; }
+  /* 图标窄栏在移动端由底部 Tab 取代。不藏的话它 height:100% 会吃掉整个
+     纵向空间（.app 在窄屏是 column），二级页的 #manage-view 被压成 20px 高。 */
+  .iconrail { display: none !important; }
 
   /* 主区全屏铺开，桌面网格/表格保留但不撑破屏 */
   .main { flex: 1; height: auto; min-width: 0; min-height: 0; overflow: hidden; }
@@ -1088,6 +1094,21 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
 .wb-sw.on { background: var(--accent); }
 .wb-sw.on::after { left: 13px; }
 .wb-desc { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; color: var(--muted); }
+.wb-uptime { font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* 操作列：三个小图标按钮，常显但低对比，hover 才亮起来 */
+.wb-actcell { text-align: right; }
+.wb-act {
+  width: 22px; height: 22px; padding: 0; margin-left: 2px;
+  display: inline-grid; place-items: center;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: var(--muted);
+  font-size: 10.5px; line-height: 1; cursor: pointer;
+}
+.wb-act:hover { background: var(--panel-2); border-color: var(--border); color: var(--text); }
+.wb-act.play:hover { color: color-mix(in srgb, var(--ok) 72%, var(--text)); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.wb-act.stop:hover { color: color-mix(in srgb, var(--danger) 72%, var(--text)); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.wb-act:disabled { opacity: .28; cursor: default; }
+.wb-act:disabled:hover { background: transparent; border-color: transparent; color: var(--muted); }
 .wb-empty { padding: 56px 20px; text-align: center; color: var(--muted); font-size: 12.5px; }
 .wb-fill { width: auto; padding: 0 !important; }
 .wb-empty[hidden] { display: none; }
@@ -1099,33 +1120,159 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
 .wb-table.dense .wb-nmwrap i { display: none; }
 .wb-table.dense .wb-pill { padding: 0 6px; }
 
-/* ---------- 检查器 ---------- */
+/* ---------- 检查器（D 方案：头像 + 标题 + 动作 + 标签页 + 卡片体） ---------- */
 .wb-inspector {
   width: 400px; min-width: 400px; display: flex; flex-direction: column; min-height: 0;
   background: var(--panel); border-left: 1px solid var(--border);
 }
-.wb-inspector .statusbar { padding: 9px 12px; gap: 4px 10px; }
-.wb-inspector .statusbar .room-title { font-size: 13.5px; }
-.wb-inspector .statusbar .room-sub { font-size: 11px; }
-.wb-inspector .wb-tabs { padding: 0 6px; }
-.wb-inspector .wb-tab { padding: 8px 10px; font-size: 12px; }
-.wb-inspector .wb-pane,
-.wb-inspector .manage-body { padding: 12px; }
-.wb-inspector .manage-log { --ml-height: 190px; }
+.d-head { flex: 0 0 auto; background: var(--panel); }
+.d-top { display: flex; align-items: flex-start; gap: 9px; padding: 12px 12px 9px; }
+.d-avatar {
+  width: 34px; height: 34px; flex: 0 0 auto; border-radius: 10px;
+  display: grid; place-items: center; color: #fff;
+  font-size: 14px; font-weight: 800; letter-spacing: -.3px;
+  background: var(--panel-2);
+}
+.d-title { flex: 1 1 0; min-width: 0; }
+.d-title h1 {
+  margin: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 14.5px; font-weight: 650; line-height: 1.35; color: var(--text);
+}
+.d-title h1 > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; min-width: 0; }
+/* 状态胶囊挤在标题行里，字号得比正文小一号才不抢戏 */
+.d-title h1 .pills { flex: 0 0 auto; display: inline-flex; gap: 4px; }
+.d-title h1 .pill { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; }
+.d-sub {
+  margin-top: 3px; font-size: 11px; color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* repo 链接现在挂在副标题行尾，跟 id · 分类同一行 */
+.d-sub .repo-link { color: var(--accent); text-decoration: none; font-family: inherit; }
+.d-sub .repo-link:hover { text-decoration: underline; }
+/* 动作条：从原来表单底部搬到标题下面，切任何标签页都能点 */
+.d-actions {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start;
+  gap: 6px; margin-top: 0; padding: 0 12px 10px;
+}
+.d-actions .act-group { gap: 6px; }
+.d-actions button {
+  font-size: 11.5px; padding: 4px 9px; border-radius: 7px; line-height: 1.5;
+  box-shadow: none;
+}
+.d-actions .icon-btn { padding: 4px 8px; font-size: 12px; }
+/* 未安装时「停止 / 重启」是禁用的，但 #stop-btn / #restart-btn 的红黄底色
+   优先级更高，会盖掉通用 disabled 样式，这里补一条 */
+.d-actions button:disabled { background: var(--panel-2) !important; color: var(--muted) !important; border-color: var(--border) !important; opacity: .7; }
+.d-tabs {
+  flex: 0 0 auto; display: flex; gap: 2px; padding: 0 8px;
+  border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.d-tabs .wb-tab { padding: 8px 10px; font-size: 12.5px; }
+.d-body { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.wb-inspector .d-body > .wb-pane,
+.wb-inspector .d-body > .manage-body { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 14px; }
+.wb-inspector .manage-log { --ml-height: 180px; }
 .wb-insp-close {
   display: none; width: 24px; height: 24px; padding: 0; flex: 0 0 auto;
   border: 1px solid var(--border); border-radius: 6px; background: transparent;
   color: var(--muted); cursor: pointer; font-size: 11px;
 }
 .wb-insp-close:hover { color: var(--text); border-color: var(--accent); }
+/* 说明搬到概览页的「说明」卡片里了，这里不再重复渲染一遍 */
+.wb-inspector .status-desc { display: none !important; }
+
+/* ---------- 概览页：KPI + 卡片 ---------- */
+.kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.kpi {
+  padding: 9px 11px; border-radius: 10px;
+  background: var(--panel-2); border: 1px solid var(--border);
+}
+.kpi .k { font-size: 10.5px; color: var(--muted); letter-spacing: .2px; }
+.kpi .v {
+  margin-top: 3px; font-size: 17px; font-weight: 700; color: var(--text);
+  font-variant-numeric: tabular-nums; line-height: 1.2;
+  display: flex; align-items: baseline; gap: 3px;
+}
+.kpi .v small { font-size: 10px; font-weight: 500; color: var(--muted); }
+.kpi .kh { margin-top: 4px; font-size: 10.5px; color: var(--muted); }
+.kpi .kh.up { color: color-mix(in srgb, var(--accent) 78%, var(--text)); font-weight: 600; }
+
+.sec {
+  margin-bottom: 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--panel-2); overflow: hidden;
+}
+.sec-h {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 11px; font-size: 11.5px; font-weight: 600; color: var(--text);
+  border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+.sec-h .hint { font-size: 10.5px; font-weight: 400; color: var(--muted); }
+.sec-h .spacer { flex: 1 1 auto; }
+.sec-b { padding: 10px 11px; }
+.kv { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 6px 10px; margin: 0; font-size: 11.5px; }
+.kv dt { color: var(--muted); font-size: 11px; }
+.kv dd {
+  margin: 0; color: var(--text); overflow-wrap: anywhere; word-break: normal;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip {
+  padding: 2px 7px; border-radius: 6px; font-size: 10.5px;
+  color: var(--muted); background: color-mix(in srgb, var(--muted) 10%, transparent);
+  border: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.chip b { color: var(--text); font-weight: 600; }
+.d-desc { margin: 0; font-size: 11.5px; line-height: 1.6; color: var(--muted); }
+.d-muted { font-size: 11.5px; color: var(--muted); }
+.d-empty { padding: 40px 16px; text-align: center; font-size: 12px; color: var(--muted); }
+
+/* ---------- 配置页：把「140px 右对齐标签 + 输入框」改成标签在上的卡片列表 ---------- */
+#pane-cfg #field-form { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+#pane-cfg .field-row { flex-direction: column; align-items: stretch; gap: 5px; margin: 0; }
+#pane-cfg .field-label { width: auto; flex: none; text-align: left; font-size: 11px; color: var(--muted); }
+#pane-cfg .field-label.required { color: color-mix(in srgb, var(--danger) 78%, var(--text)); }
+#pane-cfg .field-row input[type="text"],
+#pane-cfg .field-row textarea,
+#pane-cfg .field-row select {
+  width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 7px 9px;
+  border-radius: 8px; background: var(--panel); border: 1px solid var(--border); color: var(--text);
+}
+#pane-cfg .field-row input[type="checkbox"] { align-self: flex-start; transform: none; margin: 0; }
+/* 环境变量：外层已经是 .sec，去掉旧的顶部分隔线 */
+#pane-cfg #env-section { margin-top: 12px; padding-top: 0; border: 1px solid var(--border); }
+#pane-cfg #env-body { padding: 10px 11px; }
+#pane-cfg #svc-form {
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); padding: 12px;
+}
+#pane-cfg .svc-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+#pane-cfg .svc-field > label { font-size: 11px; color: var(--muted); padding: 0; }
+#pane-cfg .svc-hint { margin: 0 0 8px; }
+
+/* 调度页等用 .card 的块，统一成概览页的卡片语言 */
+.wb-inspector .card {
+  border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2);
+  padding: 0; margin-bottom: 12px; overflow: hidden;
+}
+.wb-inspector .card > h3 {
+  margin: 0; padding: 8px 11px; font-size: 11.5px; font-weight: 600; color: var(--text);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+.wb-inspector .card > *:not(h3) { margin-left: 11px; margin-right: 11px; }
+.wb-inspector .card > *:not(h3):first-of-type { margin-top: 10px; }
+.wb-inspector .card > *:last-child { margin-bottom: 10px; }
 
 /* ---------- 断点：1280 收窄，1100 变抽屉 ---------- */
+/* 列序号：1 勾选 2 状态 3 名称 4 分类 5 版本 6 端口 7 托管 8 自启 9 运行时长 10 操作 11 填充 */
 @media (max-width: 1280px) {
   .wb-inspector { width: 360px; min-width: 360px; }
-  .wb-table thead th:nth-child(9), .wb-table tbody td:nth-child(9) { display: none; } /* 描述 */
+  .wb-table thead th:nth-child(4), .wb-table tbody td:nth-child(4) { display: none; } /* 分类 */
 }
 @media (max-width: 1180px) {
-  .wb-table thead th:nth-child(4), .wb-table tbody td:nth-child(4) { display: none; } /* 分类 */
+  .wb-table thead th:nth-child(6), .wb-table tbody td:nth-child(6),
+  .wb-table thead th:nth-child(7), .wb-table tbody td:nth-child(7) { display: none; } /* 端口 + 托管 */
 }
 @media (max-width: 1100px) {
   .wb-split { position: relative; }
@@ -1223,15 +1370,16 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
   body.mob-detail .wb-insp-close { display: none; }
   body.mob-detail .wb-inspector .manage-body { padding: 12px; }
   /* 详情页顶部那条状态栏全局是 display:none 的（移动端另有标题栏），
-     但它同时装着「未安装 / 下载」这类动作。这里只把标题和描述藏掉，
-     保留状态标签和下载按钮，否则手机端没法安装程序。 */
-  body.mob-detail .wb-inspector .statusbar {
-    display: flex !important; align-items: center; gap: 8px;
-    padding: 8px 12px; border-bottom: 1px solid var(--border);
-  }
-  body.mob-detail .wb-inspector .statusbar .room-title,
-  body.mob-detail .wb-inspector .statusbar .room-sub,
-  body.mob-detail .wb-inspector .statusbar #prog-desc { display: none; }
+     但它现在整个就是检查器的头部，装着「未安装 / 下载」和动作按钮。
+     标题与副标题跟手机自己的标题栏重复，藏掉；状态标签、下载、动作、标签页都留着，
+     否则手机端既装不了程序也启停不了。 */
+  body.mob-detail .wb-inspector .d-head { display: block !important; }
+  /* 名字和分类返回栏上已经有了，只藏名字本身；标题行里还挂着状态胶囊，
+     整块 .d-title 藏掉的话「运行中 / 未启用」就跟着一起没了。 */
+  body.mob-detail .wb-inspector .d-title { display: block; }
+  body.mob-detail .wb-inspector .d-title h1 > span:first-child { display: none; }
+  body.mob-detail .wb-inspector .d-top { padding: 10px 12px 6px; }
+  body.mob-detail .wb-inspector .d-avatar { display: none; }
   .mob-cards { padding: 4px 12px 12px; }
 }
 

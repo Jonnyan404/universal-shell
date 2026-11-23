@@ -608,3 +608,37 @@ wb.density_comfy: Comfortable
 lib.uncategorized: Uncategorized
 ui.theme: Theme
 toast.exported: Exported
+
+# Inspector overview
+wb.tab_ov: Overview
+wb.ov_port: Port
+wb.ov_ver: Version
+wb.ov_sup: Supervisor
+wb.ov_auto: Autostart
+wb.ov_cfg: Runtime config
+wb.ov_bin: Binary
+wb.ov_args: Arguments
+wb.ov_cat: Category
+wb.ov_repo: Repo
+wb.ov_env: Env vars
+wb.ov_desc: Description
+wb.ov_none: None
+wb.ov_on: On
+wb.ov_off: Off
+wb.ov_nobind: Not bound
+wb.ov_snapshot: shell.json snapshot
+wb.ov_upd_to: 'update to %{v}'
+wb.ov_latest: Up to date
+wb.ov_fields: Fields
+wb.ov_template: From template
+wb.ov_env_hint: Injected at start
+wb.col_uptime: Uptime
+wb.col_act: Actions
+wb.more: More
+wb.up_just: just now
+wb.up_d: d
+wb.up_h: h
+wb.up_m: m
+wb.ov_uptime: Uptime
+wb.ov_running: Running
+wb.ov_stopped: Not running

@@ -608,3 +608,37 @@ wb.density_comfy: 宽松
 lib.uncategorized: 未分类
 ui.theme: 主题
 toast.exported: 已导出
+
+# 检查器概览页
+wb.tab_ov: 概览
+wb.ov_port: 监听端口
+wb.ov_ver: 版本
+wb.ov_sup: 托管
+wb.ov_auto: 自启
+wb.ov_cfg: 运行配置
+wb.ov_bin: 可执行文件
+wb.ov_args: 启动参数
+wb.ov_cat: 分类
+wb.ov_repo: 仓库
+wb.ov_env: 环境变量
+wb.ov_desc: 说明
+wb.ov_none: 无
+wb.ov_on: 已开启
+wb.ov_off: 未开启
+wb.ov_nobind: 未绑定
+wb.ov_snapshot: shell.json 快照
+wb.ov_upd_to: '可更新至 %{v}'
+wb.ov_latest: 已是最新
+wb.ov_fields: 字段
+wb.ov_template: 模板定义
+wb.ov_env_hint: 启动时注入
+wb.col_uptime: 运行时长
+wb.col_act: 操作
+wb.more: 更多
+wb.up_just: 刚刚
+wb.up_d: 天
+wb.up_h: 小时
+wb.up_m: 分
+wb.ov_uptime: 运行时长
+wb.ov_running: 正在运行
+wb.ov_stopped: 未运行

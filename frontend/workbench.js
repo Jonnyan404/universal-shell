@@ -17,7 +17,7 @@
     query: "",
     selected: null,
     checked: new Set(),
-    tab: "cfg",
+    tab: "ov",
     logTimer: null,
     pollTimer: null,
     sortKey: "",
@@ -25,7 +25,9 @@
     dense: false,
   };
 
-  const stateText = (s) => t("svc.state." + s);
+  // main.js 的 Program 没有 state 字段，拼出来会是 svc.state.undefined，
+  // 直接兜到「未知」而不是把 key 露在界面上。
+  const stateText = (s) => t("svc.state." + (s || "unknown"));
 
   function visible() {
     return st.items.filter((i) => {
@@ -50,15 +52,18 @@
   // 列定义：k 同时是排序键。名称列给百分比、其余给像素，行尾再加一个空的
   // 「填充列」吃掉剩余宽度——否则 table-layout:fixed 会把多出来的空间全塞给名称列，
   // 窄屏（检查器收成抽屉）时名称列会撑到 600px 以上，右边空一大块。
+  // 列集合对齐 06 原型：状态 / 名称 / 分类 / 版本 / 端口 / 调度 / 自启 / 运行时长 / 操作。
+  // 描述不进表格——它在检查器概览里，表格里放它会把「运行时长 / 操作」挤掉。
   const COLS = [
     { k: "state", label: "wb.col_state", w: "88px" },
-    { k: "name", label: "wb.col_name", w: "280px" },
+    { k: "name", label: "wb.col_name", w: "260px" },
     { k: "category", label: "wb.col_cat", w: "92px" },
     { k: "version", label: "wb.col_ver", w: "108px" },
     { k: "port", label: "wb.col_port", w: "64px" },
     { k: "supervisor", label: "wb.col_sup", w: "78px" },
     { k: "autostart", label: "wb.col_auto", w: "46px" },
-    { k: "description", label: "wb.col_desc", w: "180px" },
+    { k: "uptime", label: "wb.col_uptime", w: "86px" },
+    { k: "actions", label: "wb.col_act", w: "92px" },
   ];
 
   // 按 id 派生稳定色：刷新后颜色不跳，和图标首字母一起构成记忆点。
@@ -91,6 +96,33 @@
     return `<span class="wb-pill ${cls}"><i></i>${esc(stateText(it.state))}</span>`;
   }
 
+  // 运行时长：秒 → 「3天4小时」这种口语写法。拿不到（系统调度 / 未运行）给「—」。
+  function fmtUptime(s) {
+    if (s == null || s === "" || Number.isNaN(Number(s))) return "—";
+    const n = Number(s);
+    if (n < 60) return t("wb.up_just");
+    const d = Math.floor(n / 86400);
+    const h = Math.floor((n % 86400) / 3600);
+    const m = Math.floor((n % 3600) / 60);
+    if (d) return d + t("wb.up_d") + (h ? h + t("wb.up_h") : "");
+    if (h) return h + t("wb.up_h") + (m ? m + t("wb.up_m") : "");
+    return m + t("wb.up_m");
+  }
+
+  // 行内快捷操作：启停 / 重启 / 更多（复用右键菜单）
+  function actHTML(it) {
+    const running = it.state === "running";
+    const ready = it.state !== "not_installed";
+    const id = esc(it.id);
+    const label = running ? t("act.stop") : t("act.start");
+    return (
+      `<button class="wb-act${running ? " stop" : " play"}" data-act="${running ? "stop" : "start"}" data-id="${id}"` +
+      ` title="${esc(label)}"${ready ? "" : " disabled"}>${running ? "■" : "▶"}</button>` +
+      `<button class="wb-act" data-act="restart" data-id="${id}" title="${esc(t("act.restart"))}"${ready ? "" : " disabled"}>↻</button>` +
+      `<button class="wb-act" data-act="more" data-id="${id}" title="${esc(t("wb.more"))}">⋯</button>`
+    );
+  }
+
   function rowHTML(it) {
     const sel = st.selected && st.selected.id === it.id;
     const picked = st.checked.has(it.id);
@@ -114,7 +146,8 @@
           ? `<span class="wb-port" title="${esc(t("wb.manual_service"))}">—</span>`
           : `<span class="wb-sw${it.autostart ? " on" : ""}" data-auto="${esc(it.id)}" role="switch" aria-checked="${it.autostart ? "true" : "false"}"></span>`
       }</td>` +
-      `<td><span class="wb-desc" title="${esc(it.description || "")}">${esc(it.description || "—")}</span></td>` +
+      `<td><span class="wb-uptime">${esc(fmtUptime(it.uptime))}</span></td>` +
+      `<td class="wb-actcell">${actHTML(it)}</td>` +
       `<td class="wb-fill"></td>` +
       `</tr>`
     );
@@ -126,7 +159,7 @@
     head.innerHTML =
       `<th class="wb-cb"></th>` +
       COLS.map((c) => {
-        const sortable = c.k !== "autostart" && c.k !== "description";
+        const sortable = c.k !== "autostart" && c.k !== "actions";
         const sorted = st.sortKey === c.k;
         return (
           `<th${c.w ? ` style="width:${c.w}"` : ""} class="${sortable ? "sortable" : ""}${sorted ? " sorted" : ""}"` +
@@ -280,18 +313,21 @@
     st.selected = it;
     if (it.kind === "service" && st.tab === "upd") st.tab = "cfg";
     renderList();
+    renderInspHead(it);
     showTab(st.tab);
     // 窄屏（<1100）检查器变成抽屉：点行才滑出，桌面端常驻不需要这个 class。
     if (openDrawer && window.matchMedia("(max-width: 1100px)").matches) document.body.classList.add("wb-insp-open");
 
     if (it.kind === "program") {
       showProgramChrome();
+      // 手机端先跳二级页再拉数据：switchCurrent 里串着 get_values / 状态 / 版本几个
+      // RPC，慢网下要好几秒，用户点了行会以为没反应。
+      if (typeof isMobile === "function" && isMobile() && typeof mobGotoDetail === "function") mobGotoDetail(it);
       if (typeof switchCurrent === "function") await switchCurrent(id);
       renderSchedPane();
       renderUpdatePane();
       stopServiceLog();
       if (typeof refreshManageLog === "function") refreshManageLog();
-      if (typeof isMobile === "function" && isMobile() && typeof mobGotoDetail === "function") mobGotoDetail(it);
     } else {
       showServiceChrome(it);
       renderServiceCfg(it);
@@ -624,6 +660,7 @@
     };
     st.selected = it;
     renderList();
+    renderInspHead(it);
     showServiceChrome(it);
     st.tab = "cfg";
     showTab("cfg");
@@ -658,6 +695,131 @@
     if (strip) strip.hidden = false;
   }
 
+  // ---------- 概览页 ----------
+
+  // 概览只呈现「已有的事实」：字段值、模板快照、状态订阅里的 bin_path / installed。
+  // 不编造运行时长和内存曲线——壳目前没有采集这两个指标。
+  function renderOverview() {
+    const box = $("#pane-ov");
+    if (!box) return;
+    const it = st.selected;
+    if (!it) {
+      box.innerHTML = `<div class="d-empty">${esc(t("wb.select_hint"))}</div>`;
+      return;
+    }
+    const p = typeof programs !== "undefined" && programs ? programs.find((x) => x.id === it.id) : null;
+    const stt =
+      typeof statuses !== "undefined" && statuses ? (statuses.find((x) => x.id === it.id) || {}).status || null : null;
+
+    const port = it.port || (stt && stt.ready_port) || null;
+    const hasVer = it.version && it.version !== "-";
+    const ver = hasVer ? "v" + it.version : "—";
+    const upd = it.has_update && it.latest_version;
+    const sup =
+      it.kind === "service"
+        ? t("wb.manual_service")
+        : it.supervisor === "native"
+          ? t("wb.sup_native")
+          : t("wb.sup_managed");
+
+    // 程序：用 shell.json 里的 args / binary / repo；服务：用命令与工作目录
+    const rows = [];
+    if (it.kind === "service") {
+      rows.push([t("wb.f_cmd"), it.command || "—"]);
+      rows.push([t("wb.f_args"), (it.args || []).join(" ") || "—"]);
+      rows.push([t("wb.f_cwd"), it.cwd || "—"]);
+      rows.push([t("wb.f_log"), it.log || "—"]);
+    } else {
+      rows.push([t("wb.ov_bin"), (stt && stt.bin_path) || (p && p.binary) || "—"]);
+      rows.push([t("wb.ov_args"), (p && (p.args || []).join(" ")) || "—"]);
+      rows.push([t("wb.ov_cat"), it.category || "—"]);
+      rows.push([t("wb.ov_repo"), (p && p.repo) || "—"]);
+      rows.push([t("wb.ov_auto"), it.autostart ? t("wb.ov_on") : t("wb.ov_off")]);
+    }
+
+    const envList = it.kind === "service" ? Object.entries(it.env || {}) : ((p && p.env) || []).map((e) => [e.key, e.value]);
+    const envHTML = envList.length
+      ? `<div class="chips">${envList
+          .map(([k, v]) => `<span class="chip"><b>${esc(k)}</b>=${esc(v === "" ? "—" : v)}</span>`)
+          .join("")}</div>`
+      : `<div class="d-muted">${esc(t("wb.ov_none"))}</div>`;
+
+    box.innerHTML =
+      `<div class="kpis">` +
+      `<div class="kpi"><div class="k">${esc(t("wb.ov_uptime"))}</div>` +
+      `<div class="v" style="font-size:15px">${esc(fmtUptime(it.uptime))}</div>` +
+      `<div class="kh">${esc(it.state === "running" ? t("wb.ov_running") : t("wb.ov_stopped"))}</div></div>` +
+      `<div class="kpi"><div class="k">${esc(t("wb.ov_port"))}</div><div class="v">${port ? ":" + port : "—"}${
+        port ? "<small>TCP</small>" : ""
+      }</div><div class="kh">${port ? "127.0.0.1" : esc(t("wb.ov_nobind"))}</div></div>` +
+      `<div class="kpi"><div class="k">${esc(t("wb.ov_ver"))}</div><div class="v" style="font-size:15px">${esc(ver)}</div>` +
+      `<div class="kh${upd ? " up" : ""}">${
+        !hasVer ? "—" : upd ? esc(t("wb.ov_upd_to", { v: it.latest_version })) : esc(t("wb.ov_latest"))
+      }</div></div>` +
+      `<div class="kpi"><div class="k">${esc(t("wb.ov_sup"))}</div><div class="v" style="font-size:13px">${esc(sup)}</div></div>` +
+      `</div>` +
+      `<div class="sec"><div class="sec-h">${esc(t("wb.ov_cfg"))}<span class="spacer"></span>` +
+      `<span class="hint">${esc(t("wb.ov_snapshot"))}</span></div><div class="sec-b"><dl class="kv">` +
+      rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("") +
+      `</dl></div></div>` +
+      `<div class="sec"><div class="sec-h">${esc(t("wb.ov_env"))}<span class="spacer"></span>` +
+      `<span class="hint">${envList.length}</span></div><div class="sec-b">${envHTML}</div></div>` +
+      (it.description
+        ? `<div class="sec" style="margin-bottom:0"><div class="sec-h">${esc(t("wb.ov_desc"))}</div>` +
+          `<div class="sec-b"><p class="d-desc">${esc(it.description)}</p></div></div>`
+        : "");
+  }
+
+  // 头像 + 标题 + 副标题：点行后立刻刷，不等 main.js 的 switchCurrent。
+  // switchCurrent 里要 await get_values / 版本检查，慢的时候标题会滞后好几秒，
+  // 期间头像已经换了、标题还是上一个程序，看着像点错了行。
+  // main.js 的 renderHeader() 也转调这里：头部只能有一个写入方，
+  // 两边各写一半的结果是副标题被冲空、repo 链接插两遍。
+  function renderInspHead(it) {
+    const ava = document.getElementById("d-avatar");
+    const title = document.getElementById("prog-title");
+    const sub = document.getElementById("prog-sub");
+    const chips = document.getElementById("status-chips");
+    if (!it) {
+      if (ava) {
+        ava.textContent = "·";
+        ava.style.background = "var(--panel-2)";
+        ava.style.color = "var(--muted)";
+      }
+      return;
+    }
+    // main.js 传进来的是 Program（没有 category / state / repo），用列表项补全；
+    // 列表项才是 workspace_list 的原始结构，字段最全。
+    const row = st.items.find((x) => x.id === it.id) || it;
+    if (ava) {
+      ava.textContent = (row.name || "?").slice(0, 1).toUpperCase();
+      ava.style.background = hueOf(row.id);
+      ava.style.color = "#fff";
+    }
+    if (title) title.textContent = row.name || row.id;
+    if (sub) {
+      const kind = row.kind === "service" ? t("wb.manual_service") : row.category;
+      sub.textContent = [row.id, kind].filter(Boolean).join(" · ");
+      const repo = (row.repo || "").trim();
+      if (repo) {
+        const a = document.createElement("a");
+        a.className = "repo-link";
+        a.textContent = "GitHub";
+        a.title = `GitHub · ${repo}`;
+        a.href = "#";
+        a.onclick = (e) => {
+          e.preventDefault();
+          if (typeof openExternal === "function") openExternal("https://github.com/" + repo);
+        };
+        sub.appendChild(document.createTextNode(" · "));
+        sub.appendChild(a);
+      }
+    }
+    if (chips) {
+      chips.innerHTML = `<span class="pill${row.state === "running" ? " ok" : ""}">${esc(stateText(row.state))}</span>`;
+    }
+  }
+
   // ---------- tab ----------
 
   function showTab(name) {
@@ -665,10 +827,11 @@
     document.querySelectorAll("#wb-tabs .wb-tab").forEach((b) => {
       b.classList.toggle("on", b.dataset.wbtab === name);
     });
-    const panes = { cfg: $("#pane-cfg"), sched: $("#pane-sched"), upd: $("#pane-upd") };
+    const panes = { ov: $("#pane-ov"), cfg: $("#pane-cfg"), sched: $("#pane-sched"), upd: $("#pane-upd") };
     for (const [k, node] of Object.entries(panes)) {
       if (node) node.hidden = k !== name;
     }
+    if (name === "ov") renderOverview();
     // 更新卡片在切换时可能已被 main.js 按 program 重新渲染
     if (name === "upd") renderUpdatePane();
   }
@@ -711,6 +874,11 @@
       const keep = st.selected ? st.selected.id : null;
       if (keep) st.selected = st.items.find((i) => i.id === keep) || null;
       renderList();
+      // 刷新后对象身份变了，概览页读的是 st.selected，得跟着重画一次
+      if (st.selected) {
+        renderInspHead(st.selected);
+        if (st.tab === "ov") renderOverview();
+      }
       return st.items;
     } catch (e) {
       showNotice(String(e), true);
@@ -779,6 +947,45 @@
 
   // ---------- 绑定 ----------
 
+  // 启动/重启必须带上已保存的字段值，否则模板里的 {port} / {token} 这类占位符
+  // 会被渲染成空串（裸调 RPC 传 values: {} 就是这样，见 2026-11-23 的踩坑记录）。
+  async function itemValues(it) {
+    try {
+      return (await invoke("get_values", { programId: it.id })) || {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  // 表格「操作」列：启停 / 重启 / 更多
+  async function quickAct(it, act) {
+    if (act === "more") {
+      const p = typeof programs !== "undefined" && programs ? programs.find((x) => x.id === it.id) : null;
+      if (p && typeof ctxMenuAt === "function" && typeof progItemMenu === "function") {
+        const btn = document.querySelector(`[data-act="more"][data-id="${CSS.escape(it.id)}"]`);
+        const r = btn ? btn.getBoundingClientRect() : { left: 0, bottom: 0 };
+        ctxMenuAt(r.left, r.bottom + 4, progItemMenu(p));
+      }
+      return;
+    }
+    try {
+      if (it.kind === "service") {
+        await invoke("services_action", { id: it.id, action: act });
+      } else if (act === "start") {
+        await invoke("start_program", { programId: it.id, values: await itemValues(it) });
+      } else if (act === "stop") {
+        await invoke("stop_program", { programId: it.id });
+      } else if (act === "restart") {
+        await invoke("restart_program", { programId: it.id, values: await itemValues(it) });
+      }
+      // 走 reloadPrograms 一并刷新 main.js 的 programs/statuses，否则检查器还拿着旧状态
+      if (typeof reloadPrograms === "function") await reloadPrograms();
+      else await load();
+    } catch (e) {
+      showNotice(String(e), true);
+    }
+  }
+
   // 表格交互只绑一次，行内容重绘不影响事件。
   function bindTable() {
     const table = document.getElementById("wb-table");
@@ -790,6 +997,14 @@
         st.sortDir = st.sortKey === k ? -st.sortDir : 1;
         st.sortKey = k;
         renderList();
+        return;
+      }
+      // 行内操作列：必须在「点行选中」之前拦掉，否则会连带把详情切过去
+      const ab = e.target.closest("[data-act]");
+      if (ab) {
+        e.stopPropagation();
+        const it = st.items.find((x) => x.id === ab.dataset.id);
+        if (it) quickAct(it, ab.dataset.act);
         return;
       }
       const sw = e.target.closest("[data-auto]");
@@ -944,6 +1159,7 @@
     load,
     renderList,
     renderMobCards,
+    renderInspHead,
     select,
     newService,
     showTab,

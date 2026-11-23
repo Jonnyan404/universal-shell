@@ -998,6 +998,9 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 let fv = mgr.load_field_values(&p);
                 let port = fv.get("port").and_then(|v| v.trim().parse::<u16>().ok());
                 let autostart = mgr.program_autostart(&p.id);
+                // 运行时长：只有壳托管的程序才有启动时刻；系统调度的由 launchd/systemd 拉起，
+                // 壳不知道它什么时候起来的，如实给 null 让界面显示「—」。
+                let uptime = mgr.runner.uptime_secs(&p.id);
                 items.push(json!({
                     "id": p.id,
                     "kind": "program",
@@ -1006,6 +1009,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                     "category": p.category,
                     "port": port,
                     "autostart": autostart,
+                    "uptime": uptime,
                     "state": if !st.installed { "not_installed" } else if st.running { "running" } else { "stopped" },
                     "supervisor": p.supervisor.as_str(),
                     "installed": st.installed,
@@ -1045,6 +1049,8 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                         "category": Value::Null,
                         "port": svc.ready_port,
                         "autostart": svc.enabled,
+                        // 手工服务由 us-service 托管，壳侧同样看不到启动时刻
+                        "uptime": Value::Null,
                         "state": match st {
                             us_service::ServiceState::Running => "running",
                             us_service::ServiceState::Stopped => "stopped",

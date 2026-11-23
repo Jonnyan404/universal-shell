@@ -74,67 +74,89 @@
           </div>
 
           <aside class="wb-inspector" id="wb-inspector">
-            <div id="statusbar" class="statusbar">
-              <span class="room-title" id="prog-title"></span>
-              <span class="room-sub" id="prog-sub"></span>
-              <span class="spacer"></span>
-              <div id="status-chips" class="pills"></div>
+            <!-- 检查器按 D 方案：头像 + 标题 + 状态 + 动作条 + 标签页，下面才是卡片体。
+                 #statusbar / #prog-title / #prog-sub / #status-chips / #dl-btn / #actions
+                 这些 id 是 main.js 的写入点，结构换了但 id 一个都不能少。 -->
+            <div id="statusbar" class="d-head">
+              <div class="d-top">
+                <span class="d-avatar" id="d-avatar">·</span>
+                <div class="d-title">
+                  <!-- 状态胶囊跟名字同一行（D 方案就是这么排的），不另起一列，
+                       400px 宽的检查器里能把这一行省给标题 -->
+                  <h1><span id="prog-title"></span><span id="status-chips" class="pills"></span></h1>
+                  <div class="d-sub"><span id="prog-sub"></span></div>
+                </div>
+                <button id="dl-btn" class="dl-btn" hidden></button>
+                <button id="wb-insp-close" class="wb-insp-close" title="关闭详情">✕</button>
+              </div>
+              <div id="actions" class="d-actions"></div>
+              <div class="d-tabs" id="wb-tabs">
+                <button class="wb-tab on" data-wbtab="ov" data-i18n="wb.tab_ov">概览</button>
+                <button class="wb-tab" data-wbtab="cfg" data-i18n="wb.tab_cfg">配置</button>
+                <button class="wb-tab" data-wbtab="sched" data-i18n="wb.tab_sched">调度</button>
+                <button class="wb-tab" data-wbtab="upd" data-i18n="wb.tab_upd">更新</button>
+              </div>
               <button id="upd-toggle" type="button" class="upd-toggle" hidden>
                 <span class="upd-toggle-caret">▸</span><span data-i18n="upd.expand">展开更新设置</span>
               </button>
-              <button id="dl-btn" class="dl-btn" hidden></button>
-              <button id="wb-insp-close" class="wb-insp-close" title="关闭详情">✕</button>
               <div class="status-desc" id="prog-desc" hidden></div>
             </div>
-            <!-- 工作台：配置 / 调度 / 更新 三个 pane，日志固定在底部（任何 tab 都能看） -->
-            <div class="wb-tabs" id="wb-tabs">
-              <button class="wb-tab on" data-wbtab="cfg" data-i18n="wb.tab_cfg">配置</button>
-              <button class="wb-tab" data-wbtab="sched" data-i18n="wb.tab_sched">调度</button>
-              <button class="wb-tab" data-wbtab="upd" data-i18n="wb.tab_upd">更新</button>
+
+            <!-- 卡片体：概览 / 配置 / 调度 / 更新 四页，日志固定在底部任何页都能看 -->
+            <div class="d-body" id="d-body">
+              <div id="pane-ov" class="wb-pane"></div>
+              <div class="manage-body" id="pane-cfg" hidden>
+                <div class="sec">
+                  <div class="sec-h">
+                    <span data-i18n="wb.ov_fields">字段</span>
+                    <span class="spacer"></span>
+                    <span class="hint" data-i18n="wb.ov_template">模板定义</span>
+                  </div>
+                  <form id="field-form"></form>
+                </div>
+                <div id="env-section" class="sec" hidden>
+                  <div class="sec-h"><span data-i18n="edit.env">环境变量</span><span class="spacer"></span>
+                    <span class="hint" data-i18n="wb.ov_env_hint">启动时注入</span></div>
+                  <div class="sec-b" style="padding:0"><div id="env-body"></div></div>
+                </div>
+                <div id="svc-form" hidden></div>
+              </div>
+              <div id="pane-sched" class="wb-pane" hidden></div>
+              <div id="pane-upd" class="wb-pane" hidden>
+                <div id="upd-empty" class="svc-hint" hidden></div>
+                <div id="upd-program">
+                  <div id="upd-settings" class="upd-settings-strip" hidden>
+                    <div class="upd-card-main">
+                      <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
+                      <span class="upd-ver" id="upd-current">—</span>
+                      <span class="upd-arrow">→</span>
+                      <span class="upd-key" data-i18n="th.latest_ver">最新版本</span>
+                      <span class="upd-ver" id="upd-latest">—</span>
+                      <span class="upd-pin" id="upd-pin" hidden></span>
+                    </div>
+                    <div id="upd-controls" class="upd-settings"></div>
+                    <div class="upd-check">
+                      <span class="upd-checked-at" id="upd-checked-at"></span>
+                      <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-        <div id="pane-sched" class="wb-pane" hidden></div>
-        <div id="pane-upd" class="wb-pane" hidden>
-          <div id="upd-empty" class="svc-hint" hidden></div>
-          <div id="upd-program">
-          <div id="upd-settings" class="upd-settings-strip" hidden>
-            <div class="upd-card-main">
-              <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
-              <span class="upd-ver" id="upd-current">—</span>
-              <span class="upd-arrow">→</span>
-              <span class="upd-key" data-i18n="th.latest_ver">最新版本</span>
-              <span class="upd-ver" id="upd-latest">—</span>
-              <span class="upd-pin" id="upd-pin" hidden></span>
+
+            <div id="manage-log" class="manage-log" data-open="1">
+              <div id="manage-log-resize" class="manage-log-resize" title=""></div>
+              <div id="manage-log-head" class="manage-log-head">
+                <button id="manage-log-toggle" class="log-toggle" data-i18n-title="log.collapse">▾</button>
+                <span class="manage-log-title" data-i18n="manage.view_log">程序日志</span>
+                <span id="manage-log-hint" class="manage-log-hint"></span>
+                <span class="spacer"></span>
+                <button id="manage-log-open" class="log-action" data-i18n-title="log.center_open">📜</button>
+                <button id="manage-log-copy" class="log-action" data-i18n-title="act.copy">⧉</button>
+                <button id="manage-log-refresh" class="log-action" data-i18n-title="act.refresh">↻</button>
+              </div>
+              <pre id="manage-log-content" class="term-body"></pre>
             </div>
-            <div id="upd-controls" class="upd-settings"></div>
-            <div class="upd-check">
-              <span class="upd-checked-at" id="upd-checked-at"></span>
-              <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
-            </div>
-          </div>
-          </div>
-        </div>
-        <div class="manage-body" id="pane-cfg">
-          <form id="field-form"></form>
-          <div id="env-section" class="env-section" hidden>
-            <div class="env-title"><span data-i18n="edit.env">环境变量（派生只读）</span></div>
-            <div id="env-body"></div>
-          </div>
-          <div id="actions"></div>
-          <div id="svc-form" hidden></div>
-        </div>
-        <div id="manage-log" class="manage-log" data-open="1">
-          <div id="manage-log-resize" class="manage-log-resize" title=""></div>
-          <div id="manage-log-head" class="manage-log-head">
-            <button id="manage-log-toggle" class="log-toggle" data-i18n-title="log.collapse">▾</button>
-            <span class="manage-log-title" data-i18n="manage.view_log">程序日志</span>
-            <span id="manage-log-hint" class="manage-log-hint"></span>
-            <span class="spacer"></span>
-            <button id="manage-log-open" class="log-action" data-i18n-title="log.center_open">📜</button>
-            <button id="manage-log-copy" class="log-action" data-i18n-title="act.copy">⧉</button>
-            <button id="manage-log-refresh" class="log-action" data-i18n-title="act.refresh">↻</button>
-          </div>
-          <pre id="manage-log-content" class="term-body"></pre>
-        </div>
           </aside>
         </div>
       </section>

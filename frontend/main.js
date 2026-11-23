@@ -367,13 +367,20 @@ function switchView(v) {
   if (v === "manage") window.usWorkbench && window.usWorkbench.onShow();
   else window.usWorkbench && window.usWorkbench.onHide();
   const dlBtn = document.querySelector("#dl-btn");
-  if (dlBtn) dlBtn.hidden = v !== "manage";
+  // 没文本就别露出来：syncInstallBtns 拿到状态之前它是空的，
+  // 先显示出来就是一个没有字的蓝色胶囊。
+  if (dlBtn) dlBtn.hidden = v !== "manage" || !dlBtn.textContent.trim();
   // 更新设置条在 #manage-view 内部，跟着 manageView 一起显示/隐藏，这里不再单独控制
   if (v === "manage") {
     el.statusbar.hidden = false;
+    // 头部同样交给工作台画，别在这里单独清空 #prog-sub（见 renderHeader 注释）
     if (current) {
-      el.progTitle.textContent = current.name;
-      el.progSub.innerHTML = "";
+      if (window.usWorkbench && typeof window.usWorkbench.renderInspHead === "function") {
+        window.usWorkbench.renderInspHead(current);
+      } else {
+        el.progTitle.textContent = current.name;
+        el.progSub.innerHTML = "";
+      }
     }
     el.progDesc.hidden = true;
   } else {
@@ -395,18 +402,22 @@ function switchView(v) {
 }
 
 async function switchCurrent(id) {
-  switchView("manage");
+  // 先切 current 再 switchView：switchView 里会用 current.name 回填标题栏，
+  // 顺序反了会把标题刷成「上一个程序」，一直等到下面的 renderHeader 才纠正。
   current = programs.find((p) => p.id === id) || null;
+  switchView("manage");
   if (!current) return;
   values = (await invoke("get_values", { programId: current.id }).catch(() => ({}))) || {};
   renderHeader();
   renderForm();
   renderActions();
-  await refreshStatusLocal();
-  await renderUpdateSettings();
+  // 日志条标题跟着一起切：放在两个 await 之后的话，网络慢时详情已经换成新程序，
+  // 日志条还挂着上一个程序的名字。
   const hint = document.querySelector("#manage-log-hint");
   if (hint) hint.textContent = current.id;
   refreshManageLog();
+  await refreshStatusLocal();
+  await renderUpdateSettings();
 }
 
 function isUpdateCardExpanded(id) {
@@ -684,6 +695,12 @@ function updateUpdateCard(st) {
 }
 
 function renderHeader() {
+  // 详情头部（头像/标题/副标题/状态胶囊）已由工作台接管。这里再写一遍只会
+  // 把副标题冲成空、把 repo 链接插第二遍，所以统一转调过去。
+  if (window.usWorkbench && typeof window.usWorkbench.renderInspHead === "function") {
+    window.usWorkbench.renderInspHead(current);
+    return;
+  }
   el.progTitle.textContent = current.name;
   el.progSub.textContent = "";
   const repo = (current.repo || "").trim();
@@ -1015,6 +1032,13 @@ async function setSupervisor(native) {
 }
 
 function renderChips(st) {
+  // 头部胶囊只有一个写入方。工作台接管后由 renderInspHead 画「状态」一个胶囊，
+  // 这里再画版本/自启三个会跟它互相覆盖（连词都不一样：未启用 / 未安装），
+  // 5 秒轮询一次就闪一下。版本和自启在概览的 KPI 卡片里有。
+  if (window.usWorkbench && typeof window.usWorkbench.renderInspHead === "function") {
+    if (current) window.usWorkbench.renderInspHead(current);
+    return;
+  }
   el.chips.innerHTML = "";
   const mk = (text, cls) => {
     const p = document.createElement("span");
@@ -3151,7 +3175,8 @@ async function boot() {
   if (isMobile()) {
     renderMobCards();
     mobShowHome();
-  } else if (wbItems.length) {
+  } else if (wbItems.length && !window.usWorkbench.selectedId()) {
+    // 用户手快在 boot 完成前点了某行时，别再把选中项抢回第一条
     await window.usWorkbench.select(wbItems[0].id);
   }
 

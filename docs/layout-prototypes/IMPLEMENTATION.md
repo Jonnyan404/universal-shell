@@ -1,8 +1,8 @@
 # 主界面布局重构 · 实施进度（交接文档）
 
 > 目标：把「200px 侧栏平铺列表 + 单一详情区」换成 **表格 + 检查器**（B+D 融合），模板库换成 **分组卡片**（A），移动端换成 **两行列表 + 全屏二级页**。
-> 设计与断点依据：[`DECISION.md`](DECISION.md)；可交互参考：[`06-merged-bd.html`](06-merged-bd.html)。
-> 状态：**已完成并通过三档验证**（2026-11-24）。截图见 [`shots/`](shots/)。
+> 设计与断点依据：[`DECISION.md`](DECISION.md)；可交互参考：[`06-merged-bd.html`](06-merged-bd.html)、[`04-master-detail.html`](04-master-detail.html)。
+> 状态：**已完成并通过四档验证**（2026-11-24）。截图见 [`shots/`](shots/)。
 
 ---
 
@@ -10,7 +10,7 @@
 
 | 区域 | 形态 | 说明 |
 |---|---|---|
-| 桌面 · 程序 | 左表格 + 右检查器（常驻 400px，<1280 降为 360px，<1100 变抽屉） | 检查器里放现有的 `#statusbar` + `wb-tabs` + 三个 pane + 日志 |
+| 桌面 · 程序 | 左表格 + 右检查器（常驻 400px，<1280 降为 360px，<1100 变抽屉） | 检查器**按 D 方案重写**：头像 + 标题（状态胶囊同行）+ id·分类行 + 动作条 + 四个标签页 + 卡片体 |
 | 桌面 · 侧栏 | 52px 图标窄栏 | 程序 / 模板库 / 日志 / 设置 / 主题 / 语言 / GitHub |
 | 桌面 · 模板库 | 分类分组卡片，组头可折叠 + 计数 | 导入动作保留原流程 |
 | 移动端 · 列表 | 两行列表 + 分类小标题 | 旧卡片流下线 |
@@ -31,7 +31,17 @@
 - [x] **P4 主逻辑适配**：`frontend/main.js` 去掉对 `.sidebar` / `#program-tabs` / `#collapse-btn` / `#library-link` / `#log-center-link` 的硬依赖。
 - [x] **P5 移动端**：`renderMobCards` 改两行列表 + 分组；详情全屏；详情页补回状态条与「下载」。
 - [x] **P6 模板库**：`renderLibrary` 改分组卡片，卡片逻辑抽成 `libCard()`。
-- [x] **P7 验证**：`us-web` 隔离数据目录（40 个程序）起服务，headless Chrome 走 DevTools 设备模拟截图 1440 / 1100 / 390 三档 + 深色 + 模板库 + 二级页。
+- [x] **P7 验证**：`us-web` 隔离数据目录（40 个程序）起服务，headless Chrome 走 DevTools 设备模拟截图 1440 / 1280 / 1100 / 390 四档 + 深色 + 模板库 + 二级页。
+- [x] **P8 补列**：表格加 **运行时长** 与 **操作** 两列。
+      `shared/src/runner.rs` 用 `started: BTreeMap<String, SystemTime>` 记启动时刻（退出/停止时清），
+      暴露 `uptime_secs()`；`workspace_list` 每项带 `uptime`（系统调度托管 / 手工服务给 `null`，界面显示 `—`）。
+      操作列三个按钮：▶/■ 启停、↻ 重启、⋯ 右键菜单；走 `quickAct()`，启动/重启会先 `get_values` 带字段值，
+      否则模板里的 `{port}` / `{token}` 占位符会被渲染成空串。
+- [x] **P9 检查器按 D 重写**：`aside.wb-inspector` 内改成
+      `d-head(avatar + h1[名字 + 状态胶囊] + d-sub[id·分类] + 下载/关闭)` → `d-actions` → `d-tabs(概览/配置/调度/更新)` → `d-body`，
+      概览页换成 **KPI 四宫格 + 运行配置 kv + 环境变量 chips + 说明** 四张卡。
+      `#statusbar` / `#prog-title` / `#prog-sub` / `#status-chips` / `#actions` / `#dl-btn` 这些 id 一个没删，
+      `main.js` 的写入点照旧可用。
 
 ---
 
@@ -43,6 +53,9 @@
 2. **移动端真机**：390 是模拟器宽度，iOS Safari 的 `env(safe-area-inset-bottom)` 与底部导航叠压需要真机确认。
 3. **可选优化**：表格目前没有「列显隐菜单」（原型 02 有），窄屏靠断点硬砍列；如果后面列还会增加，再补一个列开关。
 4. **可选优化**：`#wb-table` 没有虚拟滚动，40 条无压力；如果目标场景是 500+ 程序再考虑。
+5. **D 原型里刻意没做的两块**：`04-master-detail.html` 的概览页还有「内存占用」KPI（带 sparkline）和「最近事件」时间线。
+   壳现在**既不采集内存、也不留存状态变更事件**，照抄就是造假数据，所以换成了「托管方式」KPI 和「环境变量 / 说明」两张卡。
+   要做的话得先在后端补指标采集（`sysinfo` 之类）和事件表，属于另一个议题。
 
 ### 关键约束（踩过就知道疼）
 
@@ -54,6 +67,20 @@
 - **前端资源是编译期内嵌的**（`web-server/src/lib.rs` 里 `include_str!`）。改完 `frontend/**` 必须 `cargo build -p app-cli` 再起服务，否则看到的还是旧界面。语言包同理。
 - `select(id, openDrawer)` 的第二个参数只有「用户点行」才传 `true`。首屏自动选中第一条时不要弹抽屉，否则 1100 宽一进页面就被抽屉挡住半张表。
 - 表格用 `table-layout: fixed`，行尾有一个空的 `.wb-fill` 列吃剩余宽度。**加列时别忘了它**，否则多出来的空间会全塞给名称列。
+- **详情头部只能有一个写入方**。现在由 `workbench.js` 的 `renderInspHead()` 统一画，
+  `main.js` 的 `renderHeader()` / `renderChips()` / `switchView("manage")` 都转调它。
+  之前两边各写一半的后果：副标题被 `renderHeader` 冲成空、repo 链接插两遍、
+  状态胶囊被 5 秒轮询在「未启用 / 未安装」之间来回刷。
+- `renderInspHead(it)` 收进来的可能是 `main.js` 的 `Program`（没有 `category` / `state` / `repo`），
+  函数内部会先用 `st.items` 里的同 id 项补全再用，别直接读 `it.state`。
+- `boot()` 里 `select(items[0].id)` 必须判 `!selectedId()`：否则用户手快在 boot 完成前点了某行，会被抢回第一条。
+- `body` 一定要 `margin: 0`。默认 8px + `height:100vh` + `overflow:hidden` 会把整个 app 往右下顶 8px，
+  检查器底部的日志条刚好被切掉一截（看起来像日志条自己溢出了）。
+- 移动端 `select()` 要**先 `mobGotoDetail()` 再 `await switchCurrent()`**。`switchCurrent` 里串着
+  `get_values` / 状态刷新 / 版本检查三个 RPC，慢网下要好几秒，顺序反了用户点了行会以为没反应。
+- 本机没有外网时 `template_status` 会去拉 GitHub registry 并超时，**RPC 会排队到 2~3 秒**。
+  截图脚本的 `CLICK_WAIT` 因此要给到 5~6 秒，否则截到的是「详情还没渲染完」的中间态，
+  很容易误判成布局 bug。
 
 ---
 
@@ -78,11 +105,15 @@ await send("Page.navigate", { url });
 
 ### 验收点（已全部通过）
 
-1. **1440**：表格铺满左侧、检查器常驻 400px；表头点「名称」可升/降序；勾 3 行出现批量条且计数 `3 / 40`；点行检查器标题跟着变；自启开关可点；密度按钮在「紧凑 / 宽松」间切换。
-2. **1100**：检查器默认收成抽屉，表格占满；点行抽屉滑出并带关闭按钮；分类列隐藏、描述列隐藏。
-3. **390**：搜索框 + 筛选 chips + 两行列表（分组小标题 / 头像 / 名称 / `:端口 · v版本` / 状态点 / 箭头）；点行进全屏二级页，顶部有状态条和「下载」按钮，底部导航可用。
-4. **模板库**：按分类分组，组头三角可折叠带计数，卡片栅格 4 列不溢出，导入按钮在卡片内换行不裁切。
-5. **深色**：表格、徽标、开关、表单标签对比度正常（语义色已改用 `color-mix` 跟主题走）。
+1. **1440**：表格铺满左侧、检查器常驻 400px；九列齐全（状态/名称/分类/版本/端口/托管/自启/**运行时长**/**操作**）；
+   表头点「名称」可升/降序；勾 3 行出现批量条且计数 `3 / 40`；点行检查器标题、头像、胶囊、动作条同步刷新；
+   自启开关可点；密度按钮在「紧凑 / 宽松」间切换；运行中的程序 `运行时长` 显示 `刚刚 → 1分 → 2分`，操作列变成 ■/↻/⋯。
+2. **1280**：分类列隐藏，检查器降到 360px，其余列不挤（`scrollWidth == clientWidth`）。
+3. **1100**：检查器默认收成抽屉，表格占满；点行抽屉滑出并带关闭按钮；端口列、托管列隐藏。
+4. **390**：搜索框 + 筛选 chips + 两行列表（分组小标题 / 头像 / 名称 / `:端口 · v版本` / 状态点 / 箭头）；
+   点行**立刻**进全屏二级页（不等 RPC），顶部返回栏 + 状态胶囊 + 下载 + 动作条 + 标签页都在，底部导航可用。
+5. **模板库**：按分类分组，组头三角可折叠带计数，卡片栅格 4 列不溢出，导入按钮在卡片内换行不裁切。
+6. **深色**：表格、徽标、开关、表单标签、KPI 卡片对比度正常（语义色已改用 `color-mix` 跟主题走）。
 
 搜索过滤时计数显示 `命中 / 总数`（如 `8 / 40`），不过滤时只显示总数。
 
@@ -90,7 +121,7 @@ await send("Page.navigate", { url });
 
 ## 5. 回滚
 
-本次改动集中在 5 个文件（`index.html` / `workbench.js` / `styles.css` / `main.js` / `rpc.rs`）+ 两个语言包 + `docs/`。
+本次改动集中在 6 个源文件（`index.html` / `workbench.js` / `styles.css` / `main.js` / `rpc.rs` / `runner.rs`）+ 两个语言包 + `docs/`。
 若需回退：`git revert <commit>`；`rpc.rs` 的新增字段是**纯增量**，旧前端会忽略，不影响兼容。
 
 ---
@@ -99,12 +130,16 @@ await send("Page.navigate", { url });
 
 | 文件 | 改了什么 |
 |---|---|
-| `web-server/src/rpc.rs` | `workspace_list` 每项多 `category` / `port` / `autostart` |
-| `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；移动端加搜索/筛选 |
-| `frontend/workbench.js` | `COLS` / `hueOf` / `sortRows` / `statePill` / `rowHTML` / `renderHead` / `applyDensity` / `renderList` / `bindTable` / `bindMob`；`renderMobCards` 改两行列表；`select(id, openDrawer)` |
-| `frontend/styles.css` | 末尾 +约 290 行：图标栏、工具条、表格、检查器、四档断点、移动端两行列表、模板库分组栅格；语义色改 `color-mix` |
-| `frontend/main.js` | `renderSidebar` 加空值保护；导航改图标栏高亮；`renderLibrary` 改分组 + 抽出 `libCard()`；`#wb-tablewrap` 右键菜单 |
-| `frontend/locales/*.json` | 补 `wb.col_*` 八列、`wb.density_*`、`lib.uncategorized`、`ui.theme`、`toast.exported` |
+| `shared/src/runner.rs` | `Runner.started` 记录启动时刻，新增 `uptime_secs()`；退出/停止时清理；补测试 `uptime_tracks_start_and_stop` |
+| `web-server/src/rpc.rs` | `workspace_list` 每项多 `category` / `port` / `autostart` / **`uptime`** |
+| `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；**检查器按 D 重写成 `d-head / d-actions / d-tabs / d-body`**，状态胶囊并入 `h1`；移动端加搜索/筛选 |
+| `frontend/workbench.js` | `COLS` 增 `uptime` / `actions` 两列 + `fmtUptime()` / `actHTML()` / `quickAct()`；`renderOverview()` 改成 KPI + 卡片；`renderInspHead()` 统一头部（并对外导出）；`select()` 移动端先跳转后拉数据 |
+| `frontend/styles.css` | 图标栏、工具条、表格、检查器（D 方案 `.d-*` / `.kpi` / `.sec` / `.kv`）、四档断点、移动端两行列表、模板库分组栅格；语义色改 `color-mix`；`body{margin:0}` |
+| `frontend/main.js` | `renderHeader` / `renderChips` / `switchView` 的头部写入全部转调 `renderInspHead`；`switchCurrent` 先赋值 `current` 再 `switchView`；日志条标题提前到 await 之前；boot 不再抢选中；`#dl-btn` 没文案时不显示 |
+| `shared/locales/zh-CN.yml` / `en.yml` | 补 `wb.col_*`（含 `col_uptime` / `col_act`）、`wb.ov_*`、`wb.density_*`、`wb.tab_ov`、`lib.uncategorized`、`ui.theme`、`toast.exported` 等，各 634 条 |
+
+> 语言包**只改 `shared/locales/*.yml`**。`frontend/locales/*.json` 是 `web-server/build.rs` 生成的，
+> 且被 `.gitignore` 忽略，直接改 JSON 下次编译就没了。
 
 ---
 
@@ -112,10 +147,11 @@ await send("Page.navigate", { url });
 
 | 文件 | 说明 |
 |---|---|
-| `shots/impl-desktop-1440.png` | 桌面 1440：表格 + 常驻检查器 |
+| `shots/impl-desktop-1440.png` | 桌面 1440：九列表格 + 常驻检查器（选中运行中的 clip9，运行时长 2 分） |
+| `shots/impl-desktop-1280.png` | 1280：分类列隐藏，检查器 360px |
 | `shots/impl-desktop-dark.png` | 深色主题 |
 | `shots/impl-tablet-1100.png` | 1100：检查器收起，表格占满 |
 | `shots/impl-tablet-1100-drawer.png` | 1100：点行后抽屉滑出 |
 | `shots/impl-mobile-390.png` | 手机 390：两行列表 |
-| `shots/impl-mobile-390-detail.png` | 手机 390：全屏二级页 |
+| `shots/impl-mobile-390-detail.png` | 手机 390：全屏二级页（胶囊 + 动作条 + 标签页） |
 | `shots/impl-library-1440.png` | 模板库分组卡片 |

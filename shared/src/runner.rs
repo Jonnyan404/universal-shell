@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use anyhow::{anyhow, Context};
 use log::info;
@@ -119,6 +120,9 @@ fn trim_program_log(w: &mut std::io::BufWriter<std::fs::File>) {
 pub struct Runner {
     /// program id -> 子进程句柄
     children: BTreeMap<String, Child>,
+    /// program id -> 启动时刻。用来算「运行时长」；进程退出/被停止时同步清掉。
+    /// 只覆盖壳托管的程序——系统调度的程序由 launchd/systemd 拉起，壳看不到启动时刻。
+    started: BTreeMap<String, SystemTime>,
 }
 
 impl Runner {
@@ -132,6 +136,7 @@ impl Runner {
             match child.try_wait() {
                 Ok(Some(_)) => {
                     self.children.remove(id);
+                    self.started.remove(id);
                     false
                 }
                 Ok(None) => true,
@@ -251,6 +256,7 @@ impl Runner {
         }
 
         self.children.insert(id.to_string(), child);
+        self.started.insert(id.to_string(), SystemTime::now());
         Ok(())
     }
 
@@ -259,12 +265,18 @@ impl Runner {
         self.children.get(id).map(|c| c.id())
     }
 
+    /// 已运行秒数。没被壳托管（系统调度 / 未运行）返回 None。
+    pub fn uptime_secs(&self, id: &str) -> Option<u64> {
+        self.started.get(id).and_then(|t| t.elapsed().ok()).map(|d| d.as_secs())
+    }
+
     /// 停止指定程序。等待几秒优雅退出，超时强杀。
     pub fn stop(&mut self, id: &str) -> anyhow::Result<()> {
         if !self.is_running(id) {
             return Err(anyhow!(t!("err.runner.not_running", id = id)));
         }
         let mut child = self.children.remove(id).unwrap();
+        self.started.remove(id);
         // 先试 SIGTERM
         child.kill().ok(); // kill() on std Child == SIGKILL on unix
         let wait = child.wait().context(t!("err.runner.wait"))?;
@@ -295,6 +307,36 @@ impl Drop for Runner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 运行时长：启动后立刻有值，停止后归 None。
+    /// 表格「运行时长」列和检查器概览都读它，取错会显示成「—」或一直不涨。
+    #[test]
+    fn uptime_tracks_start_and_stop() {
+        let dir = std::env::temp_dir().join("cc-runner-uptime");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // 用系统 sleep 当被测程序，避免依赖测试二进制自身
+        let sleep_bin = std::path::PathBuf::from("/bin/sleep");
+        if !sleep_bin.exists() {
+            return; // 非 unix 环境跳过
+        }
+        let mut r = Runner::new();
+        assert_eq!(r.uptime_secs("sleeper"), None, "没启动过就该是 None");
+        r.start_async(
+            "sleeper",
+            &sleep_bin,
+            &["30".to_string()],
+            &[],
+            &dir,
+            &dir,
+        )
+        .unwrap();
+        let up = r.uptime_secs("sleeper").expect("启动后应有运行时长");
+        assert!(up < 5, "刚启动的运行时长不该超过 5 秒，实际 {up}");
+        r.stop("sleeper").unwrap();
+        assert_eq!(r.uptime_secs("sleeper"), None, "停止后应清掉启动时刻");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// 超 512KB 后截末一半：体积回落、尾部保留、头部丢掉、行对齐。
     #[test]
