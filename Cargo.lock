@@ -131,6 +131,7 @@ dependencies = [
  "env_logger",
  "log",
  "shared",
+ "us-service",
  "web-server",
 ]
 
@@ -154,6 +155,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "us-service",
  "web-server",
 ]
 

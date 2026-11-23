@@ -146,16 +146,8 @@ fn cmd_apply(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn cmd_run(args: &[String]) -> anyhow::Result<()> {
-    let config = flag(args, "--config")
-        .map(PathBuf::from)
-        .ok_or_else(|| anyhow::anyhow!("缺少 --config"))?;
-    let id = flag(args, "--id").ok_or_else(|| anyhow::anyhow!("缺少 --id"))?;
-    let cfg = Config::load(&config)?;
-    let svc = cfg
-        .get(id)
-        .ok_or_else(|| anyhow::anyhow!("配置里没有 service `{id}`"))?;
-    let log = svc.log_path(&config);
-    let code = runner::run(svc, &cfg, &config, &log)?;
+    // 与宿主程序（us-web / 桌面端）共用同一份实现：它们是发布版的包装器
+    let code = us_service::run_cli(args)?;
     std::process::exit(code);
 }
 

@@ -32,7 +32,11 @@ pub struct Ctx {
 
 impl Ctx {
     pub fn new(config: &Path) -> Result<Self> {
-        let wrapper = std::env::current_exe().context("定位 us-svc 可执行文件失败")?;
+        // 优先同目录的 us-svc（开发态 target/debug 里就有）；发布版没有它，
+        // 就退回宿主程序 —— 宿主也实现了 `run`，见 run_cli。
+        let wrapper = sibling_us_svc()
+            .or_else(|| std::env::current_exe().ok())
+            .context("定位包装器可执行文件失败")?;
         Ok(Self {
             wrapper,
             // 配置路径必须绝对：调度器的工作目录与我们无关
@@ -465,6 +469,51 @@ fn launchd_running(out: &str) -> bool {
             .map(|pid| pid != "-" && pid.chars().all(|c| c.is_ascii_digit()))
             .unwrap_or(false)
     })
+}
+
+
+/// 与当前可执行文件同目录的 us-svc（不存在时返回 None）
+fn sibling_us_svc() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    ["us-svc", "us-svc.exe"]
+        .iter()
+        .map(|n| dir.join(n))
+        .find(|p| p.is_file())
+}
+
+/// `run --config <path> --id <service>` 的共用实现。
+///
+/// 调度器把包装器指向谁都可以，只要它实现了这个子命令：
+/// `us-svc` 自己、`us-web`、桌面程序都行。发布版不再单独分发 `us-svc`，
+/// 包装器就落在宿主程序上，所以它必须能接手。
+pub fn run_cli(args: &[String]) -> anyhow::Result<i32> {
+    let mut config: Option<&str> = None;
+    let mut id: Option<&str> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--config" => {
+                i += 1;
+                config = args.get(i).map(String::as_str);
+            }
+            "--id" => {
+                i += 1;
+                id = args.get(i).map(String::as_str);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let config = config.context("run: 缺少 --config")?;
+    let id = id.context("run: 缺少 --id")?;
+    let path = config::absolute(std::path::Path::new(config));
+    let cfg = config::Config::load(&path)?;
+    let svc = cfg
+        .get(id)
+        .with_context(|| format!("配置里没有 service `{id}`"))?;
+    let log = svc.log_path(&path);
+    runner::run(svc, &cfg, &path, &log)
 }
 
 /// 端上用的一句话状态（CLI `status` 用）

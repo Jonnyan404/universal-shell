@@ -22,6 +22,19 @@ use shared::ShellManager;
 static STOP: AtomicBool = AtomicBool::new(false);
 
 fn main() -> anyhow::Result<()> {
+    // 调度器可能把本程序当作包装器（发布版没有独立的 us-svc）：
+    // `us-web run --config … --id …` 直接跑目标程序，不启动 web 服务。
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(String::as_str) == Some("run") {
+        match us_service::run_cli(&argv[1..]) {
+            Ok(code) => std::process::exit(code),
+            Err(e) => {
+                eprintln!("us-web run: {e:#}");
+                std::process::exit(1);
+            }
+        }
+    }
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let mut config_arg: Option<PathBuf> = None;

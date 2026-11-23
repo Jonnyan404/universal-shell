@@ -117,19 +117,8 @@ jobs:
           fi
         shell: bash
 
-      # 服务调度器：与 us-web 一起随发布分发，用户不必自己编译
-      - name: Build us-svc
-        env:
-          UNIVERSAL_SHELL_VERSION: ${{ steps.version.outputs.value }}
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            TGT=$(echo "${{ matrix.label }}" | grep -q arm64 && echo aarch64-pc-windows-msvc || echo x86_64-pc-windows-msvc)
-            cargo build --release --target "$TGT" -p us-service --bin us-svc
-          else
-            cargo build --release -p us-service --bin us-svc
-          fi
-        shell: bash
-
+      # 不再单独构建 us-svc：它是 us-web 与桌面端共同的库，包装器由宿主程序
+      # 自己实现（`us-web run` / 桌面端 run），发布产物里不需要第二个二进制。
       - name: Package CLI (universal-shell-cli)
         run: |
           VERSION="${{ steps.version.outputs.value }}"
@@ -138,12 +127,9 @@ jobs:
           if [ "$RUNNER_OS" = "Windows" ]; then
             TGT=$(echo "${{ matrix.label }}" | grep -q arm64 && echo aarch64-pc-windows-msvc || echo x86_64-pc-windows-msvc)
             cp "target/$TGT/release/us-web.exe" "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}.exe"
-            cp "target/$TGT/release/us-svc.exe" "$CLI/universal-shell-svc-$VERSION-${{ matrix.label }}.exe"
           else
             cp "target/release/us-web" "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}"
             chmod +x "$CLI/universal-shell-cli-$VERSION-${{ matrix.label }}"
-            cp "target/release/us-svc" "$CLI/universal-shell-svc-$VERSION-${{ matrix.label }}"
-            chmod +x "$CLI/universal-shell-svc-$VERSION-${{ matrix.label }}"
           fi
         shell: bash
 

@@ -1123,6 +1123,8 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
         channel: base.channel.clone(),
         version_pin: base.version_pin.clone(),
         hidden: base.hidden,
+        supervisor: base.supervisor,
+        native: base.native.clone(),
     }
 }
 
@@ -1173,6 +1175,8 @@ fn add_program(
         channel: String::new(),
         version_pin: None,
         hidden: false,
+        supervisor: Default::default(),
+        native: Default::default(),
     };
     let mut mgr = state.manager.lock().unwrap();
     let created = build_program_from_edit(&payload, &blank);
