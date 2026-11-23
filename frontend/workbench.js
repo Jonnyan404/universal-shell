@@ -212,7 +212,10 @@
       }
     }
     st.checked.clear();
-    await load();
+    // 批量删除会改列表成员：走 reloadPrograms 一并刷新 main.js 的 programs/statuses，
+    // 否则详情区还拿着已经删掉的程序。
+    if (typeof reloadPrograms === "function") await reloadPrograms();
+    else await load();
     if (fail) showNotice(t("wb.partial", { ok, fail }) + (firstErr ? " — " + firstErr : ""), true);
     else showNotice(t("wb.done", { n: ok }));
   }
@@ -447,8 +450,9 @@
       showNotice(r.message || "");
       // main.js 的 current/programs 是另一份缓存：不刷新的话操作区会按旧
       // supervisor 继续画启停按钮，字段自动保存也不会重新派生 native 服务。
+      // reloadPrograms 同时刷侧栏（st.items），不必再 load() 一次。
       if (typeof reloadPrograms === "function") await reloadPrograms();
-      await load();
+      else await load();
       await select(it.id);
     } catch (e) {
       showNotice(String(e), true);
@@ -472,7 +476,7 @@
       showNotice(t("wb.applied"));
       // 同上：保存调度参数可能把程序切成 native，main.js 的缓存要跟上。
       if (typeof reloadPrograms === "function") await reloadPrograms();
-      await load();
+      else await load();
       await select(it.id);
     } catch (e) {
       showNotice(String(e), true);

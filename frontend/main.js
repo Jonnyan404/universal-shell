@@ -1012,11 +1012,9 @@ async function setSupervisor(native) {
     showNotice(r.message || "");
     await reloadPrograms();
     switchCurrent(current.id);
-    // 首次切到 native 时后端会顺手打开开机自启，列表与状态栏都要跟上。
+    // 首次切到 native 时后端会顺手打开开机自启，状态栏要跟上（列表已由
+    // reloadPrograms 刷过）。
     await refreshStatusLocal();
-    if (window.usWorkbench && typeof window.usWorkbench.load === "function") {
-      await window.usWorkbench.load();
-    }
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -1553,12 +1551,19 @@ async function doImport(id, base, btn) {
 }
 
 async function afterImport(id) {
-  programs = await invoke("get_programs");
-  try {
-    statuses = await invoke("batch_status_local");
-  } catch {}
-  renderSidebar();
-  if (!current || !programs.some((p) => p.id === current.id)) await switchCurrent(id);
+  // 导入后必须走 reloadPrograms：它会同时刷新 programs/statuses 与工作台列表
+  // （st.items 是另一份缓存）。只 renderSidebar() 的话，侧栏重画的是旧 items，
+  // 新导入的程序要等 5 秒轮询才出现。
+  await reloadPrograms();
+  if (!current || !programs.some((p) => p.id === current.id)) {
+    // 走工作台的 select：它会顺手把侧栏高亮切到新程序（内部再调 switchCurrent
+    // 渲染详情）。只 switchCurrent 的话详情换了、侧栏一个都没选中。
+    if (window.usWorkbench && typeof window.usWorkbench.select === "function") {
+      await window.usWorkbench.select(id);
+    } else {
+      await switchCurrent(id);
+    }
+  }
 }
 
 let pendingTemplateDiff = null;
@@ -2608,10 +2613,20 @@ async function saveEdit() {
   }
 }
 
+// 「程序列表变了」的唯一刷新入口：新增 / 删除 / 复制 / 导入 / 改名都走这里。
+//
+// 注意侧栏有两份缓存：main.js 的 `programs`/`statuses`（详情页与操作区用）和
+// 工作台的 `st.items`（侧栏列表用它渲染）。以前这里只刷前者再 `renderSidebar()`，
+// 而 `renderSidebar()` 在有工作台时只是把旧的 `st.items` 重画一遍 —— 于是导入完
+// 新程序要等 5 秒轮询才出现在侧栏里。现在这里一次刷两处。
 async function reloadPrograms() {
   programs = await invoke("get_programs");
   statuses = (await invoke("batch_status_local")) || [];
-  renderSidebar();
+  if (window.usWorkbench && typeof window.usWorkbench.load === "function") {
+    await window.usWorkbench.load();
+  } else {
+    renderSidebar();
+  }
 }
 
 // ---------- 导入本地模板 ----------
