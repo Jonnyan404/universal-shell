@@ -541,6 +541,20 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// `hidden` 字段已删除，但老 shell.json 里可能还留着它。
+    /// `Program` 没有 deny_unknown_fields，未知字段必须被静默忽略而不是解析失败。
+    #[test]
+    fn legacy_hidden_field_is_ignored() {
+        let p: Program = serde_json::from_str(
+            r#"{"id":"dufs","name":"dufs","binary":"dufs","fields":[],"args":[],"hidden":true}"#,
+        )
+        .expect("带旧 hidden 字段的配置仍应能解析");
+        assert_eq!(p.id, "dufs");
+        // 序列化时也不会再写回去
+        let out = serde_json::to_string(&p).unwrap();
+        assert!(!out.contains("hidden"), "不该把已删除的字段写回: {out}");
+    }
+
     fn prog(args: Vec<String>) -> Program {
         Program {
             id: "x".into(),
