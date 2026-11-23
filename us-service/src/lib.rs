@@ -69,6 +69,23 @@ pub struct PlanItem {
     /// 目标路径（systemd/launchd 是单元文件；Windows 是待导入的 XML）
     pub path: PathBuf,
     pub content: String,
+    /// Windows 的 schtasks 只稳定接受 UTF-16LE + BOM，声明也必须写 UTF-16
+    pub utf16: bool,
+}
+
+impl PlanItem {
+    /// 真正落盘的字节：Windows 任务 XML 转 UTF-16LE 并加 BOM
+    pub fn bytes(&self) -> Vec<u8> {
+        if !self.utf16 {
+            return self.content.clone().into_bytes();
+        }
+        let mut out = Vec::with_capacity(self.content.len() * 2 + 2);
+        out.extend_from_slice(&[0xFF, 0xFE]);
+        for unit in self.content.encode_utf16() {
+            out.extend_from_slice(&unit.to_le_bytes());
+        }
+        out
+    }
 }
 
 /// 当前平台的产物清单
@@ -110,6 +127,7 @@ pub fn plan_for(cfg: &Config, ctx: &Ctx, p: Platform) -> Result<Vec<PlanItem>> {
             scope: s.scope,
             path,
             content,
+            utf16: p == Platform::Schtasks,
         });
     }
     Ok(out)
@@ -127,7 +145,7 @@ pub fn write_plans(items: &[PlanItem], out_dir: &Path) -> Result<Vec<PathBuf>> {
             .map(|n| n.to_os_string())
             .unwrap_or_else(|| format!("{}.conf", it.service_id).into());
         let target = out_dir.join(name);
-        std::fs::write(&target, &it.content)
+        std::fs::write(&target, it.bytes())
             .with_context(|| format!("写入 {} 失败", target.display()))?;
         written.push(target);
     }
@@ -139,23 +157,35 @@ pub fn write_plans(items: &[PlanItem], out_dir: &Path) -> Result<Vec<PathBuf>> {
 /// 只自动处理 **用户级**；系统级涉及 root 权限，返回明确错误让人自己 sudo，
 /// 不在程序里偷偷提权。
 pub fn install(items: &[PlanItem], cfg: &Config) -> Result<()> {
+    let mut failures = Vec::new();
     for it in items {
-        if it.scope == Scope::System {
-            bail!(
-                "`{}` 是 system 级服务：请以管理员权限把它放到 {} 后手动装载（本工具不自动提权）",
-                it.service_id,
-                it.path.display()
-            );
+        if let Err(e) = install_one(it, cfg) {
+            failures.push(format!("{}: {e:#}", it.service_id));
         }
-        if let Some(parent) = it.path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("创建 {} 失败", parent.display()))?;
-        }
-        std::fs::write(&it.path, &it.content)
-            .with_context(|| format!("写入 {} 失败", it.path.display()))?;
-        reload(Platform::current(), it, cfg)?;
     }
-    Ok(())
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        bail!("{}", failures.join("\n"))
+    }
+}
+
+fn install_one(it: &PlanItem, cfg: &Config) -> Result<()> {
+    // 系统级：Windows 直接注册（RunLevel=HighestAvailable，需管理员账户）；
+    // macOS/Linux 要写系统目录，必须 root —— 明确要求 sudo，不偷偷提权。
+    if it.scope == Scope::System && Platform::current() != Platform::Schtasks {
+        bail!(
+            "系统级服务需要 root 权限写入 {}：请用 `sudo` 重新运行本命令",
+            it.path.display()
+        );
+    }
+    if let Some(parent) = it.path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("创建 {} 失败", parent.display()))?;
+    }
+    std::fs::write(&it.path, it.bytes())
+        .with_context(|| format!("写入 {} 失败", it.path.display()))?;
+    reload(Platform::current(), it, cfg)
 }
 
 fn reload(p: Platform, item: &PlanItem, cfg: &Config) -> Result<()> {
@@ -502,6 +532,25 @@ enabled = false
 
         let w = plan_for(&c, &ctx(), Platform::Schtasks).unwrap();
         assert!(w[0].path.ends_with("schtasks/dufs.xml"));
+    }
+
+    #[test]
+    fn windows_xml_is_written_as_utf16le_with_bom() {
+        let items = plan_for(&cfg(), &ctx(), Platform::Schtasks).unwrap();
+        let bytes = items[0].bytes();
+        assert_eq!(&bytes[0..2], &[0xFF, 0xFE], "缺少 UTF-16LE BOM");
+        let text: String = String::from_utf16(
+            &bytes[2..]
+                .chunks_exact(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        assert!(text.contains("<Task version=\"1.4\""));
+        assert!(text.starts_with("<?xml"));
+        // 非 Windows 产物必须保持 UTF-8，不能被误转
+        let utf8 = plan_for(&cfg(), &ctx(), Platform::Systemd).unwrap();
+        assert_eq!(utf8[0].bytes(), utf8[0].content.as_bytes());
     }
 
     #[test]

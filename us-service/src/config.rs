@@ -162,6 +162,34 @@ impl Config {
     pub fn get(&self, id: &str) -> Option<&Service> {
         self.services.iter().find(|s| s.id == id)
     }
+
+    /// 新增或按 id 替换（UI 的「保存」走这里）
+    pub fn upsert(&mut self, svc: Service) -> Result<()> {
+        svc.validate()?;
+        match self.services.iter_mut().find(|s| s.id == svc.id) {
+            Some(slot) => *slot = svc,
+            None => self.services.push(svc),
+        }
+        Ok(())
+    }
+
+    /// 删除一条；返回是否真的删了
+    pub fn remove(&mut self, id: &str) -> bool {
+        let before = self.services.len();
+        self.services.retain(|s| s.id != id);
+        self.services.len() != before
+    }
+
+    /// 写回文件。
+    ///
+    /// ⚠️ 会重排/丢失原文件里的注释（toml 序列化不保留），
+    /// 一旦在界面里改过配置，就以界面/本文件为唯一来源。
+    pub fn save(&self, path: &Path) -> Result<()> {
+        let text = self.to_toml()?;
+        std::fs::write(path, text)
+            .with_context(|| format!("写入 {} 失败", path.display()))?;
+        Ok(())
+    }
 }
 
 /// 配置所在目录（日志默认落在这里）。
@@ -286,6 +314,66 @@ command = "/bin/true"
             abs.services[0].log_path(Path::new("/cfg/services.toml")),
             PathBuf::from("/var/log/a.log")
         );
+    }
+
+    #[test]
+    fn upsert_replaces_by_id_and_keeps_order() {
+        let mut cfg = Config::parse(SAMPLE).unwrap();
+        let mut edited = cfg.services[0].clone();
+        edited.name = "改过的名字".into();
+        cfg.upsert(edited).unwrap();
+        assert_eq!(cfg.services.len(), 2, "同 id 应替换而不是追加");
+        assert_eq!(cfg.services[0].name, "改过的名字");
+        assert_eq!(cfg.services[1].id, "sync", "其它条目顺序不变");
+
+        let fresh = Service {
+            id: "new".into(),
+            name: String::new(),
+            description: String::new(),
+            command: "/bin/true".into(),
+            args: vec!["--x".into()],
+            env: BTreeMap::new(),
+            cwd: None,
+            log: None,
+            delay_secs: 0,
+            restart: Restart::Never,
+            restart_secs: 10,
+            scope: Scope::User,
+            enabled: true,
+        };
+        cfg.upsert(fresh).unwrap();
+        assert_eq!(cfg.services.len(), 3);
+        assert_eq!(cfg.services[2].id, "new");
+    }
+
+    #[test]
+    fn upsert_rejects_bad_id() {
+        let mut cfg = Config::parse(SAMPLE).unwrap();
+        let mut bad = cfg.services[0].clone();
+        bad.id = "../evil".into();
+        assert!(cfg.upsert(bad).is_err());
+    }
+
+    #[test]
+    fn remove_reports_whether_it_matched() {
+        let mut cfg = Config::parse(SAMPLE).unwrap();
+        assert!(cfg.remove("dufs"));
+        assert_eq!(cfg.services.len(), 1);
+        assert!(!cfg.remove("dufs"), "第二次删除应返回 false");
+    }
+
+    #[test]
+    fn save_then_load_roundtrips() {
+        let dir = std::env::temp_dir().join(format!("us-svc-cfg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("services.toml");
+        let mut cfg = Config::parse(SAMPLE).unwrap();
+        cfg.remove("sync");
+        cfg.save(&path).unwrap();
+        let again = Config::load(&path).unwrap();
+        assert_eq!(again.services.len(), 1);
+        assert_eq!(again.services[0].id, "dufs");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

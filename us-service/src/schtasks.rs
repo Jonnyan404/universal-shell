@@ -59,6 +59,20 @@ fn quote_arg(a: &str) -> String {
     out
 }
 
+
+/// 当前用户（`DOMAIN\user`，取不到时只有 user）。
+/// 计划任务的 Principal/LogonTrigger 需要它；取不到就别写，交给系统默认。
+fn current_user() -> Option<String> {
+    let user = std::env::var("USERNAME")
+        .or_else(|_| std::env::var("USER"))
+        .ok()
+        .filter(|u| !u.trim().is_empty())?;
+    match std::env::var("USERDOMAIN") {
+        Ok(d) if !d.trim().is_empty() => Some(format!("{d}\\{user}")),
+        _ => Some(user),
+    }
+}
+
 pub fn xml(s: &Service, ctx: &Ctx) -> String {
     let argv = run_argv(ctx, &s.id);
     let command = &argv[0];
@@ -68,9 +82,18 @@ pub fn xml(s: &Service, ctx: &Ctx) -> String {
         .clone()
         .unwrap_or_else(|| config_dir(&ctx.config));
 
+    // 登录触发器必须限定到「当前用户」：不写 UserId 等于「任意用户登录」，
+    // 非提升终端注册这种任务会被拒绝（Access is denied）。
+    let user = current_user();
     let trigger = match s.scope {
-        Scope::User => "    <LogonTrigger>\n      <Enabled>true</Enabled>\n    </LogonTrigger>\n",
-        Scope::System => "    <BootTrigger>\n      <Enabled>true</Enabled>\n    </BootTrigger>\n",
+        Scope::User => match &user {
+            Some(u) => format!(
+                "    <LogonTrigger>\n      <Enabled>true</Enabled>\n      <UserId>{}</UserId>\n    </LogonTrigger>\n",
+                esc(u)
+            ),
+            None => "    <LogonTrigger>\n      <Enabled>true</Enabled>\n    </LogonTrigger>\n".to_string(),
+        },
+        Scope::System => "    <BootTrigger>\n      <Enabled>true</Enabled>\n    </BootTrigger>\n".to_string(),
     };
     let run_level = match s.scope {
         Scope::User => "LeastPrivilege",
@@ -87,7 +110,9 @@ pub fn xml(s: &Service, ctx: &Ctx) -> String {
     };
 
     let mut out = String::new();
-    out.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    // schtasks 只稳定接受 UTF-16LE + BOM；声明必须与真实编码一致，
+    // 否则 Windows 报 "The task XML is malformed. (1,2): incorrect document syntax"
+    out.push_str("<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n");
     out.push_str("<Task version=\"1.4\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n");
     out.push_str("  <RegistrationInfo>\n");
     out.push_str(&format!(
@@ -98,10 +123,14 @@ pub fn xml(s: &Service, ctx: &Ctx) -> String {
     out.push_str("  </RegistrationInfo>\n");
 
     out.push_str("  <Triggers>\n");
-    out.push_str(trigger);
+    out.push_str(&trigger);
     out.push_str("  </Triggers>\n");
 
     out.push_str("  <Principals>\n    <Principal id=\"Author\">\n");
+    if let Some(u) = &user {
+        out.push_str(&format!("      <UserId>{}</UserId>\n", esc(u)));
+    }
+    out.push_str("      <LogonType>InteractiveToken</LogonType>\n");
     out.push_str(&format!("      <RunLevel>{run_level}</RunLevel>\n"));
     out.push_str("    </Principal>\n  </Principals>\n");
 
@@ -218,6 +247,32 @@ scope = "{scope}"
         let x = xml(&onfail, &ctx);
         assert!(x.contains("<RestartOnFailure>"));
         assert!(x.contains("<Interval>PT10S</Interval>"));
+    }
+
+    #[test]
+    fn declares_utf16_and_scopes_the_logon_trigger_to_a_user() {
+        let (s, ctx) = build("user", "never");
+        let x = xml(&s, &ctx);
+        assert!(
+            x.starts_with(r#"<?xml version="1.0" encoding="UTF-16"?>"#),
+            "声明必须与 UTF-16LE 落盘一致，否则 schtasks 报 malformed:\n{x}"
+        );
+        assert!(x.contains("<LogonType>InteractiveToken</LogonType>"));
+        // 登录触发器若不限定用户，非提升终端注册会 Access denied
+        if std::env::var("USERNAME").is_ok() || std::env::var("USER").is_ok() {
+            assert!(x.contains("<UserId>"), "登录触发器必须带 UserId:\n{x}");
+        }
+    }
+
+    #[test]
+    fn runs_elevated_only_for_system_scope() {
+        let (user, ctx) = build("user", "never");
+        assert!(xml(&user, &ctx).contains("<RunLevel>LeastPrivilege</RunLevel>"));
+
+        let (system, _) = build("system", "never");
+        let x = xml(&system, &ctx);
+        assert!(x.contains("<RunLevel>HighestAvailable</RunLevel>"), "系统级要有管理员权限:\n{x}");
+        assert!(x.contains("<BootTrigger>"));
     }
 
     #[test]

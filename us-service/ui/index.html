@@ -130,6 +130,30 @@
   .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .18s; z-index: 15; }
   .scrim.open { opacity: 1; pointer-events: auto; }
 
+  /* 新建/编辑服务 */
+  .modal-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .16s; z-index: 25; }
+  .modal-scrim.open { opacity: 1; pointer-events: auto; }
+  .modal {
+    position: fixed; z-index: 26; top: 50%; left: 50%; transform: translate(-50%, -48%);
+    width: min(620px, 94vw); max-height: 88vh; overflow: auto;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px 20px 16px; opacity: 0; pointer-events: none; transition: opacity .16s, transform .16s;
+  }
+  .modal.open { opacity: 1; pointer-events: auto; transform: translate(-50%, -50%); }
+  .modal h2 { font-size: 15px; font-weight: 500; margin: 0 0 14px; }
+  .field { display: grid; grid-template-columns: 96px 1fr; gap: 10px; align-items: start; margin-bottom: 10px; }
+  .field > label { font-size: 12.5px; color: var(--muted); padding-top: 7px; }
+  .field input[type=text], .field input[type=number], .field textarea, .field select {
+    width: 100%; font: inherit; font-size: 12.5px; color: var(--text);
+    background: #17191d; border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px;
+  }
+  .field textarea { font-family: var(--mono); font-size: 12px; resize: vertical; min-height: 58px; }
+  .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: #3f6f9e; }
+  .field input:disabled { color: var(--faint); }
+  .hint { font-size: 11px; color: var(--faint); margin-top: 3px; }
+  .modal-foot { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+  .check { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+  .check input { accent-color: var(--accent); }
   #toast {
     position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 12px);
     background: #22262c; border: 1px solid var(--border); color: var(--text);
@@ -150,6 +174,7 @@
   <span class="spacer"></span>
   <div class="chips" id="chips"></div>
   <label class="toggle"><input type="checkbox" id="auto" checked />自动刷新</label>
+  <button id="new" class="primary">＋ 新建服务</button>
   <button id="refresh">刷新</button>
 </header>
 
@@ -174,6 +199,40 @@
   <pre class="log" id="d-log"></pre>
   <div class="dfoot"><span id="d-meta"></span><span class="spacer"></span><span>Esc 关闭</span></div>
 </aside>
+
+<div class="modal-scrim" id="m-scrim"></div>
+<div class="modal" id="editor">
+  <h2 id="ed-title">新建服务</h2>
+  <div class="field"><label>id</label><div><input type="text" id="f-id" placeholder="dufs（字母数字 - _ .）" /><div class="hint">保存后不可修改，用作文件名</div></div></div>
+  <div class="field"><label>名称</label><input type="text" id="f-name" placeholder="展示名，留空则用 id" /></div>
+  <div class="field"><label>命令</label><input type="text" id="f-command" placeholder="/usr/local/bin/dufs 或 C:\tools\svc.exe" /></div>
+  <div class="field"><label>参数</label><div><textarea id="f-args" placeholder="-p&#10;5000&#10;/data"></textarea><div class="hint">每行一个参数，行内空格保留</div></div></div>
+  <div class="field"><label>环境变量</label><div><textarea id="f-env" placeholder="RUST_LOG=info"></textarea><div class="hint">每行 KEY=VALUE，值不会写进日志</div></div></div>
+  <div class="field"><label>工作目录</label><input type="text" id="f-cwd" placeholder="留空则继承调度器" /></div>
+  <div class="field"><label>日志文件</label><input type="text" id="f-log" placeholder="留空 = 配置目录/logs/&lt;id&gt;.log" /></div>
+  <div class="field"><label>启动延迟</label><input type="number" id="f-delay" min="0" value="0" /></div>
+  <div class="field"><label>崩溃重启</label>
+    <select id="f-restart">
+      <option value="never">不重启</option>
+      <option value="on_failure">失败时重启</option>
+      <option value="always">总是重启</option>
+    </select>
+  </div>
+  <div class="field"><label>运行范围</label>
+    <select id="f-scope">
+      <option value="user">用户级（登录后）</option>
+      <option value="system">系统级（登录前 / 管理员权限）</option>
+    </select>
+  </div>
+  <div class="modal-foot">
+    <label class="check"><input type="checkbox" id="f-enabled" checked />启用</label>
+    <label class="check"><input type="checkbox" id="f-apply" checked />保存后立即装载</label>
+    <span class="spacer"></span>
+    <button id="f-del" class="danger" hidden>删除</button>
+    <button id="f-cancel">取消</button>
+    <button id="f-save" class="primary">保存</button>
+  </div>
+</div>
 
 <div id="toast"></div>
 
@@ -245,6 +304,7 @@ function card(x) {
       <button data-act="restart" data-id="${x.id}" ${canRun ? '' : 'disabled'}>重启</button>
       <button data-act="stop" data-id="${x.id}" ${x.state === 'running' ? '' : 'disabled'}>停止</button>
       <button data-act="log" data-id="${x.id}">日志</button>
+      <button data-act="edit" data-id="${x.id}">编辑</button>
       <span class="spacer"></span>
       ${installed
         ? `<button class="danger" data-act="disable" data-id="${x.id}">取消自启</button>`
@@ -267,6 +327,7 @@ document.addEventListener('click', async (ev) => {
   if (!btn) return;
   const { act, id } = btn.dataset;
   if (act === 'log') return openLog(id);
+  if (act === 'edit') return openEditor((data.services || []).find((x) => x.id === id));
   btn.disabled = true;
   try {
     const r = await api('/api/action', {
@@ -284,6 +345,85 @@ document.addEventListener('click', async (ev) => {
 });
 
 $('#refresh').onclick = load;
+$('#new').onclick = () => openEditor(null);
+
+let editing = null;
+
+function openEditor(svc) {
+  editing = svc || null;
+  $('#ed-title').textContent = svc ? '编辑服务 · ' + svc.id : '新建服务';
+  $('#f-id').value = svc ? svc.id : '';
+  $('#f-id').disabled = !!svc;
+  $('#f-name').value = svc ? svc.name : '';
+  $('#f-command').value = svc ? svc.command : '';
+  $('#f-args').value = svc ? svc.args.join('\n') : '';
+  $('#f-env').value = svc ? Object.entries(svc.env || {}).map(([k, v]) => k + '=' + v).join('\n') : '';
+  $('#f-cwd').value = svc ? (svc.cwd || '') : '';
+  $('#f-log').value = svc ? svc.log : '';
+  $('#f-delay').value = svc ? svc.delay_secs : 0;
+  $('#f-restart').value = svc ? svc.restart : 'never';
+  $('#f-scope').value = svc ? svc.scope : 'user';
+  $('#f-enabled').checked = svc ? svc.enabled : true;
+  $('#f-apply').checked = !!svc;
+  $('#f-del').hidden = !svc;
+  $('#editor').classList.add('open');
+  $('#m-scrim').classList.add('open');
+}
+
+function closeEditor() {
+  $('#editor').classList.remove('open');
+  $('#m-scrim').classList.remove('open');
+  editing = null;
+}
+
+$('#f-cancel').onclick = closeEditor;
+$('#m-scrim').onclick = closeEditor;
+$('#f-save').onclick = async () => {
+  // 日志路径留空即用默认（配置目录/logs/<id>.log）；原样未改则不写进配置
+  const logVal = $('#f-log').value.trim();
+  const logUnchanged = editing && logVal === editing.log;
+  const body = {
+    id: $('#f-id').value,
+    name: $('#f-name').value,
+    description: editing ? editing.description : '',
+    command: $('#f-command').value,
+    args: $('#f-args').value,
+    env: $('#f-env').value,
+    cwd: $('#f-cwd').value,
+    log: logUnchanged ? '' : logVal,
+    delay_secs: Number($('#f-delay').value) || 0,
+    restart: $('#f-restart').value,
+    scope: $('#f-scope').value,
+    enabled: $('#f-enabled').checked,
+    apply: $('#f-apply').checked,
+  };
+  try {
+    const r = await api('/api/save', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    toast(r.message, !r.ok);
+    if (r.ok) { closeEditor(); await load(); }
+  } catch (e) {
+    toast(e.message, true);
+  }
+};
+$('#f-del').onclick = async () => {
+  if (!editing) return;
+  if (!confirm('删除 ' + editing.id + '？会同时从系统卸载（如果已装载）。')) return;
+  try {
+    const r = await api('/api/remove', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: editing.id, uninstall: true }),
+    });
+    toast(r.message, !r.ok);
+    if (r.ok) { closeEditor(); await load(); }
+  } catch (e) {
+    toast(e.message, true);
+  }
+};
 $('#auto').onchange = () => { if ($('#auto').checked) load(); };
 
 async function openLog(id) {

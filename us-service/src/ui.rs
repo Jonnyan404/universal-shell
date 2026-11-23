@@ -2,7 +2,8 @@
 //!
 //! 只绑 127.0.0.1，不常驻也可随时关掉；它是"展示层"，真相仍在配置与调度器里。
 
-use crate::{config::Config, state, Ctx, Service, ServiceState};
+use crate::config::{Config, Restart, Scope};
+use crate::{state, Ctx, Service, ServiceState};
 use anyhow::{Context, Result};
 use axum::{
     extract::{Query, State},
@@ -12,6 +13,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -33,6 +35,8 @@ pub async fn serve(config: PathBuf, port: u16, open: bool) -> Result<()> {
         .route("/api/services", get(list))
         .route("/api/log", get(log))
         .route("/api/action", post(action))
+        .route("/api/save", post(save))
+        .route("/api/remove", post(remove))
         .with_state(Arc::new(App {
             config: config.clone(),
         }));
@@ -83,6 +87,9 @@ struct Row {
     description: String,
     command: String,
     args: Vec<String>,
+    /// 编辑表单要用：不返回这些字段，界面保存时会把它们清空
+    env: BTreeMap<String, String>,
+    cwd: String,
     scope: String,
     restart: String,
     delay_secs: u64,
@@ -108,6 +115,8 @@ async fn list(State(app): State<Arc<App>>) -> Result<Json<ListResp>, (StatusCode
             description: s.description.clone(),
             command: s.command.clone(),
             args: s.args.clone(),
+            env: s.env.clone(),
+            cwd: s.cwd.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
             scope: match s.scope {
                 crate::Scope::User => "user".into(),
                 crate::Scope::System => "system".into(),
@@ -265,5 +274,166 @@ impl Ctx {
             crate::Platform::Systemd => crate::systemd::unit_path(s),
             crate::Platform::Schtasks => crate::schtasks::xml_path(s, &self.config),
         }
+    }
+}
+
+#[derive(Deserialize)]
+struct SaveReq {
+    id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    description: String,
+    command: String,
+    /// 每行一个参数（保留行内空格）
+    #[serde(default)]
+    args: String,
+    /// 每行 `KEY=VALUE`
+    #[serde(default)]
+    env: String,
+    #[serde(default)]
+    cwd: String,
+    #[serde(default)]
+    log: String,
+    #[serde(default)]
+    delay_secs: u64,
+    #[serde(default)]
+    restart: String,
+    #[serde(default)]
+    scope: String,
+    #[serde(default = "default_true_ui")]
+    enabled: bool,
+    /// 保存后立刻装载到系统
+    #[serde(default)]
+    apply: bool,
+}
+
+fn default_true_ui() -> bool {
+    true
+}
+
+fn parse_args(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn parse_env(text: &str) -> Result<BTreeMap<String, String>, String> {
+    let mut env = BTreeMap::new();
+    for (i, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else {
+            return Err(format!("第 {} 行不是 KEY=VALUE：{}", i + 1, line));
+        };
+        let k = k.trim();
+        if k.is_empty() {
+            return Err(format!("第 {} 行缺少变量名", i + 1));
+        }
+        env.insert(k.to_string(), v.trim().to_string());
+    }
+    Ok(env)
+}
+
+async fn save(State(app): State<Arc<App>>, Json(req): Json<SaveReq>) -> Json<ActionResp> {
+    let result = (|| -> anyhow::Result<String> {
+        let mut cfg = Config::load(&app.config)?;
+        let env = parse_env(&req.env).map_err(|e| anyhow::anyhow!(e))?;
+        let svc = Service {
+            id: req.id.trim().to_string(),
+            name: req.name.trim().to_string(),
+            description: req.description.trim().to_string(),
+            command: req.command.trim().to_string(),
+            args: parse_args(&req.args),
+            env,
+            cwd: non_empty(&req.cwd).map(std::path::PathBuf::from),
+            log: non_empty(&req.log).map(std::path::PathBuf::from),
+            delay_secs: req.delay_secs,
+            restart: match req.restart.as_str() {
+                "always" => Restart::Always,
+                "on_failure" | "onfailure" => Restart::OnFailure,
+                _ => Restart::Never,
+            },
+            restart_secs: 10,
+            scope: match req.scope.as_str() {
+                "system" => Scope::System,
+                _ => Scope::User,
+            },
+            enabled: req.enabled,
+        };
+        let id = svc.id.clone();
+        cfg.upsert(svc.clone())?;
+        cfg.save(&app.config)?;
+
+        if req.apply && svc.enabled {
+            let ctx = Ctx::new(&app.config)?;
+            let items = crate::plan_for(
+                &Config {
+                    services: vec![svc.clone()],
+                },
+                &ctx,
+                crate::Platform::current(),
+            )?;
+            crate::install(&items, &cfg)
+                .map_err(|e| anyhow::anyhow!("已保存，但装载失败：{e:#}"))?;
+            return Ok(format!("{id} 已保存并启用"));
+        }
+        Ok(format!("{id} 已保存"))
+    })();
+
+    match result {
+        Ok(message) => Json(ActionResp { ok: true, message }),
+        Err(e) => Json(ActionResp {
+            ok: false,
+            message: format!("{e:#}"),
+        }),
+    }
+}
+
+fn non_empty(s: &str) -> Option<&str> {
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(t)
+    }
+}
+
+#[derive(Deserialize)]
+struct RemoveReq {
+    id: String,
+    /// 一并从系统卸载
+    #[serde(default)]
+    uninstall: bool,
+}
+
+async fn remove(State(app): State<Arc<App>>, Json(req): Json<RemoveReq>) -> Json<ActionResp> {
+    let result = (|| -> anyhow::Result<String> {
+        let mut cfg = Config::load(&app.config)?;
+        let svc = cfg.get(&req.id).cloned();
+        if svc.is_none() {
+            anyhow::bail!("没有 service `{}`", req.id);
+        }
+        if req.uninstall {
+            if let Some(s) = &svc {
+                let _ = crate::uninstall(s, &app.config);
+            }
+        }
+        if !cfg.remove(&req.id) {
+            anyhow::bail!("没有 service `{}`", req.id);
+        }
+        cfg.save(&app.config)?;
+        Ok(format!("{} 已删除", req.id))
+    })();
+    match result {
+        Ok(message) => Json(ActionResp { ok: true, message }),
+        Err(e) => Json(ActionResp {
+            ok: false,
+            message: format!("{e:#}"),
+        }),
     }
 }
