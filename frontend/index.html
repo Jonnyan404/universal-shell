@@ -36,7 +36,19 @@
       </div>
       <nav id="program-tabs" class="room-list"></nav>
       <div class="sidebar-foot">
-        <button id="wb-new" class="sidebar-settings" data-i18n="wb.new_service">＋ 新建服务</button>
+        <div class="wb-new-wrap">
+          <button id="wb-new" class="sidebar-settings" data-i18n="wb.new">＋ 新建</button>
+          <div id="wb-newmenu" class="wb-newmenu" hidden>
+            <button data-new="program">
+              <span class="wb-newmenu-title" data-i18n="wb.new_program">新建程序</span>
+              <span class="wb-newmenu-sub" data-i18n="wb.new_program_hint">手动填写参数</span>
+            </button>
+            <button data-new="service">
+              <span class="wb-newmenu-title" data-i18n="wb.new_service_item">新建服务</span>
+              <span class="wb-newmenu-sub" data-i18n="wb.new_service_hint">写一条命令</span>
+            </button>
+          </div>
+        </div>
         <button id="library-link" class="sidebar-settings" data-i18n-title="ui.library">▤ <span class="app-btn-label" data-i18n="ui.library">模板库</span></button>
         <button id="log-center-link" class="sidebar-settings" data-i18n-title="ui.log_center">📜 <span class="app-btn-label" data-i18n="ui.log_center">日志中心</span></button>
       </div>
@@ -67,6 +79,8 @@
         <div id="wb-bulk" class="wb-bulk" hidden></div>
         <div id="pane-sched" class="wb-pane" hidden></div>
         <div id="pane-upd" class="wb-pane" hidden>
+          <div id="upd-empty" class="svc-hint" hidden></div>
+          <div id="upd-program">
           <div id="upd-settings" class="upd-settings-strip" hidden>
             <div class="upd-card-main">
               <span class="upd-key" data-i18n="th.local_ver">本地版本</span>
@@ -81,6 +95,7 @@
               <span class="upd-checked-at" id="upd-checked-at"></span>
               <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
             </div>
+          </div>
           </div>
         </div>
         <div class="manage-body" id="pane-cfg">

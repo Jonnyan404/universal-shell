@@ -940,3 +940,22 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
 .wb-check-all { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--sidebar-sub); cursor: pointer; user-select: none; }
 .wb-check-all input { width: 13px; height: 13px; accent-color: var(--accent); margin: 0; }
 .wb-allcount { margin-left: auto; font-size: 10.5px; color: var(--sidebar-sub); font-family: var(--mono); }
+
+/* 「＋ 新建」下拉：一个入口，两条路径 */
+.wb-new-wrap { position: relative; }
+.wb-newmenu {
+  position: absolute; left: 0; right: 0; bottom: calc(100% + 6px); z-index: 40;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px; display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
+}
+.wb-newmenu[hidden] { display: none; }
+.wb-newmenu button {
+  font: inherit; font-size: 12px; text-align: left; padding: 6px 9px; border-radius: 6px;
+  border: 0; background: transparent; color: var(--sidebar-fg); cursor: pointer; white-space: nowrap;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.wb-newmenu-title { font-size: 12px; font-weight: 600; }
+.wb-newmenu-sub { font-size: 10.5px; color: var(--sidebar-sub); }
+.wb-newmenu button:hover { background: var(--sidebar-active); color: var(--sidebar-head); }
+.wb-newmenu button:hover .wb-newmenu-sub { color: var(--sidebar-head); opacity: .75; }

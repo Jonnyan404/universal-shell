@@ -168,7 +168,6 @@
       `<button data-bulk="stop">${esc(t("wb.act_stop"))}</button>` +
       `<button data-bulk="restart">${esc(t("wb.act_restart"))}</button>` +
       `<button data-bulk="check">${esc(t("wb.act_check"))}</button>` +
-      `<button data-bulk="hide">${esc(t("wb.act_hide"))}</button>` +
       `<button data-bulk="delete" class="danger">${esc(t("wb.act_delete"))}</button>`;
     bar.querySelectorAll("[data-bulk]").forEach((b) => {
       b.onclick = () => bulk(b.dataset.bulk);
@@ -201,10 +200,8 @@
           if (act === "start") await invoke("start_program", { programId: it.id, values: {} });
           else if (act === "stop") await invoke("stop_program", { programId: it.id });
           else if (act === "restart") await invoke("restart_program", { programId: it.id, values: {} });
-          else if (act === "hide") await invoke("set_program_hidden", { programId: it.id, hidden: true });
           else if (act === "delete") await invoke("delete_program", { programId: it.id });
         } else {
-          if (act === "hide") continue; // 手工服务没有隐藏概念
           if (act === "delete") await invoke("services_remove", { id: it.id, uninstall: true });
           else await invoke("services_action", { id: it.id, action: act });
         }
@@ -448,6 +445,9 @@
         supervisor: native ? "native" : "managed",
       });
       showNotice(r.message || "");
+      // main.js 的 current/programs 是另一份缓存：不刷新的话操作区会按旧
+      // supervisor 继续画启停按钮，字段自动保存也不会重新派生 native 服务。
+      if (typeof reloadPrograms === "function") await reloadPrograms();
       await load();
       await select(it.id);
     } catch (e) {
@@ -470,6 +470,8 @@
         readyFile: s.readyFile,
       });
       showNotice(t("wb.applied"));
+      // 同上：保存调度参数可能把程序切成 native，main.js 的缓存要跟上。
+      if (typeof reloadPrograms === "function") await reloadPrograms();
       await load();
       await select(it.id);
     } catch (e) {
@@ -538,6 +540,10 @@
   }
 
   async function newService() {
+    // 表单在 #manage-view 内：视图停在模板库 / 日志中心时父容器是隐藏的，
+    // 不先切回来，点「新建服务」就像什么都没发生。
+    const mv = document.getElementById("manage-view");
+    if (mv && mv.hidden && typeof switchView === "function") switchView("manage");
     const it = {
       kind: "service",
       id: "",
@@ -573,24 +579,24 @@
 
   function renderUpdatePane() {
     const box = $("#pane-upd");
+    const prog = $("#upd-program");
+    const empty = $("#upd-empty");
     const it = st.selected;
-    if (!box) return;
-    if (!it) {
-      box.innerHTML = `<div class="svc-hint">${esc(t("wb.select_hint"))}</div>`;
+    if (!box || !prog || !empty) return;
+
+    // 只切显隐，不用 innerHTML 覆盖：`#upd-settings` 被删掉一次，
+    // main.js 缓存的引用就永久失效，更新页再也画不出来。
+    if (!it || it.kind === "service") {
+      prog.hidden = true;
+      empty.hidden = false;
+      empty.textContent = it ? t("wb.upd_na") : t("wb.select_hint");
       return;
     }
-    if (it.kind === "service") {
-      box.innerHTML = `<div class="card"><div class="svc-hint" style="margin:0">${esc(t("wb.upd_na"))}</div></div>`;
-      return;
-    }
-    // 程序：把 main.js 的更新卡片搬进这个 pane（元素 id 不变，逻辑复用）
-    if (!box.querySelector("#upd-settings")) {
-      box.innerHTML = "";
-      const strip = document.getElementById("upd-settings");
-      if (strip) box.appendChild(strip);
-    }
+    prog.hidden = false;
+    empty.hidden = true;
     if (typeof renderUpdateSettings === "function") renderUpdateSettings();
     const strip = document.getElementById("upd-settings");
+    // 进入「更新」页就是来看它的，折叠状态不该把它藏起来
     if (strip) strip.hidden = false;
   }
 
@@ -675,7 +681,7 @@
     const root = document.getElementById("mob-cards");
     if (!root) return;
     root.innerHTML = "";
-    const rows = visible().filter((i) => !(i.kind === "program" && i.hidden));
+    const rows = visible();
     if (!rows.length) {
       const empty = document.createElement("div");
       empty.className = "mob-card mob-empty";
@@ -740,8 +746,26 @@
     }
     const all = document.getElementById("wb-all");
     if (all) all.onchange = () => toggleAll(all.checked);
+    // 「＋ 新建」一个入口、两种对象：程序手动填参数，服务写一条命令。
+    // 模板库是侧栏的独立入口，不要塞进这里。
     const add = document.getElementById("wb-new");
-    if (add) add.onclick = () => newService();
+    const menu = document.getElementById("wb-newmenu");
+    if (add && menu) {
+      add.onclick = (e) => {
+        e.stopPropagation();
+        menu.hidden = !menu.hidden;
+      };
+      menu.onclick = (e) => {
+        const b = e.target.closest("[data-new]");
+        if (!b) return;
+        menu.hidden = true;
+        if (b.dataset.new === "program") openEditModal(null);
+        else newService();
+      };
+      document.addEventListener("click", (e) => {
+        if (!menu.hidden && !e.target.closest(".wb-new-wrap")) menu.hidden = true;
+      });
+    }
     const tabs = document.getElementById("wb-tabs");
     if (tabs) {
       tabs.onclick = (e) => {

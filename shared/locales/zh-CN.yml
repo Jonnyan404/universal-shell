@@ -280,8 +280,6 @@ st.is_latest: '「%{name}」已是最新版本'
 side.empty_suffix: "(可在「模板库」导入)"
 toast.updated_short: '已下载/更新，当前版本 %{ver}'
 toast.autostart_updated: '已更新「%{name}」开机启动'
-toast.hidden: '已隐藏「%{name}」'
-toast.unhidden: '已取消隐藏「%{name}」'
 toast.deleted: '已删除「%{name}」（数据目录已保留）'
 toast.deleted_purge: '已删除并清空「%{name}」数据'
 toast.data_cleared: '已重置「%{name}」数据（程序保留）'
@@ -492,7 +490,8 @@ svc.native_notice: 此程序由系统调度接管：开机自启，壳退出也�
 svc.back_to_managed: 改为壳托管
 svc.open_board: 打开调度
 svc.open_sched: 打开调度
-svc.make_native: 开机自启
+svc.autostart_enable: 启用开机自启
+svc.autostart_disable: 取消开机自启
 
 # 服务看板（主界面「服务」页）
 svc.title: 服务
@@ -570,7 +569,6 @@ wb.act_start: 启动
 wb.act_stop: 停止
 wb.act_restart: 重启
 wb.act_check: 检查更新
-wb.act_hide: 隐藏
 wb.act_delete: 删除
 wb.done: '%{n} 项已完成'
 wb.partial: '%{ok} 项成功，%{fail} 项失败'
@@ -598,3 +596,8 @@ wb.svc_cfg_hint: 这条是手工创建的服务，命令与参数直接写入 se
 wb.new_service: ＋ 新建服务
 wb.f_name: 名称
 wb.select_all: 全选
+wb.new: ＋ 新建
+wb.new_program: 新建程序
+wb.new_program_hint: 手动填写参数
+wb.new_service_item: 新建服务
+wb.new_service_hint: 写一条命令

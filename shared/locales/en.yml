@@ -280,8 +280,6 @@ st.is_latest: '"%{name}" is already up to date'
 side.empty_suffix: " (import via Template library)"
 toast.updated_short: 'Downloaded/updated, current version %{ver}'
 toast.autostart_updated: 'Updated autostart for "%{name}"'
-toast.hidden: 'Hidden "%{name}"'
-toast.unhidden: 'Unhidden "%{name}"'
 toast.deleted: 'Deleted "%{name}" (data directory kept)'
 toast.deleted_purge: 'Deleted "%{name}" and cleared its data'
 toast.data_cleared: 'Reset "%{name}" data (program kept)'
@@ -492,7 +490,8 @@ svc.native_notice: 'Managed by the system scheduler: starts at login and survive
 svc.back_to_managed: Back to app-managed
 svc.open_board: Open schedule
 svc.open_sched: Open schedule
-svc.make_native: Start at login
+svc.autostart_enable: Enable autostart
+svc.autostart_disable: Disable autostart
 
 # Service board (the "Services" view)
 svc.title: Services
@@ -570,7 +569,6 @@ wb.act_start: Start
 wb.act_stop: Stop
 wb.act_restart: Restart
 wb.act_check: Check updates
-wb.act_hide: Hide
 wb.act_delete: Delete
 wb.done: '%{n} done'
 wb.partial: '%{ok} succeeded, %{fail} failed'
@@ -598,3 +596,8 @@ wb.svc_cfg_hint: This is a hand-made service; command and arguments live in serv
 wb.new_service: ＋ New service
 wb.f_name: Name
 wb.select_all: Select all
+wb.new: ＋ New
+wb.new_program: New program
+wb.new_program_hint: Fill in the fields
+wb.new_service_item: New service
+wb.new_service_hint: Write a command

@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use us_service::config::Config;
-use us_service::{plan, plan_for, probe, runner, Ctx, Platform};
+use us_service::{plan, plan_for, probe, Ctx, Platform};
 
 fn main() {
     if let Err(e) = dispatch() {

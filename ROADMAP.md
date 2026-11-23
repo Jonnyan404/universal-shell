@@ -162,14 +162,17 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
   - **工作台：三页合一（2026-11-23）**：原先「程序管理 / 批量管理 / 服务」三个入口服务的是同一批对象（Program 及其派生的 Service），外加 `us-svc ui` 第四张脸。现合并为**一个工作台**：
     - 侧栏 = 统一列表（Program + 手建 Service），带状态点、调度归属、更新标记、复选框；搜索 + 四个筛选（全部 / 运行中 / 系统调度 / 有更新）。
     - 主区 = 详情，三个 tab（配置 / 调度 / 更新），日志固定底部面板；选中手建服务时配置页换成命令/参数/环境变量表单。
-    - 多选 = 批量：启动 / 停止 / 重启 / 检查更新 / 隐藏 / 删除，按 kind 分派到 `start_program` 或 `services_action`。
+    - 多选 = 批量：启动 / 停止 / 重启 / 检查更新 / 删除，按 kind 分派到 `start_program` 或 `services_action`。（隐藏功能已随工作台合并移除）
     - 后端新增 `workspace_list` 聚合（`kind` / `state` / `supervisor` / `native` / 服务全字段），派生服务（`origin = program:*`）不单列，避免同一对象出现两次。
     - 移动端：卡片流改为工作台列表，底部 tab 收敛为 程序 / 模板库 / 日志；详情仍走二级页。
     - 深链接：`?view=library|log`、`?sel=<id>`（直达某条）。
   - **包装器归宿主（2026-11-23）**：`us-svc` 不再是发布产物——`us-service` 是库，`run_cli()` 由 `us-svc`、`us-web`、桌面端共用。`Ctx::new` 优先同目录的 `us-svc`（开发态），没有就退回宿主程序，因此安装包里不再需要第二个二进制。
     - 顺带修掉一个真 bug：从界面切 native 时 `current_exe` 是 `us-web`，而它当时没有 `run` 子命令 → 生成的 plist 指向一个跑不起来的命令。现在宿主实现了 `run`，并用「临时移走 us-svc」的方式验证过。
     - 同时修掉 `app-tauri` 的编译错误（两处 `Program` 字面量缺 `supervisor` / `native`）——CI 只测 `us-service`，这个问题会拖到发版才炸。
-  - **已知未做**：① 运行参数**真的**变化时仍会重启服务（几百毫秒中断），未做「先启动新的再切流量」；改名/改描述已不再触发；② Windows `system`（提权）场景已有真机证据：CI 在 `windows-latest` 上生成 BootTrigger + HighestAvailable 的任务，`schtasks /Create`、`/Query`、`/Delete` 全部通过（run 45157356081）；③ 派生条目仍在每次同步时按当前字段值重建，若用户在界面上手改派生条目会被覆盖（`origin` 已标明来源）；④ 旧批量视图的 CSS（`.batch-*`）仍在样式表里，模板库还在复用其中一部分，未进一步拆分。
+  - **开机启动 ≠ 系统调度（2026-11-23）**：操作区「开机自启」按钮原先误调 `set_supervisor(true)`，一点就把程序变成系统调度服务，壳托管程序因而没有开机启动入口。现改回 `set_autostart` 开关（`program-autostart.json`，壳启动时代为拉起），`supervisor` 只在「调度」页切换。调度页切换后必须 `reloadPrograms()` 刷新 `main.js` 的 `current/programs` 缓存，否则操作区仍按旧 supervisor 画启停按钮，字段自动保存也不会重新派生 native 服务。
+  - **新建入口二选一（2026-11-23）**：「＋ 新建」下拉明确选对象——「新建程序」接 `openEditModal(null)` / `add_program`（手动填参数，本地程序入口），「新建服务」接 `newService()`（写一条命令）；模板库保持侧栏独立入口。`newService()` 开头先切回 `manage` 视图，否则停在模板库 / 日志中心时，表单所在的 `#manage-view` 是隐藏的，点了像没反应。
+  - **隐藏功能移除（2026-11-23）**：工作台不再过滤 `hidden`，SPA 侧批量隐藏、右键菜单、移动端过滤与相关 i18n 键全部删除；后端 `set_program_hidden` / `Program.hidden` 保留给已归档的 `app-egui`，不动。
+  - **已知未做**：① 运行参数**真的**变化时仍会重启服务（几百毫秒中断），未做「先启动新的再切流量」；改名/改描述已不再触发；② Windows `system`（提权）场景已有真机证据：CI 在 `windows-latest` 上生成 BootTrigger + HighestAvailable 的任务，`schtasks /Create`、`/Query`、`/Delete` 全部通过（run 45157356081）；③ 派生条目仍在每次同步时按当前字段值重建，若用户在界面上手改派生条目会被覆盖（`origin` 已标明来源）；④ 旧批量视图的 CSS（`.batch-*`）已全部删除，模板库需要的少量工具类已改名保留（`.lib-toolbar` / `.lib-ops` / `.item-tag`）。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。
   - 依据：① 功能面已被覆盖——桌面用 Tauri、无桌面用 `us-web`，egui 独占场景仅剩「托盘常驻且不起 webview」；② 双份维护成本真实——ROADMAP 中 B7/B8、C4、C5、D1、F1、F10 均为双端条目，且 egui 已落后 5 项（日志中心、模板 diff、二进制上传、局域网开关、主题切换），i18n 258/486；③ Release 资产下载量趋近于 0（egui 与 tauri 同量级），重复维护未服务到用户。

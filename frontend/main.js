@@ -144,7 +144,6 @@ function renderSidebar(preferId) {
   if (window.usWorkbench) return window.usWorkbench.renderList(preferId);
   el.tabs.innerHTML = "";
   statuses.forEach((s) => {
-    if (s.hidden) return;
     const it = document.createElement("div");
     it.className = "prog-item" + (current && current.id === s.id ? " active" : "");
     it.dataset.id = s.id;
@@ -232,7 +231,6 @@ function progItemMenu(p) {
   return [
     { label: t("menu.copy"), onClick: () => duplicateProgram(p) },
     { label: t("act.edit"), onClick: () => openEditModal(p) },
-    { label: p.hidden ? t("act.unhide") : t("act.hide"), onClick: () => toggleProgramHidden(p) },
     { sep: true },
     { label: t("act.delete"), danger: true, onClick: () => confirmAndDelete(p) },
   ];
@@ -317,22 +315,6 @@ async function duplicateProgram(p) {
     showNotice(t("toast.duplicated", { name: copy.name }));
     await reloadPrograms();
     switchCurrent(copy.id);
-  } catch (e) {
-    showNotice(String(e), true);
-  }
-}
-
-async function toggleProgramHidden(p) {
-  try {
-    const hiding = !p.hidden;
-    await invoke("set_program_hidden", { programId: p.id, hidden: hiding });
-    showNotice(t(hiding ? "toast.hidden" : "toast.unhidden", { name: p.name }));
-    await reloadPrograms();
-    if (hiding && current && current.id === p.id) {
-      const next = programs.find((x) => !x.hidden);
-      if (next) switchCurrent(next.id);
-      else document.querySelector("#manage-view").hidden = true;
-    }
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -845,18 +827,33 @@ function renderEnvDisplay() {
 function renderActions() {
   const actions = el.actions;
   actions.innerHTML = "";
+  // 选中手工服务时操作区本来就是隐藏的；此时 current 为 null，别往下走。
+  if (!current) return;
   // 系统调度接管时不显示启停按钮（壳再 spawn 会与调度器双开）。
-  // 不再放提示条：调度归属已由状态栏的「开机启动」标签表达，而提示条
-  // 在移动端会压住下面的操作按钮；要切换托管关系去「调度」页即可。
-  if (current && current.supervisor === "native") return;
+  // 托管方式的切换放在「调度」页；这里只留一个回去的入口，避免操作区全空。
+  if (current && current.supervisor === "native") {
+    const group = document.createElement("span");
+    group.className = "act-group";
+    const back = document.createElement("button");
+    back.textContent = "⏻ " + t("svc.back_to_managed");
+    back.onclick = () => setSupervisor(false);
+    group.appendChild(back);
+    actions.appendChild(group);
+    return;
+  }
   // 按钮组整体居中；启停/重启 与 图标组 之间用分隔条隔开
   const group1 = document.createElement("span");
   group1.className = "act-group";
 
-  const nativeBtn = document.createElement("button");
-  nativeBtn.textContent = "⏻ " + t("svc.make_native");
-  nativeBtn.onclick = () => setSupervisor(true);
-  group1.appendChild(nativeBtn);
+  // 「开机启动」是程序自己的开关：壳启动时代为拉起，写进 program-autostart.json。
+  // 它与托管方式无关 —— 变成系统调度服务是「调度」页的事，别在这里抢了入口。
+  const curStatus = statuses.find((s) => current && s.id === current.id)?.status;
+  const autoOn = !!(curStatus && curStatus.autostart);
+  const autoBtn = document.createElement("button");
+  autoBtn.id = "autostart-btn";
+  autoBtn.textContent = "⏻ " + t(autoOn ? "svc.autostart_disable" : "svc.autostart_enable");
+  autoBtn.onclick = () => toggleAutostart(autoOn);
+  group1.appendChild(autoBtn);
 
   const start = document.createElement("button");
   start.id = "start-btn";
@@ -982,10 +979,25 @@ function applyStatus(st) {
   const idx = statuses.findIndex((s) => s.id === current.id);
   if (idx >= 0) statuses[idx].status = st;
   renderChips(st);
+  // 开机启动开关的文案跟着 autostart 状态走；状态一到就重画，不能只改 disabled。
+  renderActions();
   renderButtons(st);
   syncInstallBtns(current.id);
   updateUpdateCard(st);
   renderSidebar();
+}
+
+// 只切换「是否开机启动」，不碰 supervisor：壳托管的程序也能自己开自启。
+// 后端写 program-autostart.json，壳下次启动时代为拉起。
+async function toggleAutostart(wasOn) {
+  if (!current) return;
+  try {
+    await invoke("set_autostart", { programId: current.id, enabled: !wasOn });
+    showNotice(t("toast.autostart_updated", { name: current.name }));
+    await refreshStatusLocal();
+  } catch (e) {
+    showNotice(String(e), true);
+  }
 }
 
 async function setSupervisor(native) {
@@ -2681,7 +2693,7 @@ function renderMobCards() {
     el.mobCards.appendChild(empty);
     return;
   }
-  const shown = statuses.filter((s) => !programs.find((p) => p.id === s.id)?.hidden);
+  const shown = statuses;
   for (const s of shown) {
     const p = programs.find((x) => x.id === s.id);
     const card = document.createElement("div");

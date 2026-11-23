@@ -51,11 +51,11 @@ The primary way to get programs is the **template library**: browse → import �
 
 That's it. Picked templates become instances you can **Start / Stop** right away.
 
-> Alternatively, you can skip the library and manage programs by hand in `shell.json` (see [Config](#config)).
+> Not every program needs a template. **＋ New → New program** opens a form for a hand-written program (id, name, command, args, env, fields); **＋ New → New service** writes a single command into `services.toml`. The template library stays a separate sidebar entry. You can also hand-edit `shell.json` (see [Config](#config)).
 
 ### 3. Use
 
-Set the fields if needed, then press **Start**. By default the program is app-managed: it runs in the background and stops when you quit the app. To make it survive the app and start at login, see the next section.
+Set the fields if needed, then press **Start**. By default the program is app-managed: it runs in the background and stops when you quit the app. The **⏻ Enable/Disable autostart** button in the action bar only decides whether the shell launches it at login; it does not change who keeps it running. To make the program survive the app, see the next section.
 
 ### 4. Two ways to keep a program running
 
@@ -63,12 +63,17 @@ Set the fields if needed, then press **Start**. By default the program is app-ma
 |---|---|---|
 | Who starts it | this app | launchd / systemd / Task Scheduler |
 | When the app quits | the program stops | it keeps running |
-| At login | only if the app itself autostarts | yes — registered as a startup item |
+| At login | if the app autostarts and the program's autostart switch is on | yes — registered as a startup item |
 | After a crash | no restart | restarts per your setting |
 | Good for | tools you want to watch | services that must always be up |
 
-Switch under **Schedule** in the detail pane. Once handed over, the start/stop buttons
-disappear (the app would otherwise run a second copy) and the status bar marks it with `⏻`.
+Switch under **Schedule** in the detail pane. Once handed over, the start/stop buttons are
+replaced by a single **Back to app-managed** button (the app would otherwise run a second copy)
+and the status bar marks it with `⏻`.
+
+**Autostart and the supervisor are independent switches.** Autostart is shell-managed state
+(`program-autostart.json`) and works for app-managed programs too; handing a program to the OS
+scheduler is done only from **Schedule**.
 
 **Dependencies**: `depends_on = ["db"]` waits until the dependency is ready — its port is
 reachable, a readiness file exists, or (when neither is declared) the process is running.
@@ -255,11 +260,11 @@ MIT — see [LICENSE](LICENSE).
 
 完成。导入的模板会成为可立即「**启动 / 停止**」的实例。
 
-> 也可以不走模板库，直接在 `shell.json` 里手写程序（见下方 [配置格式](#配置格式-shelljson)）。
+> 本地程序不必来自模板。点「**＋ 新建**」：选「**新建程序**」手动填 id、名称、命令、参数、环境变量与字段；选「**新建服务**」写一条命令进 `services.toml`。模板库仍是侧栏的独立入口。也可以直接在 `shell.json` 里手写（见下方 [配置格式](#配置格式-shelljson)）。
 
 ### 3. 使用
 
-需要时填好字段，点 **启动**。默认是壳托管：程序在后台跑，应用一退它就停。想让它活过应用、开机自动起来，见下一节。
+需要时填好字段，点 **启动**。默认是壳托管：程序在后台跑，应用一退它就停。操作区的「**⏻ 启用开机自启 / 取消开机自启**」只决定壳启动时是否自动拉起这个程序，不改变托管方式；想让程序活过应用、由系统开机拉起，见下一节。
 
 ### 4. 两种运行方式
 
@@ -267,11 +272,11 @@ MIT — see [LICENSE](LICENSE).
 |---|---|---|
 | 谁拉起 | 本应用 | launchd / systemd / 计划任务 |
 | 应用退出 | 程序一起停 | 继续运行 |
-| 登录时 | 只有应用本身自启才会 | 会，已注册为系统启动项 |
+| 登录时 | 应用自启且该程序开了自启开关 | 会，已注册为系统启动项 |
 | 崩溃后 | 不会重启 | 按你的设置重启 |
 | 适合 | 你想盯着看的工具 | 必须一直开着的服务 |
 
-在详情页的「**调度**」里切换。交出去之后启停按钮会消失（否则应用会再跑一份），状态栏会用 `⏻` 标出。
+在详情页的「**调度**」里切换。交出去之后启停按钮会换成一个「**⏻ 改为壳托管**」按钮（否则应用会再跑一份），状态栏会用 `⏻` 标出。注意这里切换的是**托管方式**；「开机启动」是操作区那个独立开关，两者互不替代。
 
 **依赖顺序**：`depends_on = ["db"]` 会等到依赖「就绪」——端口可连、就绪文件出现，或（两者都没声明时）进程在跑。
 等满超时只记警告并继续，避免一个坏依赖把整条启动链卡死。
