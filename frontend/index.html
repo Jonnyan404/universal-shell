@@ -30,6 +30,10 @@
           <button class="wb-chip" data-wbf="update" data-i18n="wb.update">有更新</button>
         </div>
       </div>
+      <div class="wb-allrow">
+        <label class="wb-check-all"><input type="checkbox" id="wb-all" /><span data-i18n="wb.select_all">全选</span></label>
+        <span id="wb-all-count" class="wb-allcount"></span>
+      </div>
       <nav id="program-tabs" class="room-list"></nav>
       <div class="sidebar-foot">
         <button id="wb-new" class="sidebar-settings" data-i18n="wb.new_service">＋ 新建服务</button>
@@ -108,7 +112,7 @@
       <!-- 模板库 -->
       <section id="library-view" class="view" hidden>
         <div class="panel">
-          <div class="batch-toolbar">
+          <div class="lib-toolbar">
             <span class="spacer"></span>
             <button id="lib-cache-toggle" data-i18n="lib.local">本地模板</button>
             <button id="lib-import-local" data-i18n="lib.import">导入本地模板</button>

@@ -597,3 +597,4 @@ wb.applied: 已按新参数重新装载
 wb.svc_cfg_hint: 这条是手工创建的服务，命令与参数直接写入 services.toml。
 wb.new_service: ＋ 新建服务
 wb.f_name: 名称
+wb.select_all: 全选

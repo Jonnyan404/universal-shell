@@ -812,9 +812,9 @@ impl ShellManager {
         }
         for svc in wanted {
             let id = svc.id.clone();
-            // 内容一致就别报「变了」：调用方据此决定要不要重装系统服务，
-            // 每次自动保存都重装会把正在跑的服务反复重启。
-            let content_changed = !cfg.identical(&svc);
+            // 只有运行时参数真的变了才报「变了」：调用方据此决定要不要重装。
+            // 改名/改描述不该重启一个正在跑的服务。
+            let content_changed = !cfg.runtime_identical(&svc);
             cfg.upsert(svc)?;
             if content_changed && !changed.contains(&id) {
                 changed.push(id);

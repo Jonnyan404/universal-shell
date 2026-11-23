@@ -123,6 +123,34 @@
       if (target) target.scrollIntoView({ block: "nearest" });
     }
     renderBulk();
+    syncSelectAll();
+  }
+
+  function syncSelectAll() {
+    const ids = visible().map((i) => i.id);
+    const box = document.getElementById("wb-all");
+    const label = document.getElementById("wb-all-count");
+    if (box) {
+      const picked = ids.filter((id) => st.checked.has(id)).length;
+      box.checked = ids.length > 0 && picked === ids.length;
+      box.indeterminate = picked > 0 && picked < ids.length;
+      box.disabled = ids.length === 0;
+    }
+    if (label) label.textContent = ids.length ? st.checked.size + " / " + ids.length : "";
+  }
+
+  function toggleAll(on) {
+    const ids = visible().map((i) => i.id);
+    if (on) ids.forEach((id) => st.checked.add(id));
+    else ids.forEach((id) => st.checked.delete(id));
+    renderList();
+    renderBulk();
+  }
+
+  function clearChecked() {
+    st.checked.clear();
+    renderList();
+    renderBulk();
   }
 
   function renderBulk() {
@@ -132,7 +160,7 @@
     bar.hidden = n === 0;
     if (!n) {
       bar.innerHTML = "";
-      return;
+      return syncSelectAll();
     }
     bar.innerHTML =
       `<b>${esc(t("wb.bulk_selected", { n }))}</b><span class="spacer"></span>` +
@@ -145,6 +173,7 @@
     bar.querySelectorAll("[data-bulk]").forEach((b) => {
       b.onclick = () => bulk(b.dataset.bulk);
     });
+    syncSelectAll();
   }
 
   async function bulk(act) {
@@ -709,6 +738,8 @@
         renderList();
       };
     }
+    const all = document.getElementById("wb-all");
+    if (all) all.onchange = () => toggleAll(all.checked);
     const add = document.getElementById("wb-new");
     if (add) add.onclick = () => newService();
     const tabs = document.getElementById("wb-tabs");

@@ -51,12 +51,7 @@ const el = {
   updateCheckBtn: document.querySelector("#upd-check-btn"),
   envSection: document.querySelector("#env-section"),
   manageView: document.querySelector("#manage-view"),
-  batchView: document.querySelector("#batch-view"),
   libraryView: document.querySelector("#library-view"),
-  batchBody: document.querySelector("#batch-body"),
-  batchTable: document.querySelector(".batch-table"),
-  batchCards: document.querySelector("#batch-cards"),
-  batchCheckedAt: document.querySelector("#batch-checked-at"),
   libSourceBar: document.querySelector("#lib-source-bar"),
   libFetchInfo: document.querySelector("#lib-fetch-info"),
   libStatus: document.querySelector("#lib-status"),
@@ -850,23 +845,10 @@ function renderEnvDisplay() {
 function renderActions() {
   const actions = el.actions;
   actions.innerHTML = "";
-  // 系统调度接管时，壳不再自己 spawn（否则会出现两个实例），
-  // 这里只给「切回壳托管 / 去服务页」两个出口。
-  if (current && current.supervisor === "native") {
-    const box = document.createElement("div");
-    box.className = "native-notice";
-    const txt = document.createElement("span");
-    txt.textContent = t("svc.native_notice");
-    const back = document.createElement("button");
-    back.textContent = t("svc.back_to_managed");
-    back.onclick = () => setSupervisor(false);
-    const open = document.createElement("button");
-    open.textContent = t("svc.open_sched");
-    open.onclick = () => window.usWorkbench && window.usWorkbench.showTab("sched");
-    box.append(txt, back, open);
-    actions.appendChild(box);
-    return;
-  }
+  // 系统调度接管时不显示启停按钮（壳再 spawn 会与调度器双开）。
+  // 不再放提示条：调度归属已由状态栏的「开机启动」标签表达，而提示条
+  // 在移动端会压住下面的操作按钮；要切换托管关系去「调度」页即可。
+  if (current && current.supervisor === "native") return;
   // 按钮组整体居中；启停/重启 与 图标组 之间用分隔条隔开
   const group1 = document.createElement("span");
   group1.className = "act-group";
@@ -1227,7 +1209,7 @@ document.addEventListener("visibilitychange", () => {
 async function checkUpdates(btn) {
   if (checkingUpdates) return;
   checkingUpdates = true;
-  const targets = [btn, document.querySelector("#batch-check-updates")].filter(Boolean);
+  const targets = [btn].filter(Boolean);
   targets.forEach((b) => {
     b.classList.add("busy");
     b.disabled = true;
@@ -1499,7 +1481,7 @@ function renderLocalTemplates() {
     repo.className = "lib-repo";
     repo.textContent = p.repo || "";
     const ops = document.createElement("span");
-    ops.className = "batch-ops";
+    ops.className = "lib-ops";
     const exp = document.createElement("button");
     exp.className = "op-btn";
     exp.textContent = t("act.export");

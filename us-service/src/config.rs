@@ -298,6 +298,30 @@ impl Config {
         }
     }
 
+    /// 只比较**影响运行**的字段。
+    ///
+    /// 改名、改描述也要写回文件，但没必要为它重启一个正在跑的服务；
+    /// 调用方据此决定要不要重新装载系统配置。
+    pub fn runtime_identical(&self, svc: &Service) -> bool {
+        let Some(old) = self.get(&svc.id) else {
+            return false;
+        };
+        old.command == svc.command
+            && old.args == svc.args
+            && old.env == svc.env
+            && old.cwd == svc.cwd
+            && old.log == svc.log
+            && old.delay_secs == svc.delay_secs
+            && old.restart == svc.restart
+            && old.restart_secs == svc.restart_secs
+            && old.scope == svc.scope
+            && old.enabled == svc.enabled
+            && old.depends_on == svc.depends_on
+            && old.wait_timeout_secs == svc.wait_timeout_secs
+            && old.ready_port == svc.ready_port
+            && old.ready_file == svc.ready_file
+    }
+
     /// 新增或按 id 替换（UI 的「保存」走这里）
     pub fn upsert(&mut self, svc: Service) -> Result<()> {
         svc.validate()?;
@@ -626,6 +650,30 @@ command = "/bin/true"
         assert!(cfg.remove("dufs"));
         assert_eq!(cfg.services.len(), 1);
         assert!(!cfg.remove("dufs"), "第二次删除应返回 false");
+    }
+
+    #[test]
+    fn renaming_does_not_count_as_a_runtime_change() {
+        let cfg = Config::parse(SAMPLE).unwrap();
+        let mut renamed = cfg.services[0].clone();
+        renamed.name = "换个名字".into();
+        renamed.description = "换个描述".into();
+        assert!(
+            cfg.runtime_identical(&renamed),
+            "改名/改描述不该触发重启"
+        );
+
+        let mut port = cfg.services[0].clone();
+        port.args.push("--port=1".into());
+        assert!(!cfg.runtime_identical(&port), "参数变了必须重装");
+
+        let mut dep = cfg.services[0].clone();
+        dep.depends_on = vec!["other".into()];
+        assert!(!cfg.runtime_identical(&dep), "依赖变了必须重装");
+
+        let mut fresh = cfg.services[0].clone();
+        fresh.id = "brand-new".into();
+        assert!(!cfg.runtime_identical(&fresh), "新条目当然算变");
     }
 
     #[test]
