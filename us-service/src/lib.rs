@@ -11,6 +11,7 @@
 //!    安装来源是上层产品的事，本 crate 只负责"怎么稳定地跑起来"。
 
 pub mod config;
+pub mod ui;
 pub mod launchd;
 pub mod runner;
 pub mod schtasks;
@@ -243,27 +244,182 @@ fn cmd_capture(bin: &str, args: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// 尽力查询调度器里的实际状态（只读，不需要提权）。
-/// 拿不到（工具缺失/未装载）时返回 "未装载"——UI 侧应把它显示为未知而非错误。
-pub fn probe(s: &Service) -> String {
+/// 服务在系统里的实际状态（看板/CLI 共用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceState {
+    /// 进程正在跑
+    Running,
+    /// 有单元文件但没在跑（未装载 / 已停止 / 崩溃待拉起）
+    Stopped,
+    /// 系统里没有这个服务的配置
+    NotInstalled,
+    /// 查询失败（调度器工具缺失等）
+    Unknown,
+}
+
+impl ServiceState {
+    pub fn label(self) -> &'static str {
+        match self {
+            ServiceState::Running => "运行中",
+            ServiceState::Stopped => "未运行",
+            ServiceState::NotInstalled => "未启用",
+            ServiceState::Unknown => "未知",
+        }
+    }
+    pub fn is_running(self) -> bool {
+        self == ServiceState::Running
+    }
+}
+
+/// 查询单个服务的实际状态（只读，不提权）
+pub fn state(s: &Service, config: &Path) -> ServiceState {
+    let installed = match Platform::current() {
+        Platform::Launchd => launchd::unit_path(s).exists(),
+        Platform::Systemd => systemd::unit_path(s).exists(),
+        Platform::Schtasks => schtasks::xml_path(s, &config.to_path_buf()).exists(),
+    };
+    if !installed {
+        return ServiceState::NotInstalled;
+    }
     match Platform::current() {
         Platform::Launchd => {
-            let target = format!("gui/{}/{}", current_uid(), s.label());
-            match cmd_capture("launchctl", &["print", &target]) {
-                Some(_) => "已装载".into(),
-                None => "未装载".into(),
+            let label = s.label();
+            match cmd_capture("launchctl", &["list", &label]) {
+                Some(out) => {
+                    let running = launchd_running(&out);
+                    if running {
+                        ServiceState::Running
+                    } else {
+                        ServiceState::Stopped
+                    }
+                }
+                // 有文件但 launchctl 不认识：写入过但还没装载
+                None => ServiceState::Stopped,
             }
         }
         Platform::Systemd => match cmd_capture("systemctl", &["--user", "is-active", &s.id]) {
-            Some(state) => state,
-            None => "未装载".into(),
+            Some(t) if t.starts_with("active") => ServiceState::Running,
+            Some(_) => ServiceState::Stopped,
+            None => ServiceState::Unknown,
         },
         Platform::Schtasks => {
             let name = schtasks::task_name(&s.id);
-            match cmd_capture("schtasks", &["/Query", "/TN", &name]) {
-                Some(_) => "已注册".into(),
-                None => "未注册".into(),
+            match cmd_capture("schtasks", &["/Query", "/TN", &name, "/FO", "LIST"]) {
+                Some(out) => {
+                    if out.to_lowercase().contains("running") {
+                        ServiceState::Running
+                    } else {
+                        ServiceState::Stopped
+                    }
+                }
+                None => ServiceState::Unknown,
             }
+        }
+    }
+}
+
+
+/// 判断 `launchctl list <label>` 的输出里是否真有进程在跑。
+///
+/// 两种格式都要认（实测 macOS 14 返回字典，旧版本/无参调用返回表格）：
+/// ```text
+/// { "PID" = 77514; ... }              // 字典
+/// PID   Status  Label                // 表格（表头首列是字母，未运行时是 "-"）
+/// 77514 0       com.ushell.dufs
+/// ```
+fn launchd_running(out: &str) -> bool {
+    for line in out.lines() {
+        if let Some(rest) = line.trim().strip_prefix("\"PID\" = ") {
+            let num = rest.trim_end_matches(';').trim();
+            return num.parse::<u32>().map(|p| p > 0).unwrap_or(false);
+        }
+    }
+    out.lines().any(|l| {
+        l.split_whitespace()
+            .next()
+            .map(|pid| pid != "-" && pid.chars().all(|c| c.is_ascii_digit()))
+            .unwrap_or(false)
+    })
+}
+
+/// 端上用的一句话状态（CLI `status` 用）
+pub fn probe(s: &Service, config: &Path) -> String {
+    state(s, config).label().to_string()
+}
+
+/// 从系统卸载：停止并删掉单元文件，配置本身不动
+pub fn uninstall(s: &Service, config: &Path) -> Result<()> {
+    match Platform::current() {
+        Platform::Launchd => {
+            let target = format!("gui/{}/{}", current_uid(), s.label());
+            let _ = std::process::Command::new("launchctl")
+                .args(["bootout", &target])
+                .output();
+            let path = launchd::unit_path(s);
+            if path.exists() {
+                std::fs::remove_file(&path)
+                    .with_context(|| format!("删除 {} 失败", path.display()))?;
+            }
+        }
+        Platform::Systemd => {
+            let _ = run_ok("systemctl", &["--user", "disable", "--now", &s.id]);
+            let path = systemd::unit_path(s);
+            if path.exists() {
+                std::fs::remove_file(&path)
+                    .with_context(|| format!("删除 {} 失败", path.display()))?;
+            }
+            let _ = run_ok("systemctl", &["--user", "daemon-reload"]);
+        }
+        Platform::Schtasks => {
+            let name = schtasks::task_name(&s.id);
+            let _ = run_ok("schtasks", &["/Delete", "/TN", &name, "/F"]);
+            let path = schtasks::xml_path(s, &config.to_path_buf());
+            if path.exists() {
+                std::fs::remove_file(&path)
+                    .with_context(|| format!("删除 {} 失败", path.display()))?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 启动 / 重启一个已装载的服务
+pub fn kick(s: &Service, restart: bool) -> Result<()> {
+    match Platform::current() {
+        Platform::Launchd => {
+            let target = format!("gui/{}/{}", current_uid(), s.label());
+            if restart {
+                run_ok("launchctl", &["kickstart", "-k", target.as_str()])
+            } else {
+                run_ok("launchctl", &["kickstart", target.as_str()])
+            }
+        }
+        Platform::Systemd => run_ok(
+            "systemctl",
+            &["--user", if restart { "restart" } else { "start" }, &s.id],
+        ),
+        Platform::Schtasks => {
+            let name = schtasks::task_name(&s.id);
+            if restart {
+                let _ = run_ok("schtasks", &["/End", "/TN", &name]);
+            }
+            run_ok("schtasks", &["/Run", "/TN", &name])
+        }
+    }
+}
+
+/// 停止（不卸载）
+pub fn stop(s: &Service) -> Result<()> {
+    match Platform::current() {
+        Platform::Launchd => {
+            let target = format!("gui/{}/{}", current_uid(), s.label());
+            run_ok("launchctl", &["kill", "SIGTERM", &target])
+        }
+        Platform::Systemd => run_ok("systemctl", &["--user", "stop", &s.id]),
+        Platform::Schtasks => {
+            let name = schtasks::task_name(&s.id);
+            run_ok("schtasks", &["/End", "/TN", &name])
         }
     }
 }
@@ -302,6 +458,30 @@ enabled = false
         let argv = run_argv(&ctx(), "dufs");
         assert_eq!(argv[0], "/usr/local/bin/us-svc");
         assert_eq!(&argv[1..], &["run", "--config", "/cfg/services.toml", "--id", "dufs"]);
+    }
+
+    #[test]
+    fn parses_both_launchctl_output_formats() {
+        // 实测 macOS 14 的字典格式
+        let dict = r#"{
+	"Label" = "com.ushell.dufs";
+	"PID" = 77514;
+	"LastExitStatus" = 0;
+}"#;
+        assert!(super::launchd_running(dict));
+
+        let dict_idle = r#"{
+	"Label" = "com.ushell.dufs";
+	"PID" = 0;
+}"#;
+        assert!(!super::launchd_running(dict_idle), "PID=0 不算在跑");
+
+        // 旧的表格格式：表头首列是 PID 三个字母，不能被当成分工号
+        let table = "PID\tStatus\tLabel\n77514\t0\tcom.ushell.dufs\n";
+        assert!(super::launchd_running(table));
+
+        let table_idle = "PID\tStatus\tLabel\n-\t0\tcom.ushell.dufs\n";
+        assert!(!super::launchd_running(table_idle));
     }
 
     #[test]

@@ -24,6 +24,8 @@ fn dispatch() -> anyhow::Result<()> {
         "run" => cmd_run(rest),
         "list" => cmd_list(rest),
         "status" => cmd_status(rest),
+        "disable" => cmd_disable(rest),
+        "ui" => cmd_ui(rest),
         "-h" | "--help" | "help" => {
             usage();
             Ok(())
@@ -45,7 +47,11 @@ us-svc —— 声明式本地服务调度
   us-svc run    --config <services.toml> --id <service-id>
                 调度器调用的入口：注入 env、重定向日志、透传退出码
   us-svc list   <services.toml>
-  us-svc status <services.toml>"
+  us-svc status <services.toml>
+  us-svc disable <services.toml> --id <service-id>
+                停止并移除该服务的系统配置（配置本身不动）
+  us-svc ui     <services.toml> [--port 45980] [--open]
+                本地看板：状态 / 启停 / 日志 tail"
 
     );
 }
@@ -185,12 +191,38 @@ fn cmd_status(args: &[String]) -> anyhow::Result<()> {
         println!(
             "{:<16} {:<8} {} / {}",
             s.id,
-            probe(s),
+            probe(s, &path),
             exists,
             it.path.display()
         );
     }
     Ok(())
+}
+
+fn cmd_disable(args: &[String]) -> anyhow::Result<()> {
+    let path = require_config(args)?;
+    let id = flag(args, "--id").ok_or_else(|| anyhow::anyhow!("缺少 --id"))?;
+    let cfg = Config::load(&path)?;
+    let svc = cfg
+        .get(id)
+        .ok_or_else(|| anyhow::anyhow!("配置里没有 service `{id}`"))?;
+    us_service::uninstall(svc, &path)?;
+    println!("已移除 {id} 的系统配置（services.toml 未改动）");
+    Ok(())
+}
+
+fn cmd_ui(args: &[String]) -> anyhow::Result<()> {
+    let path = require_config(args)?;
+    Config::load(&path)?;
+    let port: u16 = match flag(args, "--port") {
+        Some(v) => v.parse()?,
+        None => 45980,
+    };
+    let open = has(args, "--open");
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(us_service::ui::serve(path, port, open))
 }
 
 fn require_config(args: &[String]) -> anyhow::Result<PathBuf> {

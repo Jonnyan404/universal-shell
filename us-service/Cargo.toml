@@ -16,6 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 serde = { workspace = true }
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros"] }
 time = { workspace = true }
 toml = "0.8"
 anyhow = "1.0"

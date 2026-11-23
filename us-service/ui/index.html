@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>服务看板 · us-svc</title>
+<style>
+  :root {
+    --bg: #15171a;
+    --panel: #1b1d21;
+    --panel-2: #21242a;
+    --border: #2b2f36;
+    --text: #e6e8eb;
+    --muted: #8a8f98;
+    --faint: #5f646c;
+    --accent: #4c9aff;
+    --ok: #3fb950;
+    --warn: #d29922;
+    --danger: #f85149;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 14px;
+    padding: 16px 22px; background: rgba(21,23,26,.92);
+    border-bottom: 1px solid var(--border); backdrop-filter: blur(8px);
+  }
+  h1 { font-size: 17px; font-weight: 500; margin: 0; letter-spacing: .2px; }
+  .sub { font-size: 12px; color: var(--muted); display: flex; gap: 10px; align-items: center; }
+  .sub code { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .spacer { flex: 1; }
+  .chips { display: flex; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px; font-size: 12px;
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--muted);
+  }
+  .chip b { color: var(--text); font-weight: 500; }
+  button {
+    font: inherit; font-size: 12.5px; color: var(--text);
+    background: var(--panel-2); border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 8px; cursor: pointer;
+    transition: background .12s, border-color .12s;
+  }
+  button:hover { background: #282c33; border-color: #3a3f47; }
+  button.primary { background: #24405e; border-color: #2f5b86; }
+  button.primary:hover { background: #2a4d72; }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .toggle input { accent-color: var(--accent); }
+
+  main { padding: 20px 22px 80px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 14px 15px 12px; display: flex; flex-direction: column; gap: 10px;
+    transition: border-color .15s;
+  }
+  .card:hover { border-color: #3a3f47; }
+  .card.off { opacity: .62; }
+  .row1 { display: flex; align-items: center; gap: 9px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+  .dot.running { background: var(--ok); box-shadow: 0 0 0 3px rgba(63,185,80,.16); }
+  .dot.stopped { background: var(--warn); }
+  .dot.not_installed { background: #4a4f57; }
+  .dot.unknown { background: var(--danger); }
+  .name { font-size: 14.5px; font-weight: 500; }
+  .sid { font-family: var(--mono); font-size: 11.5px; color: var(--faint); }
+  .pill {
+    margin-left: auto; font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted); white-space: nowrap;
+  }
+  .pill.running { color: var(--ok); border-color: rgba(63,185,80,.35); background: rgba(63,185,80,.1); }
+  .pill.stopped { color: var(--warn); border-color: rgba(210,153,34,.35); background: rgba(210,153,34,.1); }
+  .pill.unknown { color: var(--danger); border-color: rgba(248,81,73,.35); background: rgba(248,81,73,.1); }
+
+  .cmd {
+    font-family: var(--mono); font-size: 12px; color: #b9bfc7;
+    background: #17191d; border: 1px solid #23262b; border-radius: 8px;
+    padding: 7px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cmd span { color: var(--muted); }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge {
+    font-size: 11px; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1px 7px;
+  }
+  .badge.scope-system { color: var(--accent); border-color: rgba(76,154,255,.35); }
+  .last {
+    font-family: var(--mono); font-size: 11.5px; color: var(--faint);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 2px; }
+
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .empty code { font-family: var(--mono); color: var(--faint); }
+
+  /* 日志抽屉 */
+  .drawer {
+    position: fixed; top: 0; right: 0; height: 100vh; width: min(620px, 92vw);
+    background: var(--panel); border-left: 1px solid var(--border);
+    transform: translateX(100%); transition: transform .18s ease; z-index: 20;
+    display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+  .dhead { display: flex; align-items: center; gap: 10px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
+  .dhead .title { font-weight: 500; }
+  .dpath { font-family: var(--mono); font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dbar { display: flex; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); align-items: center; }
+  input[type=search] {
+    flex: 1; font: inherit; font-size: 12.5px; color: var(--text);
+    background: #17191d; border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  input[type=search]:focus { outline: none; border-color: #3f6f9e; }
+  pre.log {
+    flex: 1; margin: 0; padding: 12px 16px; overflow: auto;
+    font-family: var(--mono); font-size: 12px; line-height: 1.55; color: #c9cfd6;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  pre.log .hit { background: rgba(76,154,255,.22); color: #fff; border-radius: 2px; }
+  .dfoot { padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--faint); display: flex; gap: 12px; }
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .18s; z-index: 15; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 12px);
+    background: #22262c; border: 1px solid var(--border); color: var(--text);
+    padding: 9px 16px; border-radius: 10px; font-size: 12.5px; opacity: 0;
+    transition: opacity .16s, transform .16s; z-index: 30; pointer-events: none;
+    max-width: 70vw;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.err { border-color: rgba(248,81,73,.5); color: #ffb4b0; }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>服务看板</h1>
+    <div class="sub" id="sub"><span>读取中…</span></div>
+  </div>
+  <span class="spacer"></span>
+  <div class="chips" id="chips"></div>
+  <label class="toggle"><input type="checkbox" id="auto" checked />自动刷新</label>
+  <button id="refresh">刷新</button>
+</header>
+
+<main>
+  <div class="grid" id="grid"></div>
+</main>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <div class="dhead">
+    <div style="min-width:0">
+      <div class="title" id="d-title">日志</div>
+      <div class="dpath" id="d-path"></div>
+    </div>
+    <span class="spacer"></span>
+    <button id="d-close">关闭</button>
+  </div>
+  <div class="dbar">
+    <input type="search" id="d-search" placeholder="在日志里搜索…" />
+    <label class="toggle"><input type="checkbox" id="d-follow" checked />跟随</label>
+  </div>
+  <pre class="log" id="d-log"></pre>
+  <div class="dfoot"><span id="d-meta"></span><span class="spacer"></span><span>Esc 关闭</span></div>
+</aside>
+
+<div id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let data = { services: [] };
+let openId = null;
+let logTimer = null;
+let toastTimer = null;
+
+function toast(msg, isErr) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 2600);
+}
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.text()) || r.statusText);
+  return r.json();
+}
+
+function render() {
+  const s = data.services || [];
+  const running = s.filter((x) => x.state === 'running').length;
+  const enabled = s.filter((x) => x.state !== 'not_installed').length;
+  $('#sub').innerHTML = `<span>${esc(data.platform || '')}</span><code>${esc(data.config || '')}</code>`;
+  $('#chips').innerHTML = s.length
+    ? `<span class="chip"><b>${s.length}</b> 个服务</span>
+       <span class="chip"><b>${running}</b> 运行中</span>
+       <span class="chip"><b>${enabled}</b> 已启用</span>`
+    : '';
+
+  if (!s.length) {
+    $('#grid').innerHTML = `<div class="empty">配置里还没有服务。<br><br>
+      编辑 <code>${esc(data.config || 'services.toml')}</code> 后点「刷新」。</div>`;
+    return;
+  }
+
+  $('#grid').innerHTML = s.map((x) => card(x)).join('');
+}
+
+function card(x) {
+  const cmd = [x.command, ...x.args].join(' ');
+  const badges = [
+    `<span class="badge scope-${x.scope}">${x.scope === 'system' ? '系统级' : '用户级'}</span>`,
+    x.restart !== 'never' ? `<span class="badge">崩溃重启 · ${x.restart === 'always' ? '总是' : '失败时'}</span>` : '<span class="badge">不重启</span>',
+    x.delay_secs ? `<span class="badge">延迟 ${x.delay_secs}s</span>` : '',
+    x.enabled ? '' : '<span class="badge">配置已停用</span>',
+  ].join('');
+  const installed = x.state !== 'not_installed';
+  const canRun = installed && x.enabled;
+  return `<div class="card ${x.enabled ? '' : 'off'}">
+    <div class="row1">
+      <span class="dot ${x.state}"></span>
+      <span class="name">${esc(x.name)}</span>
+      <span class="sid">${esc(x.id)}</span>
+      <span class="pill ${x.state}">${esc(x.state_label)}</span>
+    </div>
+    <div class="cmd" title="${esc(cmd)}">${esc(x.command)} <span>${esc(x.args.join(' '))}</span></div>
+    <div class="badges">${badges}</div>
+    <div class="last" title="${esc(x.last_line)}">${x.last_line ? esc(x.last_line) : '（暂无日志）'}</div>
+    <div class="actions">
+      <button data-act="start" data-id="${x.id}" ${canRun && x.state !== 'running' ? '' : 'disabled'}>启动</button>
+      <button data-act="restart" data-id="${x.id}" ${canRun ? '' : 'disabled'}>重启</button>
+      <button data-act="stop" data-id="${x.id}" ${x.state === 'running' ? '' : 'disabled'}>停止</button>
+      <button data-act="log" data-id="${x.id}">日志</button>
+      <span class="spacer"></span>
+      ${installed
+        ? `<button class="danger" data-act="disable" data-id="${x.id}">取消自启</button>`
+        : `<button class="primary" data-act="enable" data-id="${x.id}" ${x.enabled ? '' : 'disabled'}>启用自启</button>`}
+    </div>
+  </div>`;
+}
+
+async function load() {
+  try {
+    data = await api('/api/services');
+    render();
+  } catch (e) {
+    toast('读取失败：' + e.message, true);
+  }
+}
+
+document.addEventListener('click', async (ev) => {
+  const btn = ev.target.closest('button[data-act]');
+  if (!btn) return;
+  const { act, id } = btn.dataset;
+  if (act === 'log') return openLog(id);
+  btn.disabled = true;
+  try {
+    const r = await api('/api/action', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, action: act }),
+    });
+    toast(r.message, !r.ok);
+    await load();
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#refresh').onclick = load;
+$('#auto').onchange = () => { if ($('#auto').checked) load(); };
+
+async function openLog(id) {
+  openId = id;
+  const svc = (data.services || []).find((x) => x.id === id);
+  $('#d-title').textContent = svc ? svc.name + ' · 日志' : '日志';
+  $('#d-path').textContent = svc ? svc.log : '';
+  $('#drawer').classList.add('open');
+  $('#scrim').classList.add('open');
+  $('#d-log').textContent = '读取中…';
+  await pullLog();
+  clearInterval(logTimer);
+  logTimer = setInterval(pullLog, 1500);
+}
+
+async function pullLog() {
+  if (!openId) return;
+  try {
+    const r = await api(`/api/log?id=${encodeURIComponent(openId)}&tail=400`);
+    const q = $('#d-search').value.trim();
+    const pre = $('#d-log');
+    pre.innerHTML = q
+      ? r.lines.map((l) => esc(l).split(esc(q)).join(`<span class="hit">${esc(q)}</span>`)).join('\n')
+      : esc(r.lines.join('\n'));
+    $('#d-meta').textContent = `${r.lines.length} 行 · ${(r.size / 1024).toFixed(1)} KB`;
+    if ($('#d-follow').checked) pre.scrollTop = pre.scrollHeight;
+  } catch (e) {
+    $('#d-log').textContent = '读取失败：' + e.message;
+  }
+}
+
+function closeLog() {
+  openId = null;
+  clearInterval(logTimer);
+  $('#drawer').classList.remove('open');
+  $('#scrim').classList.remove('open');
+}
+$('#d-close').onclick = closeLog;
+$('#scrim').onclick = closeLog;
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLog(); });
+$('#d-search').addEventListener('input', () => { if (openId) pullLog(); });
+
+load();
+setInterval(() => { if ($('#auto').checked && !openId) load(); }, 3000);
+</script>
+</body>
+</html>

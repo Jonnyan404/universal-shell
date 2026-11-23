@@ -5624,8 +5624,10 @@ name = "us-service"
 version = "0.3.0"
 dependencies = [
  "anyhow",
+ "axum",
  "serde",
  "time",
+ "tokio",
  "toml 0.8.23",
 ]
 
