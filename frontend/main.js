@@ -2100,49 +2100,63 @@ function fmtDate(secs) {
 }
 
 // ---------- 日志 ----------
-// 管理页小日志窗 DOM 行数上限：只保留末尾 N 条，防长时间运行 append 无界增长
+// 管理页小日志窗按「最新在上」倒序展示：DOM 里第一条就是最新一行。
+// 行数上限只保留最新的 N 条，防长时间运行 prepend 无界增长
 // （恢复界面时一次渲染数千条 div 是假死主因之一）。
 const MANAGE_LOG_MAX_LINES = 800;
+// 倒序后最旧的行在末尾，裁剪要从尾部裁，留下顶部最新的 N 行。
 function trimContainerLines(container, max) {
   while (container.childElementCount > max) {
-    container.firstChild && container.removeChild(container.firstChild);
+    container.lastChild && container.removeChild(container.lastChild);
   }
 }
 
-// F-3 管理页小日志窗：整段重渲时直接滚到最新一屏
-// （日志按会话追加且只展示尾部 64KB，不滚到底会在中间开始，看不到最新输出）
+// 拆行：后端按行写入，文本以 "\n" 结尾时 split 会多出一个空元素，
+// 直接渲染会在倒序顶部凭空多一条空行，先丢掉它。
+function logLines(text) {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n");
+  if (lines.length && lines[lines.length - 1] === "") lines.pop();
+  return lines;
+}
+
+// 一行 → 一个 div；\x1F 前缀表示 stderr（着色用）
+function logLineEl(line) {
+  const isErr = line.startsWith("\u001f");
+  const div = document.createElement("div");
+  div.className = isErr ? "log-err" : "";
+  div.textContent = isErr ? line.slice(1) : line;
+  return div;
+}
+
+// F-3 管理页小日志窗：整段重渲时倒序铺开，最新一屏就在顶部
+// （倒序后 scrollTop=0 才是「看到最新输出」，滚到底反而是最旧的一行）
 function renderLogBody(container, text) {
   container.innerHTML = "";
-  for (const line of text.replace(/\r\n?/g, "\n").split("\n")) {
-    const isErr = line.startsWith("\u001f");
-    const clean = isErr ? line.slice(1) : line;
-    const div = document.createElement("div");
-    div.className = isErr ? "log-err" : "";
-    div.textContent = clean;
-    container.appendChild(div);
-    if (container.childElementCount > MANAGE_LOG_MAX_LINES) {
-      container.firstChild && container.removeChild(container.firstChild);
-    }
-  }
-  container.scrollTop = container.scrollHeight;
+  const frag = document.createDocumentFragment();
+  for (const line of logLines(text).reverse()) frag.appendChild(logLineEl(line));
+  container.appendChild(frag);
+  trimContainerLines(container, MANAGE_LOG_MAX_LINES);
+  container.scrollTop = 0;
 }
 
 // F-3/F11：增量日志尾随。按程序记录上次 EOF 偏移；文件被截断时 reset 整体重渲。
 const logOffsets = {};
 // 管理页日志窗口当前所属程序 id；切换程序时强制全量重渲避免残留旧程序内容
 let manageLogOwner = null;
-function appendLogText(container, delta) {
-  for (const line of delta.replace(/\r\n?/g, "\n").split("\n")) {
-    const isErr = line.startsWith("\u001f");
-    const clean = isErr ? line.slice(1) : line;
-    const div = document.createElement("div");
-    div.className = isErr ? "log-err" : "";
-    div.textContent = clean;
-    container.appendChild(div);
-  }
-  if (container.childElementCount > MANAGE_LOG_MAX_LINES) trimContainerLines(container, MANAGE_LOG_MAX_LINES);
-  const atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 60;
-  if (atBottom) container.scrollTop = container.scrollHeight;
+// 新行插到顶部。用户正往下翻着看旧日志时不能把他弹回顶部：按插入前后的
+// scrollHeight 差补偿 scrollTop，正在读的那几行视觉位置不动。
+function prependLogText(container, delta) {
+  const lines = logLines(delta);
+  if (!lines.length) return;
+  const atTop = container.scrollTop <= 4;
+  const beforeHeight = container.scrollHeight;
+  const frag = document.createDocumentFragment();
+  for (const line of lines.reverse()) frag.appendChild(logLineEl(line));
+  container.insertBefore(frag, container.firstChild);
+  trimContainerLines(container, MANAGE_LOG_MAX_LINES);
+  container.scrollTop = atTop
+    ? 0
+    : container.scrollTop + (container.scrollHeight - beforeHeight);
 }
 
 async function refreshManageLog() {
@@ -2156,7 +2170,7 @@ async function refreshManageLog() {
     const res = await invoke("get_logs", args);
     logOffsets[current.id] = res.offset;
     if (!hasOffset || res.reset) renderLogBody(box, res.text);
-    else if (res.text) appendLogText(box, res.text);
+    else if (res.text) prependLogText(box, res.text);
     manageLogOwner = current.id;
   } catch {
     /* 无日志文件或读取失败：保持现状 */
@@ -2859,7 +2873,12 @@ document.querySelector("#log-clear-src").onclick = async () => {
   }
 };
 document.querySelector("#manage-log-copy").onclick = () => {
-  navigator.clipboard.writeText(el.manageLogContent.textContent).catch(() => {});
+  // 小窗是倒序展示的，复制得还原成时间顺序，粘到别处才读得顺
+  const text = [...el.manageLogContent.children]
+    .map((d) => d.textContent)
+    .reverse()
+    .join("\n");
+  navigator.clipboard.writeText(text).catch(() => {});
 };
 document.querySelector("#manage-log-refresh").onclick = refreshManageLog;
 document.querySelector("#manage-log-open").onclick = () => {
@@ -2879,7 +2898,8 @@ function setupManageLogDrawer() {
     log.style.setProperty("--ml-height", drawerHeight + "px");
     toggle.textContent = open ? "▾" : "▸";
     toggle.title = t(open ? "log.collapse" : "log.expand");
-    if (open) requestAnimationFrame(() => { el.manageLogContent.scrollTop = el.manageLogContent.scrollHeight; });
+    // 倒序展示：顶部就是最新一屏，展开时回到顶部
+    if (open) requestAnimationFrame(() => { el.manageLogContent.scrollTop = 0; });
   };
   toggle.onclick = () => {
     log.dataset.open = log.dataset.open === "1" ? "0" : "1";
