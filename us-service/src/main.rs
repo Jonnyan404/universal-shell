@@ -23,6 +23,7 @@ fn dispatch() -> anyhow::Result<()> {
         "apply" => cmd_apply(rest),
         "run" => cmd_run(rest),
         "list" => cmd_list(rest),
+        "order" => cmd_order(rest),
         "status" => cmd_status(rest),
         "disable" => cmd_disable(rest),
         "ui" => cmd_ui(rest),
@@ -47,6 +48,8 @@ us-svc —— 声明式本地服务调度
   us-svc run    --config <services.toml> --id <service-id>
                 调度器调用的入口：注入 env、重定向日志、透传退出码
   us-svc list   <services.toml>
+  us-svc order  <services.toml>
+                按依赖排出实际启动顺序（依赖在前）
   us-svc status <services.toml>
   us-svc disable <services.toml> --id <service-id>
                 停止并移除该服务的系统配置（配置本身不动）
@@ -153,7 +156,7 @@ fn cmd_run(args: &[String]) -> anyhow::Result<()> {
         .get(id)
         .ok_or_else(|| anyhow::anyhow!("配置里没有 service `{id}`"))?;
     let log = svc.log_path(&config);
-    let code = runner::run(svc, &log)?;
+    let code = runner::run(svc, &cfg, &config, &log)?;
     std::process::exit(code);
 }
 
@@ -174,6 +177,21 @@ fn cmd_list(args: &[String]) -> anyhow::Result<()> {
             s.command,
             if s.enabled { "" } else { "(disabled)" }
         );
+    }
+    Ok(())
+}
+
+fn cmd_order(args: &[String]) -> anyhow::Result<()> {
+    let path = require_config(args)?;
+    let cfg = Config::load(&path)?;
+    println!("{:<4} {:<16} {}", "#", "id", "等待");
+    for (i, s) in cfg.topo_order()?.iter().enumerate() {
+        let dep = if s.depends_on.is_empty() {
+            "—".to_string()
+        } else {
+            format!("← {}", s.depends_on.join(", "))
+        };
+        println!("{:<4} {:<16} {}", i + 1, s.id, dep);
     }
     Ok(())
 }

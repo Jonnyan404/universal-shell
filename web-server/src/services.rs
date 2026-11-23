@@ -73,6 +73,10 @@ pub fn list(data_dir: &Path) -> Result<Value> {
             "scope": scope_name(s.scope),
             "restart": restart_name(s.restart),
             "delay_secs": s.delay_secs,
+            "depends_on": s.depends_on,
+            "wait_timeout_secs": s.wait_timeout_secs,
+            "ready_port": s.ready_port,
+            "ready_file": s.ready_file.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
             "enabled": s.enabled,
             "state": st,
             "state_label": st.label(),
@@ -125,6 +129,14 @@ pub struct Draft {
     #[serde(default)]
     pub delay_secs: u64,
     #[serde(default)]
+    pub depends_on: String,
+    #[serde(default)]
+    pub wait_timeout_secs: u64,
+    #[serde(default)]
+    pub ready_port: String,
+    #[serde(default)]
+    pub ready_file: String,
+    #[serde(default)]
     pub restart: String,
     #[serde(default)]
     pub scope: String,
@@ -155,6 +167,11 @@ pub fn save(data_dir: &Path, d: Draft) -> Result<Value> {
         cwd: (!cwd.is_empty()).then(|| PathBuf::from(cwd)),
         log: (!log.is_empty()).then(|| PathBuf::from(log)),
         delay_secs: d.delay_secs,
+        depends_on: us_service::parse_ids(&d.depends_on),
+        wait_timeout_secs: if d.wait_timeout_secs == 0 { 60 } else { d.wait_timeout_secs },
+        ready_port: d.ready_port.trim().parse().ok(),
+        ready_file: (!d.ready_file.trim().is_empty())
+            .then(|| PathBuf::from(d.ready_file.trim())),
         restart: us_service::restart_from(&d.restart),
         restart_secs: 10,
         scope: us_service::scope_from(&d.scope),
@@ -275,6 +292,10 @@ mod tests {
                 cwd: String::new(),
                 log: String::new(),
                 delay_secs: 3,
+                depends_on: String::new(),
+                wait_timeout_secs: 0,
+                ready_port: String::new(),
+                ready_file: String::new(),
                 restart: "on_failure".into(),
                 scope: "user".into(),
                 enabled: true,
@@ -311,6 +332,10 @@ mod tests {
             cwd: String::new(),
             log: String::new(),
             delay_secs: 0,
+            depends_on: String::new(),
+            wait_timeout_secs: 0,
+            ready_port: String::new(),
+            ready_file: String::new(),
             restart: "never".into(),
             scope: "user".into(),
             enabled: true,

@@ -193,19 +193,30 @@ fn reload(p: Platform, item: &PlanItem, cfg: &Config) -> Result<()> {
     match p {
         Platform::Launchd => {
             let label = svc.map(Service::label).unwrap_or_default();
-            // 先卸载旧的（可能不存在），再装载；bootstrap 比 load 更能反映错误
+            let domain = format!("gui/{}", current_uid());
+            let service = format!("{domain}/{label}");
+            // 先卸载旧的（可能不存在），等它真的消失再 bootstrap，
+            // 否则对已装载的服务会报 "Bootstrap failed: 5"（不幂等）。
             let _ = std::process::Command::new("launchctl")
-                .args(["bootout", &format!("gui/{}", current_uid()), &label])
+                .args(["bootout", &service])
                 .output();
+            for _ in 0..20 {
+                let loaded = std::process::Command::new("launchctl")
+                    .args(["print", &service])
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+                if !loaded {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
             let out = std::process::Command::new("launchctl")
-                .args([
-                    "bootstrap",
-                    &format!("gui/{}", current_uid()),
-                    &item.path.to_string_lossy(),
-                ])
+                .args(["bootstrap", &domain, &item.path.to_string_lossy()])
                 .output()
                 .context("执行 launchctl bootstrap 失败")?;
             if !out.status.success() {
+                // 已经不在了却又装不上，才是真失败；其余情况把原始 stderr 带出来
                 bail!(
                     "launchctl bootstrap 失败: {}",
                     String::from_utf8_lossy(&out.stderr).trim()
@@ -302,6 +313,15 @@ pub fn parse_env(text: &str) -> Result<std::collections::BTreeMap<String, String
         env.insert(k.to_string(), v.trim().to_string());
     }
     Ok(env)
+}
+
+/// 表单里的依赖 id（逗号/换行/空格分隔都可）
+pub fn parse_ids(text: &str) -> Vec<String> {
+    text.split(|c: char| c == ',' || c == '\n' || c.is_whitespace())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 pub fn restart_from(s: &str) -> Restart {

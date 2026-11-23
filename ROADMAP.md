@@ -142,6 +142,11 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
   - **主界面接入（2026-11-23）**：服务看板已是 SPA 的一个视图（侧栏「服务」），后端走 `/api/rpc` 的 `services_*` 命令，配置在 `<data_dir>/services.toml`。调度独立：**关掉窗口不影响服务运行**，这正是"生成原生配置"的意义。
   - **CI 已真机验证 Windows**：`us-service` 工作流在 `windows-latest` 上真实执行「生成 XML → schtasks /Create → /Query → /Run → 等包装器日志出现服务输出 → /Delete」。UTF-16LE+BOM 与「限定 UserId 的登录触发器可在非提升终端注册」两条社区结论均成立。
   - **已补的运行时能力**：SIGTERM/SIGINT 转发给子进程（集成测试覆盖）；日志超过 8MB 滚到 `.log.1`；`us-svc` 随 Release 分发；`system` 级在 Windows 直接注册（HighestAvailable），macOS/Linux 明确要求 sudo。
+  - **启动顺序（2026-11-23）**：`depends_on = ["db"]` + 就绪判定（`ready_port` TCP 可连 / `ready_file` 存在 / 都没有则看进程是否在跑）。
+    - 为什么不用「调度器排序」：launchd 与计划任务**都没有依赖概念**，systemd 有 `After=` 但跨平台不齐；所以等待放在**包装器**里——每条服务独立系统作业，A 的包装器等 B 就绪，A 才 spawn。`us-svc order` 可打印拓扑序。
+    - 超时语义与 systemd `Wants` 一致：等满 `wait_timeout_secs` 只记警告并继续，**不**把整条链卡死（否则一个坏依赖会让所有下游都起不来）。
+    - 加载配置时就做环检测（A→B→A 直接拒绝并打印环路径），避免开机后才互相等到超时。
+    - 实测：`app` 等 `db` 的就绪文件，日志记录「等待依赖 db 就绪 → 已就绪（3193ms）」；重复 apply 时因文件已存在为 0ms。
   - **已知未做**：① `Program.run.supervisor` 尚未加——模板库安装的程序与服务仍是两个列表，未打通；② 服务页文案暂用本地 zh/en 表，未进 `shared/locales`；③ 界面保存会重写 TOML（注释不保留）；④ 服务页未进移动端底部 Tab；⑤ Windows 的 `system`（提权）场景 CI 未覆盖。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。

@@ -94,6 +94,7 @@
     border-radius: 6px; padding: 1px 7px;
   }
   .badge.scope-system { color: var(--accent); border-color: rgba(76,154,255,.35); }
+  .badge-dep { color: #c9a227; border-color: rgba(201,162,39,.4); }
   .last {
     font-family: var(--mono); font-size: 11.5px; color: var(--faint);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -211,6 +212,10 @@
   <div class="field"><label>工作目录</label><input type="text" id="f-cwd" placeholder="留空则继承调度器" /></div>
   <div class="field"><label>日志文件</label><input type="text" id="f-log" placeholder="留空 = 配置目录/logs/&lt;id&gt;.log" /></div>
   <div class="field"><label>启动延迟</label><input type="number" id="f-delay" min="0" value="0" /></div>
+  <div class="field"><label>依赖服务</label><div><input type="text" id="f-deps" placeholder="db, cache" /><div class="hint">逗号或换行分隔；会等它们「就绪」后再启动</div></div></div>
+  <div class="field"><label>等待超时</label><input type="number" id="f-wait" min="0" value="60" /></div>
+  <div class="field"><label>就绪端口</label><div><input type="text" id="f-rport" placeholder="5000" /><div class="hint">别人等我时，以这个端口可连为准；留空则看进程是否在跑</div></div></div>
+  <div class="field"><label>就绪文件</label><div><input type="text" id="f-rfile" placeholder="留空 = 用进程状态" /><div class="hint">相对路径基于配置目录</div></div></div>
   <div class="field"><label>崩溃重启</label>
     <select id="f-restart">
       <option value="never">不重启</option>
@@ -285,6 +290,9 @@ function card(x) {
     `<span class="badge scope-${x.scope}">${x.scope === 'system' ? '系统级' : '用户级'}</span>`,
     x.restart !== 'never' ? `<span class="badge">崩溃重启 · ${x.restart === 'always' ? '总是' : '失败时'}</span>` : '<span class="badge">不重启</span>',
     x.delay_secs ? `<span class="badge">延迟 ${x.delay_secs}s</span>` : '',
+    (x.depends_on || []).length ? `<span class="badge badge-dep">等待 ${esc(x.depends_on.join(" "))}</span>` : '',
+    x.ready_port ? `<span class="badge">就绪:端口 ${x.ready_port}</span>` : '',
+    x.ready_file ? `<span class="badge">就绪:文件</span>` : '',
     x.enabled ? '' : '<span class="badge">配置已停用</span>',
   ].join('');
   const installed = x.state !== 'not_installed';
@@ -361,6 +369,10 @@ function openEditor(svc) {
   $('#f-cwd').value = svc ? (svc.cwd || '') : '';
   $('#f-log').value = svc ? svc.log : '';
   $('#f-delay').value = svc ? svc.delay_secs : 0;
+  $('#f-deps').value = svc ? (svc.depends_on || []).join(', ') : '';
+  $('#f-wait').value = svc ? (svc.wait_timeout_secs || 60) : 60;
+  $('#f-rport').value = svc && svc.ready_port ? svc.ready_port : '';
+  $('#f-rfile').value = svc ? (svc.ready_file || '') : '';
   $('#f-restart').value = svc ? svc.restart : 'never';
   $('#f-scope').value = svc ? svc.scope : 'user';
   $('#f-enabled').checked = svc ? svc.enabled : true;
@@ -392,6 +404,10 @@ $('#f-save').onclick = async () => {
     cwd: $('#f-cwd').value,
     log: logUnchanged ? '' : logVal,
     delay_secs: Number($('#f-delay').value) || 0,
+    depends_on: $('#f-deps').value,
+    wait_timeout_secs: Number($('#f-wait').value) || 0,
+    ready_port: $('#f-rport').value,
+    ready_file: $('#f-rfile').value,
     restart: $('#f-restart').value,
     scope: $('#f-scope').value,
     enabled: $('#f-enabled').checked,

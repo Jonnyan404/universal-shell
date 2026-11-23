@@ -4,10 +4,12 @@
 //! - Windows 计划任务不接管 stdout/stderr，没有这层就永远看不到日志；
 //! - 延迟统一在这里做（launchd 没有原生 delay），三平台语义一致；
 //! - 退出码、启动时间、PID 都写进同一个日志，排障只需要看一个文件；
+//! - 启动前会等 `depends_on` 里的服务「就绪」（launchd / 计划任务都没有依赖概念，
+//!   只能在包装器里等；超时只警告并继续，避免一个坏依赖拖死整条链）；
 //! - 调度器的 SIGTERM 会转发给子进程，服务能优雅退出（否则子进程会被晾成孤儿）；
 //! - 日志超过上限时滚动一份 `.1`，长期运行不会把磁盘写满。
 
-use crate::Service;
+use crate::{Config, Service};
 use anyhow::{Context, Result};
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -60,8 +62,62 @@ fn forward_term_signals(child_pid: u32) {
     }
 }
 
+
+/// 依次等待声明的依赖就绪。
+///
+/// 就绪的判定来自依赖自己的声明（`ready_port` / `ready_file`），都没写就看进程是否在跑。
+/// 超时**不阻断**启动：只写一条警告继续 —— 与 systemd 的 Wants 一致，
+/// 否则一个坏依赖会让整条启动链永远起不来。
+fn wait_for_dependencies(
+    service: &Service,
+    cfg: &Config,
+    config_path: &Path,
+    log: &mut std::fs::File,
+) -> Result<()> {
+    if service.depends_on.is_empty() {
+        return Ok(());
+    }
+    let timeout = Duration::from_secs(service.wait_timeout_secs.max(1));
+    for id in &service.depends_on {
+        let Some(dep) = cfg.get(id) else {
+            writeln!(log, "=== {} 依赖 {} 不在配置里，跳过 ===", stamp(), id)?;
+            let _ = log.flush();
+            continue;
+        };
+        writeln!(log, "=== {} 等待依赖 {} 就绪 ===", stamp(), id)?;
+        let _ = log.flush();
+        let started = std::time::Instant::now();
+        loop {
+            if cfg.dependency_ready(dep, config_path) {
+                writeln!(
+                    log,
+                    "=== {} 依赖 {} 已就绪（{}ms）===",
+                    stamp(),
+                    id,
+                    started.elapsed().as_millis()
+                )?;
+                let _ = log.flush();
+                break;
+            }
+            if started.elapsed() >= timeout {
+                writeln!(
+                    log,
+                    "=== {} 等待依赖 {} 超时（{}s），继续启动 ===",
+                    stamp(),
+                    id,
+                    timeout.as_secs()
+                )?;
+                let _ = log.flush();
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(250));
+        }
+    }
+    Ok(())
+}
+
 /// 拉起到结束的完整流程；返回子进程退出码（拿不到时返回 1）
-pub fn run(service: &Service, log_path: &Path) -> Result<i32> {
+pub fn run(service: &Service, cfg: &Config, config_path: &Path, log_path: &Path) -> Result<i32> {
     if let Some(dir) = log_path.parent() {
         std::fs::create_dir_all(dir)
             .with_context(|| format!("创建日志目录 {} 失败", dir.display()))?;
@@ -78,6 +134,8 @@ pub fn run(service: &Service, log_path: &Path) -> Result<i32> {
         let _ = log.flush();
         std::thread::sleep(Duration::from_secs(service.delay_secs));
     }
+
+    wait_for_dependencies(service, cfg, config_path, &mut log)?;
 
     let mut cmd = Command::new(&service.command);
     cmd.args(&service.args);
@@ -121,15 +179,22 @@ mod tests {
         p
     }
 
-    fn service(toml: &str) -> Service {
-        Config::parse(toml).unwrap().services.remove(0)
+    fn service(toml: &str) -> (Config, Service) {
+        let cfg = Config::parse(toml).unwrap();
+        let svc = cfg.services[0].clone();
+        (cfg, svc)
+    }
+
+    /// 测试里不关心配置路径（只有 ready_file 的相对路径才用到）
+    fn run_simple(svc: &Service, cfg: &Config, log: &Path) -> Result<i32> {
+        run(svc, cfg, Path::new("/tmp/us-svc-test.toml"), log)
     }
 
     #[cfg(unix)]
     #[test]
     fn captures_output_and_propagates_exit_code() {
         let log = tmp_log("exit");
-        let s = service(
+        let (cfg, s) = service(
             r#"
 [[services]]
 id = "t"
@@ -137,7 +202,7 @@ command = "/bin/sh"
 args = ["-c", "echo hello-from-service; echo oops >&2; exit 3"]
 "#,
         );
-        let code = run(&s, &log).unwrap();
+        let code = run_simple(&s, &cfg, &log).unwrap();
         assert_eq!(code, 3, "退出码要原样传回调度器");
 
         let text = std::fs::read_to_string(&log).unwrap();
@@ -154,7 +219,7 @@ args = ["-c", "echo hello-from-service; echo oops >&2; exit 3"]
         let log = tmp_log("env");
         let dir = std::env::temp_dir().join(format!("us-svc-cwd-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let s = service(&format!(
+        let (cfg, s) = service(&format!(
             r#"
 [[services]]
 id = "t"
@@ -165,7 +230,7 @@ cwd = "{}"
 "#,
             dir.display()
         ));
-        run(&s, &log).unwrap();
+        run_simple(&s, &cfg, &log).unwrap();
         let text = std::fs::read_to_string(&log).unwrap();
         assert!(text.contains("token=s3cr3t"), "env 未注入:\n{text}");
         assert!(text.contains(&dir.to_string_lossy().to_string()), "cwd 未生效:\n{text}");
@@ -174,17 +239,96 @@ cwd = "{}"
     }
 
     #[cfg(unix)]
+    #[cfg(unix)]
+    #[test]
+    fn waits_until_dependency_is_ready() {
+        let dir = std::env::temp_dir().join(format!("us-svc-dep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("ready.flag");
+        let toml = format!(
+            r#"
+[[services]]
+id = "db"
+command = "/bin/sh"
+args = ["-c", "sleep 30"]
+ready_file = "{marker}"
+
+[[services]]
+id = "app"
+command = "/bin/sh"
+args = ["-c", "echo app-started"]
+depends_on = ["db"]
+wait_timeout_secs = 10
+"#,
+            marker = marker.display()
+        );
+        let cfg = Config::parse(&toml).unwrap();
+        let app = cfg.get("app").unwrap().clone();
+        let cfg_path = dir.join("services.toml");
+        let log = dir.join("app.log");
+
+        // 300ms 后让依赖"就绪"（用文件模拟端口/启动完成）
+        let marker2 = marker.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            std::fs::write(marker2, b"ok").unwrap();
+        });
+
+        let started = std::time::Instant::now();
+        run(&app, &cfg, &cfg_path, &log).unwrap();
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.contains("等待依赖 db 就绪"), "应记录在等谁:\n{text}");
+        assert!(text.contains("依赖 db 已就绪"), "应记录就绪:\n{text}");
+        assert!(started.elapsed() >= Duration::from_millis(300), "确实等了");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn proceeds_after_dependency_timeout() {
+        let dir = std::env::temp_dir().join(format!("us-svc-dep-to-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let toml = format!(
+            r#"
+[[services]]
+id = "db"
+command = "/bin/sh"
+args = ["-c", "sleep 30"]
+ready_file = "{}/never-created"
+
+[[services]]
+id = "app"
+command = "/bin/sh"
+args = ["-c", "echo app-started-anyway"]
+depends_on = ["db"]
+wait_timeout_secs = 1
+"#,
+            dir.display()
+        );
+        let cfg = Config::parse(&toml).unwrap();
+        let app = cfg.get("app").unwrap().clone();
+        let log = dir.join("app.log");
+        let code = run(&app, &cfg, &dir.join("services.toml"), &log).unwrap();
+        assert_eq!(code, 0);
+        let text = std::fs::read_to_string(&log).unwrap();
+        assert!(text.contains("超时"), "应记录超时:\n{text}");
+        assert!(text.contains("app-started-anyway"), "超时后仍要启动:\n{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn reports_missing_command_instead_of_panicking() {
         let log = tmp_log("missing");
-        let s = service(
+        let (cfg, s) = service(
             r#"
 [[services]]
 id = "t"
 command = "/definitely/not/here"
 "#,
         );
-        let err = run(&s, &log).unwrap_err().to_string();
+        let err = run_simple(&s, &cfg, &log).unwrap_err().to_string();
         assert!(err.contains("启动"), "实际: {err}");
         let _ = std::fs::remove_file(&log);
     }
@@ -216,7 +360,7 @@ command = "/definitely/not/here"
     #[test]
     fn repeated_runs_append_rather_than_truncate() {
         let log = tmp_log("append");
-        let s = service(
+        let (cfg, s) = service(
             r#"
 [[services]]
 id = "t"
@@ -224,8 +368,8 @@ command = "/bin/sh"
 args = ["-c", "echo run"]
 "#,
         );
-        run(&s, &log).unwrap();
-        run(&s, &log).unwrap();
+        run_simple(&s, &cfg, &log).unwrap();
+        run_simple(&s, &cfg, &log).unwrap();
         let text = std::fs::read_to_string(&log).unwrap();
         assert_eq!(text.matches("=== ").count(), 4, "每次运行写 start+exit 两行标记:\n{text}");
         assert_eq!(text.matches("run\n").count(), 2, "两次运行都应保留:\n{text}");

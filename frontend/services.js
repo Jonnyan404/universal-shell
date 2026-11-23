@@ -36,6 +36,12 @@ const SVC_I18N = {
     f_cwd: "工作目录",
     f_log: "日志文件",
     f_delay: "启动延迟（秒）",
+    f_deps: "依赖服务",
+    f_deps_hint: "逗号分隔，会等它们就绪后再启动",
+    f_wait: "等待超时（秒）",
+    f_rport: "就绪端口",
+    f_rfile: "就绪文件",
+    wait_for: "等待",
     f_restart: "崩溃重启",
     f_scope: "运行范围",
     f_enabled: "启用",
@@ -81,6 +87,12 @@ const SVC_I18N = {
     f_cwd: "Working directory",
     f_log: "Log file",
     f_delay: "Start delay (s)",
+    f_deps: "Depends on",
+    f_deps_hint: "Comma separated; waits until they are ready",
+    f_wait: "Wait timeout (s)",
+    f_rport: "Ready port",
+    f_rfile: "Ready file",
+    wait_for: "waits",
     f_restart: "Restart on crash",
     f_scope: "Scope",
     f_enabled: "Enabled",
@@ -158,6 +170,10 @@ function svcCard(x) {
       x.restart === "always" ? L("restart_always") : x.restart === "on_failure" ? L("restart_onfail") : L("restart_never")
     )}</span>`,
     x.delay_secs ? `<span class="svc-badge">${x.delay_secs}s</span>` : "",
+    (x.depends_on || []).length
+      ? `<span class="svc-badge svc-badge-dep">${esc(L("wait_for"))} ${esc((x.depends_on || []).join(" "))}</span>`
+      : "",
+    x.ready_port ? `<span class="svc-badge">:${x.ready_port}</span>` : "",
     x.enabled ? "" : `<span class="svc-badge">off</span>`,
   ].join("");
   return `<div class="svc-card ${x.enabled ? "" : "svc-off"}">
@@ -311,6 +327,14 @@ function svcEditor() {
               <option value="system">${esc(L("scope_system"))}</option>
             </select></div>
         </div>
+        <label class="edit-label">${esc(L("f_deps"))}</label>
+        <input id="svc-e-deps" type="text" placeholder="db, cache"/>
+        <div class="svc-hint">${esc(L("f_deps_hint"))}</div>
+        <div class="svc-two">
+          <div><label class="edit-label">${esc(L("f_wait"))}</label><input id="svc-e-wait" type="number" min="0" value="60"/></div>
+          <div><label class="edit-label">${esc(L("f_rport"))}</label><input id="svc-e-rport" type="text" placeholder="5000"/></div>
+          <div><label class="edit-label">${esc(L("f_rfile"))}</label><input id="svc-e-rfile" type="text"/></div>
+        </div>
         <div class="svc-checks">
           <label><input type="checkbox" id="svc-e-enabled" checked/>${esc(L("f_enabled"))}</label>
           <label><input type="checkbox" id="svc-e-apply" checked/>${esc(L("f_apply"))}</label>
@@ -348,6 +372,10 @@ function svcEdit(id) {
   m.querySelector("#svc-e-cwd").value = svc ? svc.cwd || "" : "";
   m.querySelector("#svc-e-log").value = svc ? svc.log : "";
   m.querySelector("#svc-e-delay").value = svc ? svc.delay_secs : 0;
+  m.querySelector("#svc-e-deps").value = svc ? (svc.depends_on || []).join(", ") : "";
+  m.querySelector("#svc-e-wait").value = svc ? svc.wait_timeout_secs || 60 : 60;
+  m.querySelector("#svc-e-rport").value = svc && svc.ready_port ? svc.ready_port : "";
+  m.querySelector("#svc-e-rfile").value = svc ? svc.ready_file || "" : "";
   m.querySelector("#svc-e-restart").value = svc ? svc.restart : "never";
   m.querySelector("#svc-e-scope").value = svc ? svc.scope : "user";
   m.querySelector("#svc-e-enabled").checked = svc ? svc.enabled : true;
@@ -376,6 +404,10 @@ async function svcSave() {
     // 未改动就不写进配置，避免把默认路径固化成显式字段
     log: editing && logVal === editing.log ? "" : logVal,
     delay_secs: Number(m.querySelector("#svc-e-delay").value) || 0,
+    depends_on: m.querySelector("#svc-e-deps").value,
+    wait_timeout_secs: Number(m.querySelector("#svc-e-wait").value) || 0,
+    ready_port: m.querySelector("#svc-e-rport").value,
+    ready_file: m.querySelector("#svc-e-rfile").value,
     restart: m.querySelector("#svc-e-restart").value,
     scope: m.querySelector("#svc-e-scope").value,
     enabled: m.querySelector("#svc-e-enabled").checked,

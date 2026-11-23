@@ -29,6 +29,27 @@ restart = "never"
 # 默认 user 作用域；需要登录前就运行再改成 system（macOS 会装到 LaunchDaemons）
 scope = "user"
 
+# 依赖顺序：app 会等 db 的 5000 端口可连之后才启动
+# （launchd / 计划任务都没有依赖概念，由包装器负责等待）
+[[services]]
+id = "db"
+name = "数据库"
+command = "/usr/local/bin/db"
+args = ["--port", "5000"]
+# 别人等我时以「端口可连」为准，比「进程在跑」可靠
+ready_port = 5000
+restart = "always"
+
+[[services]]
+id = "app"
+name = "依赖数据库的应用"
+command = "/usr/local/bin/app"
+args = ["--db", "127.0.0.1:5000"]
+depends_on = ["db"]
+# 等依赖最多 60 秒，超时只警告并继续（不把整条启动链卡死）
+wait_timeout_secs = 60
+restart = "on_failure"
+
 [[services]]
 id = "paused"
 name = "暂时不要的服务"

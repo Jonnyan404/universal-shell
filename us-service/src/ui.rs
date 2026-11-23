@@ -94,6 +94,10 @@ struct Row {
     scope: String,
     restart: String,
     delay_secs: u64,
+    depends_on: Vec<String>,
+    wait_timeout_secs: u64,
+    ready_port: Option<u16>,
+    ready_file: String,
     enabled: bool,
     state: ServiceState,
     state_label: String,
@@ -128,6 +132,14 @@ async fn list(State(app): State<Arc<App>>) -> Result<Json<ListResp>, (StatusCode
                 crate::Restart::Always => "always".into(),
             },
             delay_secs: s.delay_secs,
+            depends_on: s.depends_on.clone(),
+            wait_timeout_secs: s.wait_timeout_secs,
+            ready_port: s.ready_port,
+            ready_file: s
+                .ready_file
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
             enabled: s.enabled,
             state: st,
             state_label: st.label().into(),
@@ -269,6 +281,16 @@ struct SaveReq {
     log: String,
     #[serde(default)]
     delay_secs: u64,
+    /// 依赖的服务 id（逗号/换行分隔）
+    #[serde(default)]
+    depends_on: String,
+    #[serde(default)]
+    wait_timeout_secs: u64,
+    /// 就绪判定：端口 / 文件（留空表示用「进程在跑」）
+    #[serde(default)]
+    ready_port: String,
+    #[serde(default)]
+    ready_file: String,
     #[serde(default)]
     restart: String,
     #[serde(default)]
@@ -298,6 +320,11 @@ async fn save(State(app): State<Arc<App>>, Json(req): Json<SaveReq>) -> Json<Act
             cwd: non_empty(&req.cwd).map(std::path::PathBuf::from),
             log: non_empty(&req.log).map(std::path::PathBuf::from),
             delay_secs: req.delay_secs,
+            depends_on: crate::parse_ids(&req.depends_on),
+            wait_timeout_secs: if req.wait_timeout_secs == 0 { 60 } else { req.wait_timeout_secs },
+            ready_port: req.ready_port.trim().parse().ok(),
+            ready_file: (!req.ready_file.trim().is_empty())
+                .then(|| std::path::PathBuf::from(req.ready_file.trim())),
             restart: crate::restart_from(&req.restart),
             restart_secs: 10,
             scope: crate::scope_from(&req.scope),

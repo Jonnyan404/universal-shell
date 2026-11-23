@@ -36,6 +36,10 @@ fn default_restart_secs() -> u64 {
     10
 }
 
+fn default_wait_secs() -> u64 {
+    60
+}
+
 fn default_true() -> bool {
     true
 }
@@ -73,6 +77,19 @@ pub struct Service {
     /// 重启间隔秒数（避免崩溃风暴）
     #[serde(default = "default_restart_secs")]
     pub restart_secs: u64,
+    /// 依赖的服务 id：本服务会等它们「就绪」之后再启动
+    /// （语义同 systemd 的 Wants+After：超时只警告并继续，不会把整条链卡死）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<String>,
+    /// 等待依赖的总超时（秒）
+    #[serde(default = "default_wait_secs")]
+    pub wait_timeout_secs: u64,
+    /// 就绪判定：本机 TCP 端口可连（优先于其它判定，最贴近「真的能用了」）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_port: Option<u16>,
+    /// 就绪判定：文件存在（相对路径基于配置目录）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_file: Option<PathBuf>,
     /// 安装范围
     #[serde(default)]
     pub scope: Scope,
@@ -146,6 +163,7 @@ impl Config {
                 bail!("service id `{}` 重复", s.id);
             }
         }
+        cfg.validate_graph()?;
         Ok(cfg)
     }
 
@@ -153,6 +171,101 @@ impl Config {
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("读取 {} 失败", path.display()))?;
         Self::parse(&text)
+    }
+
+    /// 校验依赖图：不能指向不存在的服务、不能自依赖、不能成环。
+    ///
+    /// 环是最容易犯又最难查的错（A 等 B、B 等 A），开机后两边都卡到超时；
+    /// 所以在加载配置时就拒绝，而不是等到开机才发现。
+    pub fn validate_graph(&self) -> Result<()> {
+        for s in &self.services {
+            for dep in &s.depends_on {
+                if dep == &s.id {
+                    bail!("service `{}` 不能依赖自己", s.id);
+                }
+                if !self.services.iter().any(|x| &x.id == dep) {
+                    bail!("service `{}` 依赖了不存在的服务 `{}`", s.id, dep);
+                }
+            }
+        }
+        // DFS 找环，同时给出具体的环路径便于排查
+        #[derive(Clone, Copy, PartialEq)]
+        enum Mark {
+            New,
+            InStack,
+            Done,
+        }
+        let mut mark: std::collections::BTreeMap<&str, Mark> =
+            self.services.iter().map(|s| (s.id.as_str(), Mark::New)).collect();
+        let mut stack: Vec<&str> = Vec::new();
+
+        fn visit<'a>(
+            id: &'a str,
+            cfg: &'a Config,
+            mark: &mut std::collections::BTreeMap<&'a str, Mark>,
+            stack: &mut Vec<&'a str>,
+        ) -> Result<()> {
+            match mark.get(id) {
+                Some(Mark::Done) => return Ok(()),
+                Some(Mark::InStack) => {
+                    let at = stack.iter().position(|x| *x == id).unwrap_or(0);
+                    let mut cycle: Vec<&str> = stack[at..].to_vec();
+                    cycle.push(id);
+                    bail!("依赖成环：{}", cycle.join(" → "));
+                }
+                _ => {}
+            }
+            mark.insert(id, Mark::InStack);
+            stack.push(id);
+            if let Some(s) = cfg.services.iter().find(|s| s.id == id) {
+                for dep in &s.depends_on {
+                    visit(dep, cfg, mark, stack)?;
+                }
+            }
+            stack.pop();
+            mark.insert(id, Mark::Done);
+            Ok(())
+        }
+
+        for s in &self.services {
+            visit(&s.id, self, &mut mark, &mut stack)?;
+        }
+        Ok(())
+    }
+
+    /// 拓扑序（依赖在前），用于 `us-svc order` 与界面展示
+    pub fn topo_order(&self) -> Result<Vec<&Service>> {
+        self.validate_graph()?;
+        let mut out: Vec<&Service> = Vec::new();
+        let mut done: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+        while out.len() < self.services.len() {
+            for s in &self.services {
+                if done.contains(s.id.as_str()) {
+                    continue;
+                }
+                if s.depends_on.iter().all(|d| done.contains(d.as_str())) {
+                    done.insert(s.id.as_str());
+                    out.push(s);
+                    break;
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// 依赖是否就绪（供包装器等待）
+    pub fn dependency_ready(&self, dep: &Service, config_path: &Path) -> bool {
+        if let Some(port) = dep.ready_port {
+            use std::net::{SocketAddr, TcpStream};
+            let addr = SocketAddr::from(([127, 0, 0, 1], port));
+            return TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(300)).is_ok();
+        }
+        if let Some(f) = &dep.ready_file {
+            let p = if f.is_absolute() { f.clone() } else { config_dir(config_path).join(f) };
+            return p.exists();
+        }
+        // 没声明就绪方式：进程在跑就算就绪
+        crate::state(dep, config_path) == crate::ServiceState::Running
     }
 
     pub fn to_toml(&self) -> Result<String> {
@@ -349,6 +462,10 @@ command = "/bin/true"
             delay_secs: 0,
             restart: Restart::Never,
             restart_secs: 10,
+            depends_on: Vec::new(),
+            wait_timeout_secs: 60,
+            ready_port: None,
+            ready_file: None,
             scope: Scope::User,
             enabled: true,
         };
@@ -385,6 +502,73 @@ command = "/bin/true"
         assert_eq!(again.services.len(), 1);
         assert_eq!(again.services[0].id, "dufs");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rejects_dependency_cycles_self_deps_and_unknown_ids() {
+        let cyc = r#"
+[[services]]
+id = "a"
+command = "/bin/true"
+depends_on = ["b"]
+[[services]]
+id = "b"
+command = "/bin/true"
+depends_on = ["a"]
+"#;
+        let err = Config::parse(cyc).unwrap_err().to_string();
+        assert!(err.contains("成环"), "应指出成环而不是等到开机超时: {err}");
+
+        let me = "[[services]]\nid=\"a\"\ncommand=\"/bin/true\"\ndepends_on=[\"a\"]\n";
+        assert!(Config::parse(me).unwrap_err().to_string().contains("自己"));
+
+        let missing = "[[services]]\nid=\"a\"\ncommand=\"/bin/true\"\ndepends_on=[\"nope\"]\n";
+        assert!(Config::parse(missing).unwrap_err().to_string().contains("不存在"));
+    }
+
+    #[test]
+    fn topo_order_puts_dependencies_first() {
+        let text = r#"
+[[services]]
+id = "app"
+command = "/bin/true"
+depends_on = ["db", "cache"]
+
+[[services]]
+id = "cache"
+command = "/bin/true"
+
+[[services]]
+id = "db"
+command = "/bin/true"
+"#;
+        let cfg = Config::parse(text).unwrap();
+        let ids: Vec<&str> = cfg.topo_order().unwrap().iter().map(|s| s.id.as_str()).collect();
+        let pos = |id: &str| ids.iter().position(|x| *x == id).unwrap();
+        assert_eq!(ids.last().copied(), Some("app"), "依赖方应排最后: {ids:?}");
+        assert!(pos("db") < pos("app"));
+        assert!(pos("cache") < pos("app"));
+    }
+
+    #[test]
+    fn readiness_defaults_to_process_state_and_honours_declarations() {
+        let cfg = Config::parse(
+            r#"
+[[services]]
+id = "a"
+command = "/bin/true"
+[[services]]
+id = "port"
+command = "/bin/true"
+ready_port = 65000
+"#,
+        )
+        .unwrap();
+        let cfg_path = Path::new("/cfg/services.toml");
+        // 没声明就绪方式 → 看进程状态（这里没在跑，所以 false）
+        assert!(!cfg.dependency_ready(cfg.get("a").unwrap(), cfg_path));
+        // 端口没人监听 → false（用高位端口避免撞上真实服务）
+        assert!(!cfg.dependency_ready(cfg.get("port").unwrap(), cfg_path));
     }
 
     #[test]
