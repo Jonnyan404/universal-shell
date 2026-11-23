@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方案 E · 健康矩阵仪表盘 — Universal Shell 布局原型</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#f1f5f9;--panel:#fff;--panel2:#eef1f6;--text:#1e293b;--muted:#64748b;
+  --border:rgba(148,163,184,.28);--border-strong:rgba(148,163,184,.5);
+  --accent:#4f8cff;--accent-soft:rgba(79,140,255,.12);
+  --ok:#16a34a;--ok-soft:rgba(22,163,74,.12);--warn:#d97706;--warn-soft:rgba(217,119,6,.12);
+  --danger:#e11d48;--danger-soft:rgba(225,29,72,.1);--idle:#cbd5e1;
+}
+html,body{height:100%}
+body{margin:0;font:13px/1.45 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;cursor:pointer;color:inherit}
+input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:8px;border:2px solid transparent;background-clip:content-box}
+
+.proto-bar{height:38px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0f172a;color:#cbd5e1;font-size:12px;flex-shrink:0}
+.proto-bar a{display:flex;align-items:center;gap:5px;color:#e2e8f0;padding:4px 8px;border-radius:7px;border:1px solid rgba(148,163,184,.35)}
+.proto-bar a:hover{background:rgba(148,163,184,.15)}
+.proto-bar .pb-title{font-weight:700;color:#fff}
+.proto-bar .pb-sep{width:1px;height:14px;background:rgba(148,163,184,.35)}
+.proto-bar .pb-chips{display:flex;gap:6px}
+.pb-chip{font-size:11px;padding:2px 7px;border-radius:99px;background:rgba(79,140,255,.16);color:#bfd4ff;border:1px solid rgba(79,140,255,.3)}
+.proto-bar .spacer{flex:1}
+.scale-wrap{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#94a3b8}
+.scale-wrap select{background:#1e293b;color:#e2e8f0;border:1px solid rgba(148,163,184,.35);border-radius:7px;padding:3px 6px;font-size:11.5px}
+
+.app{height:calc(100vh - 38px);display:flex;flex-direction:column}
+.topbar{height:50px;display:flex;align-items:center;gap:10px;padding:0 18px;background:#fff;border-bottom:1px solid var(--border);flex-shrink:0}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13.5px}
+.brand .logo{width:26px;height:26px;border-radius:8px;background:linear-gradient(140deg,#4f8cff,#2f6fe4);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:800}
+.nav{display:flex;gap:2px;margin-left:10px}
+.nav button{border:0;background:transparent;padding:6px 10px;border-radius:8px;font-size:12.5px;color:#64748b}
+.nav button.on{background:var(--panel2);color:#0f172a;font-weight:600}
+.topbar .spacer{flex:1}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:29px;padding:0 10px;border-radius:8px;border:1px solid var(--border-strong);background:#fff;font-size:12px;white-space:nowrap}
+.btn:hover{background:var(--panel2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.sm{height:24px;padding:0 8px;font-size:11px;border-radius:6px}
+.btn svg{width:12px;height:12px}
+
+.scroll{flex:1;overflow-y:auto;padding:14px 18px 20px}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-bottom:13px}
+.kpi{background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 12px;position:relative;overflow:hidden}
+.kpi .k{font-size:10.5px;color:#94a3b8;letter-spacing:.3px;display:flex;align-items:center;gap:5px}
+.kpi .k i{width:6px;height:6px;border-radius:50%;display:block}
+.kpi .v{font-size:22px;font-weight:800;letter-spacing:-.6px;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi .v small{font-size:11px;font-weight:500;color:#94a3b8;letter-spacing:0;margin-left:3px}
+.kpi .foot{font-size:10.5px;color:#94a3b8;margin-top:1px}
+.kpi .spark{position:absolute;right:8px;bottom:8px;width:52px;height:20px;opacity:.7}
+.kpi.warn{border-color:rgba(225,29,72,.28);background:linear-gradient(180deg,#fff,#fff7f8)}
+.kpi.warn .v{color:#be123c}
+
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:12px;align-items:start}
+.card{background:#fff;border:1px solid var(--border);border-radius:13px;overflow:hidden}
+.card-h{display:flex;align-items:center;gap:7px;padding:10px 13px;border-bottom:1px solid var(--border);font-size:12.5px;font-weight:600}
+.card-h .spacer{flex:1}
+.card-h .hint{font-weight:400;font-size:10.5px;color:#94a3b8}
+.seg{display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden}
+.seg button{border:0;background:#fff;padding:3px 8px;font-size:10.5px;color:#64748b}
+.seg button.on{background:var(--accent-soft);color:#1e40af;font-weight:600}
+.card-b{padding:12px 13px}
+
+/* 矩阵 */
+.matrix{display:flex;flex-direction:column;gap:11px}
+.mrow{display:flex;gap:10px;align-items:flex-start}
+.mrow-label{width:104px;flex-shrink:0;padding-top:5px}
+.mrow-label b{display:block;font-size:11.5px;font-weight:600;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow-label span{font-size:10px;color:#94a3b8;font-variant-numeric:tabular-nums}
+.mrow-stat{margin-left:auto;display:flex;align-items:center;gap:6px;flex-shrink:0;padding-top:6px;font-size:10.5px;color:#94a3b8;font-variant-numeric:tabular-nums}
+.mbar{width:44px;height:5px;border-radius:99px;background:var(--panel2);overflow:hidden;display:block}
+.mbar i{display:block;height:100%;border-radius:99px;background:#16a34a}
+.tiles{display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:0}
+.tile{width:28px;height:28px;border-radius:6px;border:1px solid transparent;display:grid;place-items:center;font-size:10px;font-weight:800;color:#fff;cursor:pointer;transition:.1s;position:relative}
+.tile:hover{transform:scale(1.18);z-index:3;box-shadow:0 4px 12px -3px rgba(15,23,42,.4)}
+.tile.running{background:#16a34a}
+.tile.stopped{background:#e2e8f0;color:#94a3b8;border-color:rgba(148,163,184,.5)}
+.tile.error{background:#e11d48;animation:pulse 2.4s infinite}
+.tile.missing{background:#fff;border:1.5px dashed #cbd5e1;color:#cbd5e1}
+.tile.sel{outline:2.5px solid #0f172a;outline-offset:1.5px}
+.tile.dim{opacity:.22}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(225,29,72,.35)}50%{box-shadow:0 0 0 4px rgba(225,29,72,0)}}
+.legend{display:flex;align-items:center;gap:12px;padding:9px 13px;border-top:1px solid var(--border);font-size:10.5px;color:#64748b;flex-wrap:wrap}
+.legend .lg{display:flex;align-items:center;gap:5px;cursor:pointer;padding:2px 4px;border-radius:5px}
+.legend .lg:hover{background:var(--panel2)}
+.legend .sw{width:10px;height:10px;border-radius:3px;display:block}
+.legend .spacer{flex:1}
+.tip{position:fixed;z-index:70;background:#0f172a;color:#fff;font-size:11.5px;padding:7px 9px;border-radius:8px;pointer-events:none;opacity:0;transition:.1s;max-width:220px;line-height:1.5}
+.tip.show{opacity:1}
+.tip b{color:#fff}
+.tip .m{color:#94a3b8}
+
+/* 右栏 */
+.queue-sec{padding:8px 13px;border-bottom:1px solid var(--border)}
+.queue-sec:last-child{border-bottom:0}
+.q-head{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;margin-bottom:5px}
+.q-head .dot{width:6px;height:6px;border-radius:50%}
+.q-head .n{color:#94a3b8;font-weight:500;margin-left:auto;font-variant-numeric:tabular-nums}
+.q-item{display:flex;align-items:center;gap:7px;padding:5px 0;font-size:11.5px}
+.q-item .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.q-item .meta{font-size:10px;color:#94a3b8;font-variant-numeric:tabular-nums}
+.q-item button{border:1px solid var(--border);background:#fff;border-radius:6px;height:21px;padding:0 7px;font-size:10.5px;color:#475569}
+.q-item button:hover{border-color:var(--accent);color:#1d4ed8}
+.q-item button.fix{background:var(--accent);border-color:var(--accent);color:#fff}
+.q-empty{padding:6px 0;font-size:11px;color:#94a3b8}
+
+/* 选中检查器 */
+.inspector{padding:12px 13px}
+.ins-top{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.ins-av{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:14px;flex-shrink:0}
+.ins-top b{display:block;font-size:13px}
+.ins-top span{font-size:10.5px;color:#94a3b8;font-family:ui-monospace,Menlo,monospace}
+.ins-kv{display:grid;grid-template-columns:70px 1fr;gap:5px 8px;font-size:11.5px;margin-bottom:10px}
+.ins-kv dt{color:#94a3b8;font-size:11px}
+.ins-kv dd{margin:0;color:#334155;font-variant-numeric:tabular-nums}
+.ins-acts{display:flex;gap:5px;flex-wrap:wrap}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px}
+.pill.running{background:var(--ok-soft);color:#15803d}
+.pill.stopped{background:var(--panel2);color:#64748b}
+.pill.error{background:var(--danger-soft);color:#be123c}
+.pill.missing{color:#94a3b8;border:1px dashed var(--border-strong)}
+
+/* 分类健康条 */
+.bars{display:flex;flex-direction:column;gap:7px}
+.bar-row{display:flex;align-items:center;gap:8px;font-size:11px}
+.bar-row .lbl{width:88px;flex-shrink:0;color:#475569;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{flex:1;height:8px;border-radius:99px;background:var(--panel2);display:flex;overflow:hidden}
+.bar i{display:block;height:100%}
+.bar-row .num{width:56px;text-align:right;color:#94a3b8;font-size:10.5px;font-variant-numeric:tabular-nums;flex-shrink:0}
+.toast{position:fixed;right:18px;bottom:18px;background:#0f172a;color:#fff;font-size:12px;padding:9px 13px;border-radius:10px;opacity:0;transform:translateY(8px);transition:.18s;z-index:90}
+.toast.show{opacity:1;transform:none}
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <a href="index.html">← 方案总览</a>
+  <span class="pb-sep"></span>
+  <span class="pb-title">方案 E · 健康矩阵仪表盘</span>
+  <span class="pb-chips">
+    <span class="pb-chip">信息密度 高（全局）</span>
+    <span class="pb-chip">导航 分类矩阵</span>
+    <span class="pb-chip">异常发现最快</span>
+  </span>
+  <span class="spacer"></span>
+  <label class="scale-wrap">规模
+    <select id="scale">
+      <option value="24">24 个</option>
+      <option value="48" selected>48 个</option>
+      <option value="120">120 个</option>
+    </select>
+  </label>
+</div>
+
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><span class="logo">US</span> Universal Shell</div>
+    <nav class="nav">
+      <button class="on">总览</button>
+      <button>程序</button>
+      <button>模板库</button>
+      <button>日志</button>
+    </nav>
+    <span class="spacer"></span>
+    <button class="btn" id="check-all">检查更新</button>
+    <button class="btn primary" id="newbtn">＋ 新建</button>
+  </header>
+
+  <div class="scroll">
+    <div class="kpis" id="kpis"></div>
+
+    <div class="cols">
+      <div>
+        <div class="card">
+          <div class="card-h">
+            健康矩阵
+            <span class="hint" id="mx-hint">每个方块 = 一个程序，颜色 = 状态</span>
+            <span class="spacer"></span>
+            <div class="seg" id="mx-mode">
+              <button class="on" data-m="cat">按分类</button>
+              <button data-m="sup">按调度归属</button>
+            </div>
+          </div>
+          <div class="card-b"><div class="matrix" id="matrix"></div></div>
+          <div class="legend">
+            <span class="lg" data-f="running"><span class="sw" style="background:#16a34a"></span>运行中</span>
+            <span class="lg" data-f="stopped"><span class="sw" style="background:#e2e8f0;border:1px solid #cbd5e1"></span>已停止</span>
+            <span class="lg" data-f="error"><span class="sw" style="background:#e11d48"></span>异常</span>
+            <span class="lg" data-f="missing"><span class="sw" style="background:#fff;border:1.5px dashed #cbd5e1"></span>未安装</span>
+            <span class="spacer"></span>
+            <span>点击方块查看详情 · 悬停看名称与端口</span>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div class="card-h">分类健康度<span class="spacer"></span><span class="hint">绿 = 运行 · 灰 = 停止 · 红 = 异常</span></div>
+          <div class="card-b"><div class="bars" id="bars"></div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card" id="inspector-card">
+          <div class="card-h">检查器<span class="spacer"></span><span class="hint">点击矩阵中的方块</span></div>
+          <div id="inspector"></div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div class="card-h">关注队列<span class="spacer"></span><span class="hint">按优先级排序</span></div>
+          <div id="queue"></div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div class="card-h">快捷操作<span class="spacer"></span></div>
+          <div class="card-b" style="display:flex;flex-direction:column;gap:6px">
+            <button class="btn" data-bulk="start">启动全部已停止</button>
+            <button class="btn" data-bulk="stop">停止全部运行中</button>
+            <button class="btn" data-bulk="update">更新全部可更新</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const RAW = [
+  ['dufs','dufs','文件共享','running','managed','0.43.0','0.44.0',5000,1,'3d 4h'],
+  ['filebrowser','File Browser','文件共享','running','native','2.31.2','',8088,1,'12d'],
+  ['alist','AList','文件共享','running','managed','3.41.0','',5244,1,'6d 2h'],
+  ['cloud-clipboard','Cloud Clipboard','文件共享','stopped','managed','0.4.6','0.5.0',8300,0,''],
+  ['sftpgo','SFTPGo','文件共享','running','native','2.6.1','',2022,1,'12d'],
+  ['syncthing','Syncthing','同步与备份','running','native','1.29.2','',8384,1,'12d'],
+  ['rclone-web','Rclone WebUI','同步与备份','stopped','managed','1.68.1','',5572,0,''],
+  ['restic-rest','Restic REST','同步与备份','running','managed','0.13.0','',8000,1,'2d 7h'],
+  ['kopia','Kopia','同步与备份','error','managed','0.18.2','',51515,0,''],
+  ['duplicati','Duplicati','同步与备份','stopped','managed','2.1.0','',8200,0,''],
+  ['frp','FRP Server','代理与网络','running','native','0.61.0','',7000,1,'12d'],
+  ['nginx','Nginx','代理与网络','running','native','1.27.3','',80,1,'12d'],
+  ['caddy','Caddy','代理与网络','running','native','2.9.0','',443,1,'12d'],
+  ['sing-box','sing-box','代理与网络','running','managed','1.11.3','1.12.0',2080,1,'5d'],
+  ['adguard','AdGuard Home','代理与网络','running','native','0.107.55','',3000,1,'12d'],
+  ['wg-ui','WireGuard UI','代理与网络','stopped','managed','0.6.2','',5001,0,''],
+  ['minio','MinIO','存储与数据库','running','native','2024.11.2','',9000,1,'12d'],
+  ['postgres','PostgreSQL','存储与数据库','running','native','16.4','',5432,1,'12d'],
+  ['redis','Redis','存储与数据库','running','native','7.4.1','',6379,1,'12d'],
+  ['mongo-express','Mongo Express','存储与数据库','stopped','managed','1.0.2','',8081,0,''],
+  ['meilisearch','Meilisearch','存储与数据库','running','managed','1.11.2','1.12.0',7700,1,'9d'],
+  ['gitea','Gitea','开发工具','running','native','1.22.4','1.23.0',3001,1,'12d'],
+  ['code-server','code-server','开发工具','running','managed','4.95.3','',8443,1,'4d 1h'],
+  ['registry','Docker Registry','开发工具','running','native','2.8.3','',5000,1,'12d'],
+  ['act-runner','Gitea Runner','开发工具','stopped','managed','0.2.11','',0,0,''],
+  ['n8n','n8n','开发工具','running','managed','1.68.0','',5678,1,'1d 6h'],
+  ['jellyfin','Jellyfin','媒体服务','running','native','10.10.3','10.10.4',8096,1,'12d'],
+  ['navidrome','Navidrome','媒体服务','running','managed','0.53.3','',4533,1,'8d'],
+  ['immich','Immich','媒体服务','error','managed','1.119.0','1.120.2',2283,1,''],
+  ['calibre-web','Calibre-Web','媒体服务','stopped','managed','0.6.23','',8083,0,''],
+  ['komga','Komga','媒体服务','stopped','managed','1.15.0','',25600,0,''],
+  ['uptime-kuma','Uptime Kuma','监控运维','running','native','1.23.16','',3001,1,'12d'],
+  ['grafana','Grafana','监控运维','running','native','11.3.0','11.4.0',3000,1,'12d'],
+  ['prometheus','Prometheus','监控运维','running','native','2.55.1','',9090,1,'12d'],
+  ['loki','Loki','监控运维','running','native','3.2.1','',3100,1,'12d'],
+  ['dozzle','Dozzle','监控运维','stopped','managed','8.5.0','',8888,0,''],
+  ['watchtower','Watchtower','监控运维','running','native','1.7.1','',0,1,'12d'],
+  ['portainer','Portainer','监控运维','running','native','2.21.4','',9443,1,'12d'],
+  ['memos','Memos','知识管理','running','managed','0.22.4','',5230,1,'2d'],
+  ['wallabag','Wallabag','知识管理','stopped','managed','2.6.9','',8080,0,''],
+  ['freshrss','FreshRSS','知识管理','running','managed','1.24.2','',8082,1,'7d'],
+  ['qbittorrent','qBittorrent','下载工具','running','native','5.0.2','',8080,1,'12d'],
+  ['aria2','Aria2','下载工具','running','managed','1.37.0','',6800,1,'10d'],
+  ['transmission','Transmission','下载工具','stopped','managed','4.0.6','',9091,0,''],
+  ['homepage','Homepage','导航面板','running','managed','0.10.9','',3000,1,'11d'],
+  ['dockge','Dockge','导航面板','running','managed','1.4.2','',5001,1,'11d'],
+  ['npm','NPM Plus','代理与网络','stopped','managed','2.12.0','',81,0,''],
+  ['vaultwarden','Vaultwarden','知识管理','running','native','1.32.7','',8222,1,'12d']
+];
+const TILE=['#4f8cff','#8b5cf6','#0ea5e9','#f59e0b','#10b981','#ec4899','#ef4444','#6366f1','#14b8a6','#a855f7'];
+const ST={running:'运行中',stopped:'已停止',error:'异常',missing:'未安装'};
+const CATC={'文件共享':'#4f8cff','同步与备份':'#8b5cf6','代理与网络':'#0ea5e9','存储与数据库':'#f59e0b','开发工具':'#10b981','媒体服务':'#ec4899','监控运维':'#ef4444','知识管理':'#6366f1','下载工具':'#14b8a6','导航面板':'#a855f7'};
+
+function build(n){
+  let list=RAW.map((r,i)=>({id:r[0],name:r[1],cat:r[2],state:r[3],sup:r[4],ver:r[5],latest:r[6],port:r[7],auto:!!r[8],up:r[9],hue:TILE[i%TILE.length],mem:18+(i*7)%120}));
+  if(n>list.length){
+    const cats=[...new Set(RAW.map(r=>r[2]))];
+    const states=['running','running','running','running','running','stopped','stopped','stopped','stopped','stopped','error','running'];
+    for(let i=list.length;i<n;i++){
+      const base=RAW[i%RAW.length],k=Math.floor(i/RAW.length);
+      list.push({id:base[0]+'-w'+String(k).padStart(2,'0'),name:base[1]+' #'+k,cat:cats[i%cats.length],
+        state:states[i%states.length],sup:i%3===0?'native':'managed',ver:base[5],
+        latest:i%7===0?base[5].replace(/(\d+)$/,m=>+m+1):'',port:10000+(i*7)%40000,
+        auto:i%2===0,up:i%3===0?'1d 3h':'',hue:TILE[i%TILE.length],mem:18+(i*11)%160});
+    }
+  }
+  return list;
+}
+
+const S={items:build(48),sel:null,mode:'cat',dim:null};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function counts(){
+  const it=S.items;
+  return {all:it.length,running:it.filter(i=>i.state==='running').length,error:it.filter(i=>i.state==='error').length,
+    update:it.filter(i=>i.latest&&i.latest!==i.ver).length,native:it.filter(i=>i.sup==='native').length,
+    missing:it.filter(i=>i.state==='missing').length};
+}
+
+function renderKpis(){
+  const c=counts();
+  const item=(k,v,foot,color,spark,warn)=>`<div class="kpi ${warn?'warn':''}">
+    <div class="k"><i style="background:${color}"></i>${k}</div>
+    <div class="v">${v}</div><div class="foot">${foot}</div>
+    ${spark?`<svg class="spark" viewBox="0 0 52 20" preserveAspectRatio="none"><polyline points="${spark}" fill="none" stroke="${color}" stroke-width="1.4"/></svg>`:''}
+  </div>`;
+  $('#kpis').innerHTML=
+    item('程序总数',c.all,c.native+' 个系统调度','#4f8cff','0,15 8,13 16,14 24,10 32,11 40,8 52,9')+
+    item('运行中',c.running,'健康率 '+Math.round(c.running/c.all*100)+'%','#16a34a','0,16 8,14 16,12 24,13 32,9 40,10 52,7')+
+    item('异常',c.error,c.error?'需要处理':'全部正常','#e11d48','0,18 8,17 16,18 24,16 32,17 40,12 52,6',c.error>0)+
+    item('待更新',c.update,'可一键更新','#4f8cff','0,14 8,15 16,12 24,13 32,11 40,12 52,10')+
+    item('系统调度',c.native,'launchd / systemd','#d97706','0,13 8,12 16,13 24,12 32,12 40,11 52,11')+
+    item('未安装',c.missing,'缺二进制','#94a3b8','0,16 8,16 16,16 24,16 32,16 40,16 52,16');
+}
+
+function renderMatrix(){
+  const groups=new Map();
+  for(const i of S.items){
+    const k=S.mode==='cat'?i.cat:(i.sup==='native'?'系统调度':'壳托管');
+    if(!groups.has(k)) groups.set(k,[]);
+    groups.get(k).push(i);
+  }
+  const order=S.mode==='cat'?Object.keys(CATC):['系统调度','壳托管'];
+  const keys=[...groups.keys()].sort((a,b)=>{
+    const ia=order.indexOf(a),ib=order.indexOf(b);
+    return (ia<0?99:ia)-(ib<0?99:ib);
+  });
+  $('#matrix').innerHTML=keys.map(k=>{
+    const list=groups.get(k);
+    const run=list.filter(i=>i.state==='running').length;
+    const err=list.filter(i=>i.state==='error').length;
+    const pct=list.length?Math.round(run/list.length*100):0;
+    return `<div class="mrow">
+      <div class="mrow-label"><b>${esc(k)}</b><span>${list.length} 个 · ${run} 运行</span></div>
+      <div class="tiles">${list.map(i=>`
+        <div class="tile ${i.state} ${S.sel===i.id?'sel':''} ${S.dim&&S.dim!==i.state?'dim':''}"
+             data-tile="${i.id}">${esc(i.name.slice(0,1).toUpperCase())}</div>`).join('')}</div>
+      <span class="mrow-stat"><span class="mbar"><i style="width:${pct}%;background:${err?'#e11d48':'#16a34a'}"></i></span>${pct}%${err?` · <span style="color:#e11d48">${err}异常</span>`:''}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderBars(){
+  const groups=new Map();
+  for(const i of S.items){ if(!groups.has(i.cat)) groups.set(i.cat,[]); groups.get(i.cat).push(i); }
+  $('#bars').innerHTML=[...groups.entries()].map(([cat,list])=>{
+    const r=list.filter(i=>i.state==='running').length;
+    const e=list.filter(i=>i.state==='error').length;
+    const s=list.length-r-e;
+    const pct=n=>n/list.length*100;
+    return `<div class="bar-row"><span class="lbl">${esc(cat)}</span>
+      <span class="bar"><i style="width:${pct(r)}%;background:#16a34a"></i><i style="width:${pct(s)}%;background:#cbd5e1"></i><i style="width:${pct(e)}%;background:#e11d48"></i></span>
+      <span class="num">${r}/${list.length}${e?' · '+e+'异常':''}</span></div>`;
+  }).join('');
+}
+
+function renderInspector(){
+  const i=S.items.find(x=>x.id===S.sel);
+  if(!i){ $('#inspector').innerHTML='<div class="inspector" style="color:#94a3b8;font-size:11.5px">尚未选择程序。点击左侧矩阵中的任意方块查看详情与快捷操作。</div>'; return; }
+  const upd=i.latest&&i.latest!==i.ver;
+  $('#inspector').innerHTML=`<div class="inspector">
+    <div class="ins-top">
+      <span class="ins-av" style="background:${i.hue}">${esc(i.name.slice(0,1).toUpperCase())}</span>
+      <div><b>${esc(i.name)}</b><span>${esc(i.id)}</span></div>
+      <span style="margin-left:auto" class="pill ${i.state}">${ST[i.state]}</span>
+    </div>
+    <dl class="ins-kv">
+      <dt>分类</dt><dd>${esc(i.cat)}</dd>
+      <dt>端口</dt><dd>${i.port?':'+i.port:'—'}</dd>
+      <dt>版本</dt><dd>v${esc(i.ver)}${upd?` <span style="color:#1d4ed8;font-weight:600">→ ${esc(i.latest)}</span>`:''}</dd>
+      <dt>调度</dt><dd>${i.sup==='native'?'系统调度':'壳托管'}</dd>
+      <dt>运行</dt><dd>${i.state==='running'?(i.up||'刚刚'):'—'}</dd>
+    </dl>
+    <div class="ins-acts">
+      ${i.state==='running'?`<button class="btn sm" data-i="stop">停止</button><button class="btn sm" data-i="restart">重启</button>`
+        :`<button class="btn sm primary" data-i="start">启动</button>`}
+      <button class="btn sm" data-i="log">日志</button>
+      <button class="btn sm" data-i="edit">编辑</button>
+    </div>
+  </div>`;
+}
+
+function renderQueue(){
+  const errs=S.items.filter(i=>i.state==='error');
+  const upd=S.items.filter(i=>i.latest&&i.latest!==i.ver);
+  const mis=S.items.filter(i=>i.state==='missing');
+  const sec=(title,color,list,btn,cls)=>`<div class="queue-sec">
+    <div class="q-head"><span class="dot" style="background:${color}"></span>${title}<span class="n">${list.length}</span></div>
+    ${list.length?list.slice(0,4).map(i=>`<div class="q-item"><span class="nm">${esc(i.name)}</span>
+      <span class="meta">${i.state==='error'?'退出码 1':(i.latest?'v'+i.ver+'→'+i.latest:':“'+i.port+'”')}</span>
+      <button class="${cls||''}" data-q="${btn}" data-id="${i.id}">${btn==='fix'?'重启':(btn==='upd'?'更新':'安装')}</button></div>`).join('')
+      :`<div class="q-empty">无</div>`}
+    ${list.length>4?`<div class="q-empty">另有 ${list.length-4} 项…</div>`:''}
+  </div>`;
+  $('#queue').innerHTML=
+    sec('异常 / 需处理','#e11d48',errs,'fix','fix')+
+    sec('可更新','#4f8cff',upd,'upd')+
+    sec('未安装','#cbd5e1',mis,'inst');
+}
+
+function render(){ renderKpis(); renderMatrix(); renderBars(); renderInspector(); renderQueue(); }
+
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),1700);}
+
+/* 矩阵交互 */
+$('#matrix').addEventListener('click',e=>{
+  const t=e.target.closest('[data-tile]');
+  if(t){ S.sel=t.dataset.tile; renderMatrix(); renderInspector(); }
+});
+$('#matrix').addEventListener('mouseover',e=>{
+  const t=e.target.closest('[data-tile]');
+  if(!t) return;
+  const i=S.items.find(x=>x.id===t.dataset.tile);
+  const tip=$('#tip');
+  tip.innerHTML=`<b>${esc(i.name)}</b><br><span class="m">${esc(i.cat)} · :${i.port||'—'} · ${ST[i.state]}</span>`;
+  const r=t.getBoundingClientRect();
+  tip.style.left=Math.min(r.left,window.innerWidth-230)+'px';
+  tip.style.top=(r.bottom+6)+'px';
+  tip.classList.add('show');
+});
+$('#matrix').addEventListener('mouseout',e=>{ if(e.target.closest('[data-tile]')) $('#tip').classList.remove('show'); });
+$('#mx-mode').addEventListener('click',e=>{
+  const b=e.target.closest('[data-m]'); if(!b) return;
+  S.mode=b.dataset.m;
+  document.querySelectorAll('#mx-mode button').forEach(x=>x.classList.toggle('on',x===b));
+  renderMatrix();
+});
+document.querySelector('.legend').addEventListener('click',e=>{
+  const l=e.target.closest('[data-f]'); if(!l) return;
+  S.dim=S.dim===l.dataset.f?null:l.dataset.f;
+  renderMatrix();
+  $('#mx-hint').textContent=S.dim?'仅高亮「'+ST[S.dim]+'」· 再点一次取消':'每个方块 = 一个程序，颜色 = 状态';
+});
+/* 检查器操作 */
+$('#inspector').addEventListener('click',e=>{
+  const b=e.target.closest('[data-i]'); if(!b) return;
+  const i=S.items.find(x=>x.id===S.sel); if(!i) return;
+  const a=b.dataset.i;
+  if(a==='start'){ i.state='running'; i.up='刚刚'; toast(i.name+' 已启动'); }
+  if(a==='stop'){ i.state='stopped'; i.up=''; toast(i.name+' 已停止'); }
+  if(a==='restart'){ i.state='running'; i.up='刚刚'; toast(i.name+' 已重启'); }
+  if(a==='log'){ toast('打开日志：'+i.id); return; }
+  if(a==='edit'){ toast('打开编辑对话框'); return; }
+  render();
+});
+/* 队列操作 */
+$('#queue').addEventListener('click',e=>{
+  const b=e.target.closest('[data-q]'); if(!b) return;
+  const i=S.items.find(x=>x.id===b.dataset.id); if(!i) return;
+  if(b.dataset.q==='fix'){ i.state='running'; i.up='刚刚'; toast(i.name+' 已重启'); }
+  if(b.dataset.q==='upd'){ i.ver=i.latest; toast(i.name+' 已更新到 v'+i.ver); }
+  if(b.dataset.q==='inst'){ i.state='stopped'; toast(i.name+' 开始安装（示意）'); }
+  render();
+});
+/* 批量 */
+document.querySelectorAll('[data-bulk]').forEach(b=>b.addEventListener('click',()=>{
+  const a=b.dataset.bulk;
+  if(a==='start'){ let n=0; S.items.forEach(i=>{ if(i.state!=='running'){ i.state='running'; i.up='刚刚'; n++; } }); toast('已启动 '+n+' 个'); }
+  if(a==='stop'){ let n=0; S.items.forEach(i=>{ if(i.state==='running'){ i.state='stopped'; i.up=''; n++; } }); toast('已停止 '+n+' 个'); }
+  if(a==='update'){ let n=0; S.items.forEach(i=>{ if(i.latest&&i.latest!==i.ver){ i.ver=i.latest; n++; } }); toast(n?'已更新 '+n+' 个程序':'没有可更新项'); }
+  render();
+}));
+$('#check-all').addEventListener('click',()=>{ const n=S.items.filter(i=>i.latest&&i.latest!==i.ver).length; toast('检查完成：'+n+' 个程序有更新'); });
+$('#scale').addEventListener('change',e=>{ S.items=build(+e.target.value); S.sel=null; render(); toast('规模切换到 '+e.target.value+' 个'); });
+$('#newbtn').addEventListener('click',()=>toast('新建程序 / 手建服务'));
+
+render();
+</script>
+</body>
+</html>

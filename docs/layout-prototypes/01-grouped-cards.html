@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方案 A · 分组卡片视图 — Universal Shell 布局原型</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#f1f5f9;--panel:#fff;--panel2:#eef1f6;--text:#1e293b;--muted:#64748b;
+  --border:rgba(148,163,184,.28);--border-strong:rgba(148,163,184,.5);
+  --accent:#4f8cff;--accent-soft:rgba(79,140,255,.12);
+  --ok:#16a34a;--ok-soft:rgba(22,163,74,.12);
+  --warn:#d97706;--warn-soft:rgba(217,119,6,.13);
+  --danger:#e11d48;--danger-soft:rgba(225,29,72,.1);
+  --r:12px;--shadow:0 1px 2px rgba(15,23,42,.05),0 8px 24px -12px rgba(15,23,42,.18);
+}
+html,body{height:100%}
+body{margin:0;font:13px/1.45 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;cursor:pointer;color:inherit}
+input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:8px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- 原型提示条 ---------- */
+.proto-bar{height:38px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0f172a;color:#cbd5e1;font-size:12px;flex-shrink:0}
+.proto-bar a{display:flex;align-items:center;gap:5px;color:#e2e8f0;padding:4px 8px;border-radius:7px;border:1px solid rgba(148,163,184,.35)}
+.proto-bar a:hover{background:rgba(148,163,184,.15)}
+.proto-bar .pb-title{font-weight:700;color:#fff;letter-spacing:.2px}
+.proto-bar .pb-sep{width:1px;height:14px;background:rgba(148,163,184,.35)}
+.proto-bar .pb-chips{display:flex;gap:6px;flex-wrap:wrap}
+.pb-chip{font-size:11px;padding:2px 7px;border-radius:99px;background:rgba(79,140,255,.16);color:#bfd4ff;border:1px solid rgba(79,140,255,.3)}
+.proto-bar .spacer{flex:1}
+.scale-wrap{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#94a3b8}
+.scale-wrap select{background:#1e293b;color:#e2e8f0;border:1px solid rgba(148,163,184,.35);border-radius:7px;padding:3px 6px;font-size:11.5px}
+
+.app{display:flex;height:calc(100vh - 38px)}
+
+/* ---------- 左侧导航 ---------- */
+.rail{width:228px;min-width:228px;background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;padding:12px 10px}
+.rail-head{display:flex;align-items:center;gap:8px;padding:2px 6px 12px}
+.logo{width:26px;height:26px;border-radius:8px;background:linear-gradient(140deg,#4f8cff,#2f6fe4);color:#fff;display:grid;place-items:center;font-weight:800;font-size:12px;box-shadow:0 2px 6px rgba(79,140,255,.35)}
+.rail-head b{font-size:13.5px;letter-spacing:.2px}
+.rail-head small{display:block;font-size:10.5px;color:var(--muted);font-weight:400}
+.nav-sec{font-size:10.5px;letter-spacing:.6px;color:#94a3b8;font-weight:700;padding:10px 8px 6px;text-transform:uppercase}
+.nav-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:9px;cursor:pointer;color:#475569;font-size:12.5px;margin-bottom:2px;border:1px solid transparent}
+.nav-item:hover{background:var(--panel2)}
+.nav-item.on{background:var(--accent-soft);border-color:rgba(79,140,255,.3);color:#1e40af;font-weight:600}
+.nav-item .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-item .cnt{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;background:var(--panel2);padding:1px 6px;border-radius:99px;min-width:22px;text-align:center}
+.nav-item.on .cnt{background:#fff;color:#1e40af}
+.nav-item .cdot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.rail-foot{margin-top:auto;padding-top:10px;border-top:1px solid var(--border)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 11px;border-radius:9px;border:1px solid var(--border-strong);background:#fff;font-size:12px;white-space:nowrap;transition:.12s}
+.btn:hover{background:var(--panel2);border-color:#94a3b8}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 1px 2px rgba(79,140,255,.4)}
+.btn.primary:hover{background:#3d7cf5}
+.btn.sm{height:26px;padding:0 8px;font-size:11.5px;border-radius:7px}
+.btn.icon{width:26px;padding:0}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn.ghost:hover{background:var(--panel2)}
+.btn svg{width:12px;height:12px;flex-shrink:0}
+.btn.wide{width:100%;height:32px}
+
+/* ---------- 主区 ---------- */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.toolbar{display:flex;align-items:center;gap:8px;padding:10px 16px;background:#fff;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.search{position:relative;width:236px}
+.search svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);width:13px;height:13px;color:#94a3b8}
+.search input{width:100%;height:30px;border-radius:9px;border:1px solid var(--border);background:var(--panel2);padding:0 10px 0 28px;font-size:12px;outline:none}
+.search input:focus{background:#fff;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.chips{display:flex;gap:4px;background:var(--panel2);padding:3px;border-radius:9px}
+.chip{border:0;background:transparent;padding:4px 9px;border-radius:7px;font-size:11.5px;color:#475569}
+.chip:hover{background:#fff}
+.chip.on{background:#fff;color:#1e40af;font-weight:600;box-shadow:0 1px 2px rgba(15,23,42,.1)}
+.seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:#fff;padding:5px 9px;font-size:11.5px;color:var(--muted)}
+.seg button.on{background:var(--accent-soft);color:#1e40af;font-weight:600}
+.toolbar .spacer{flex:1}
+.selall{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);user-select:none;cursor:pointer}
+input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer;margin:0}
+
+.content{flex:1;overflow-y:auto;padding:14px 16px 96px}
+.group{margin-bottom:18px}
+.ghead{display:flex;align-items:center;gap:8px;padding:2px 2px 9px;position:sticky;top:-14px;background:linear-gradient(var(--bg) 78%,rgba(241,245,249,0));z-index:3}
+.ghead .chev{width:18px;height:18px;border:0;background:transparent;color:#94a3b8;display:grid;place-items:center;transition:transform .15s}
+.ghead.collapsed .chev{transform:rotate(-90deg)}
+.ghead b{font-size:12.5px;letter-spacing:.3px}
+.ghead .gcount{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.ghead .gbar{flex:1;height:1px;background:var(--border)}
+.ghead .gact{display:flex;gap:4px;opacity:0;transition:.15s}
+.group:hover .gact{opacity:1}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:10px}
+.grid.dense{grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:7px}
+
+.card{position:relative;background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:11px 12px 9px;transition:.14s;box-shadow:0 1px 1px rgba(15,23,42,.03)}
+.card:hover{border-color:var(--border-strong);box-shadow:var(--shadow);transform:translateY(-1px)}
+.card.picked{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.card .cbx{position:absolute;top:9px;right:9px;opacity:0;transition:.12s}
+.card:hover .cbx,.card.picked .cbx{opacity:1}
+.card .cbx input{width:15px;height:15px}
+.ctop{display:flex;gap:9px;align-items:flex-start;padding-right:18px}
+.tile{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-weight:800;font-size:13px;flex-shrink:0;color:#fff;letter-spacing:-.5px}
+.cname{min-width:0;flex:1}
+.cname b{display:block;font-size:13px;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cname .sub{display:block;font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px;font-variant-numeric:tabular-nums}
+.cmeta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:9px}
+.st{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:2px 6px;border-radius:99px;white-space:nowrap}
+.st i{width:5px;height:5px;border-radius:50%;background:currentColor;display:block}
+.st.running{background:var(--ok-soft);color:#15803d}
+.st.stopped{background:var(--panel2);color:#64748b}
+.st.error{background:var(--danger-soft);color:#be123c}
+.st.missing{background:transparent;color:#94a3b8;border:1px dashed var(--border-strong)}
+.badge{font-size:10.5px;color:#475569;background:var(--panel2);border:1px solid var(--border);padding:1px 6px;border-radius:6px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.badge.sys{background:rgba(217,119,6,.1);border-color:rgba(217,119,6,.25);color:#b45309}
+.badge.upd{background:var(--accent-soft);border-color:rgba(79,140,255,.3);color:#1d4ed8;font-weight:600}
+.cfoot{display:flex;align-items:center;gap:5px;margin-top:10px;padding-top:9px;border-top:1px solid var(--border)}
+.cfoot .uptime{margin-left:auto;font-size:10.5px;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.grid.dense .card{padding:9px 10px 8px}
+.grid.dense .tile{width:26px;height:26px;border-radius:7px;font-size:11px}
+.grid.dense .cmeta{margin-top:7px}
+.grid.dense .cfoot{margin-top:7px;padding-top:7px}
+.grid.dense .cfoot .uptime{display:none}
+
+/* ---------- 批量条 ---------- */
+.bulk{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(16px);background:#0f172a;color:#e2e8f0;border-radius:12px;padding:8px 10px 8px 14px;display:flex;align-items:center;gap:8px;box-shadow:0 16px 40px -12px rgba(15,23,42,.6);opacity:0;pointer-events:none;transition:.18s;z-index:40}
+.bulk.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+.bulk b{font-size:12px;color:#fff;margin-right:4px}
+.bulk .b{background:rgba(148,163,184,.16);border:1px solid rgba(148,163,184,.3);color:#e2e8f0;height:27px;padding:0 10px;border-radius:8px;font-size:11.5px}
+.bulk .b:hover{background:rgba(148,163,184,.28)}
+.bulk .b.danger{color:#fda4af;border-color:rgba(225,29,72,.5)}
+.bulk .b.close{width:27px;padding:0}
+
+.toast{position:fixed;right:18px;bottom:20px;background:#0f172a;color:#fff;font-size:12px;padding:9px 13px;border-radius:10px;opacity:0;transform:translateY(8px);transition:.18s;z-index:50;box-shadow:0 10px 30px -8px rgba(15,23,42,.5)}
+.toast.show{opacity:1;transform:none}
+.empty{padding:60px 0;text-align:center;color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <a href="index.html">← 方案总览</a>
+  <span class="pb-sep"></span>
+  <span class="pb-title">方案 A · 分组卡片视图</span>
+  <span class="pb-chips">
+    <span class="pb-chip">信息密度 中高</span>
+    <span class="pb-chip">导航 分类树 + 搜索</span>
+    <span class="pb-chip">单点操作强 / 批量中</span>
+  </span>
+  <span class="spacer"></span>
+  <label class="scale-wrap">规模
+    <select id="scale">
+      <option value="24">24 个</option>
+      <option value="48" selected>48 个</option>
+      <option value="120">120 个</option>
+    </select>
+  </label>
+</div>
+
+<div class="app">
+  <aside class="rail">
+    <div class="rail-head">
+      <span class="logo">US</span>
+      <div><b>Universal Shell</b><small id="rail-sub">48 个程序</small></div>
+    </div>
+    <div class="nav-sec">视图</div>
+    <div id="nav-views"></div>
+    <div class="nav-sec">分类</div>
+    <div id="nav-cats"></div>
+    <div class="rail-foot">
+      <button class="btn wide" id="new-btn">＋ 新建程序 / 服务</button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="toolbar">
+      <div class="search">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6L14 14"/></svg>
+        <input id="q" placeholder="搜索名称 / id / 端口…" />
+      </div>
+      <div class="chips" id="chips">
+        <button class="chip on" data-f="all">全部</button>
+        <button class="chip" data-f="running">运行中</button>
+        <button class="chip" data-f="native">系统调度</button>
+        <button class="chip" data-f="update">有更新</button>
+        <button class="chip" data-f="error">异常</button>
+      </div>
+      <span class="spacer"></span>
+      <div class="seg" id="density">
+        <button class="on" data-d="normal">舒适</button>
+        <button data-d="dense">紧凑</button>
+      </div>
+      <label class="selall"><input type="checkbox" id="selall" /> 全选当前</label>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<div class="bulk" id="bulk">
+  <b id="bulk-n">已选 0 项</b>
+  <button class="b" data-act="start">启动</button>
+  <button class="b" data-act="stop">停止</button>
+  <button class="b" data-act="restart">重启</button>
+  <button class="b" data-act="update">更新</button>
+  <button class="b danger" data-act="delete">删除</button>
+  <button class="b close" data-act="clear">✕</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ===== 数据：与 shared::Program / workspace_list 返回字段对齐 ===== */
+const RAW = [
+  ['dufs','dufs','文件共享','running','managed','0.43.0','0.44.0',5000,1,'3d 4h'],
+  ['filebrowser','File Browser','文件共享','running','native','2.31.2','',8088,1,'12d'],
+  ['alist','AList','文件共享','running','managed','3.41.0','',5244,1,'6d 2h'],
+  ['cloud-clipboard','Cloud Clipboard','文件共享','stopped','managed','0.4.6','0.5.0',8300,0,''],
+  ['sftpgo','SFTPGo','文件共享','running','native','2.6.1','',2022,1,'12d'],
+  ['syncthing','Syncthing','同步与备份','running','native','1.29.2','',8384,1,'12d'],
+  ['rclone-web','Rclone WebUI','同步与备份','stopped','managed','1.68.1','',5572,0,''],
+  ['restic-rest','Restic REST','同步与备份','running','managed','0.13.0','',8000,1,'2d 7h'],
+  ['kopia','Kopia','同步与备份','error','managed','0.18.2','',51515,0,''],
+  ['duplicati','Duplicati','同步与备份','stopped','managed','2.1.0','',8200,0,''],
+  ['frp','FRP Server','代理与网络','running','native','0.61.0','',7000,1,'12d'],
+  ['nginx','Nginx','代理与网络','running','native','1.27.3','',80,1,'12d'],
+  ['caddy','Caddy','代理与网络','running','native','2.9.0','',443,1,'12d'],
+  ['sing-box','sing-box','代理与网络','running','managed','1.11.3','1.12.0',2080,1,'5d'],
+  ['adguard','AdGuard Home','代理与网络','running','native','0.107.55','',3000,1,'12d'],
+  ['wg-ui','WireGuard UI','代理与网络','stopped','managed','0.6.2','',5001,0,''],
+  ['minio','MinIO','存储与数据库','running','native','2024.11.2','',9000,1,'12d'],
+  ['postgres','PostgreSQL','存储与数据库','running','native','16.4','',5432,1,'12d'],
+  ['redis','Redis','存储与数据库','running','native','7.4.1','',6379,1,'12d'],
+  ['mongo-express','Mongo Express','存储与数据库','stopped','managed','1.0.2','',8081,0,''],
+  ['meilisearch','Meilisearch','存储与数据库','running','managed','1.11.2','1.12.0',7700,1,'9d'],
+  ['gitea','Gitea','开发工具','running','native','1.22.4','1.23.0',3001,1,'12d'],
+  ['code-server','code-server','开发工具','running','managed','4.95.3','',8443,1,'4d 1h'],
+  ['registry','Docker Registry','开发工具','running','native','2.8.3','',5000,1,'12d'],
+  ['act-runner','Gitea Runner','开发工具','stopped','managed','0.2.11','',0,0,''],
+  ['n8n','n8n','开发工具','running','managed','1.68.0','',5678,1,'1d 6h'],
+  ['jellyfin','Jellyfin','媒体服务','running','native','10.10.3','10.10.4',8096,1,'12d'],
+  ['navidrome','Navidrome','媒体服务','running','managed','0.53.3','',4533,1,'8d'],
+  ['immich','Immich','媒体服务','error','managed','1.119.0','1.120.2',2283,1,''],
+  ['calibre-web','Calibre-Web','媒体服务','stopped','managed','0.6.23','',8083,0,''],
+  ['komga','Komga','媒体服务','stopped','managed','1.15.0','',25600,0,''],
+  ['uptime-kuma','Uptime Kuma','监控运维','running','native','1.23.16','',3001,1,'12d'],
+  ['grafana','Grafana','监控运维','running','native','11.3.0','11.4.0',3000,1,'12d'],
+  ['prometheus','Prometheus','监控运维','running','native','2.55.1','',9090,1,'12d'],
+  ['loki','Loki','监控运维','running','native','3.2.1','',3100,1,'12d'],
+  ['dozzle','Dozzle','监控运维','stopped','managed','8.5.0','',8888,0,''],
+  ['watchtower','Watchtower','监控运维','running','native','1.7.1','',0,1,'12d'],
+  ['portainer','Portainer','监控运维','running','native','2.21.4','',9443,1,'12d'],
+  ['memos','Memos','知识管理','running','managed','0.22.4','',5230,1,'2d'],
+  ['wallabag','Wallabag','知识管理','stopped','managed','2.6.9','',8080,0,''],
+  ['freshrss','FreshRSS','知识管理','running','managed','1.24.2','',8082,1,'7d'],
+  ['qbittorrent','qBittorrent','下载工具','running','native','5.0.2','',8080,1,'12d'],
+  ['aria2','Aria2','下载工具','running','managed','1.37.0','',6800,1,'10d'],
+  ['transmission','Transmission','下载工具','stopped','managed','4.0.6','',9091,0,''],
+  ['homepage','Homepage','导航面板','running','managed','0.10.9','',3000,1,'11d'],
+  ['dockge','Dockge','导航面板','running','managed','1.4.2','',5001,1,'11d'],
+  ['npm','NPM Plus','代理与网络','stopped','managed','2.12.0','',81,0,''],
+  ['vaultwarden','Vaultwarden','知识管理','running','native','1.32.7','',8222,1,'12d']
+];
+const CAT_COLOR = {'文件共享':'#4f8cff','同步与备份':'#8b5cf6','代理与网络':'#0ea5e9','存储与数据库':'#f59e0b','开发工具':'#10b981','媒体服务':'#ec4899','监控运维':'#ef4444','知识管理':'#6366f1','下载工具':'#14b8a6','导航面板':'#a855f7'};
+const TILE_COLOR = ['#4f8cff','#8b5cf6','#0ea5e9','#f59e0b','#10b981','#ec4899','#ef4444','#6366f1','#14b8a6','#a855f7','#f97316','#0d9488'];
+const ST = {running:'运行中',stopped:'已停止',error:'异常',missing:'未安装'};
+
+function build(n){
+  let list = RAW.map((r,i)=>({
+    id:r[0],name:r[1],cat:r[2],state:r[3],sup:r[4],ver:r[5],latest:r[6],port:r[7],auto:!!r[8],up:r[9],
+    hue:TILE_COLOR[i%TILE_COLOR.length]
+  }));
+  if(n>list.length){
+    const cats=[...new Set(RAW.map(r=>r[2]))];
+    const states=['running','running','running','running','running','stopped','stopped','stopped','stopped','stopped','error','running'];
+    for(let i=list.length;i<n;i++){
+      const base=RAW[i%RAW.length];
+      const k=Math.floor(i/RAW.length);
+      list.push({
+        id:base[0]+'-w'+String(k).padStart(2,'0'),
+        name:base[1]+' #'+k,
+        cat:cats[i%cats.length],
+        state:states[i%states.length],
+        sup:i%3===0?'native':'managed',
+        ver:base[5], latest:i%7===0?base[5].replace(/(\d+)$/,(m)=>+m+1):'',
+        port:10000+ (i*7)%40000,
+        auto:i%2===0, up:i%3===0?'1d 3h':'',
+        hue:TILE_COLOR[i%TILE_COLOR.length]
+      });
+    }
+  }
+  return list;
+}
+
+const state = { items:build(48), filter:'all', q:'', density:'normal', scale:48, checked:new Set(), collapsed:new Set(), cat:null };
+const $ = s=>document.querySelector(s);
+const esc = s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ICO = {
+  play:'<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 2.6l8.2 5.4-8.2 5.4z"/></svg>',
+  stop:'<svg viewBox="0 0 16 16" fill="currentColor"><rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.6"/></svg>',
+  restart:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13 2.6V5h-2.4"/></svg>',
+  log:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
+  more:'<svg viewBox="0 0 16 16" fill="currentColor"><circle cx="3.5" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="12.5" cy="8" r="1.2"/></svg>',
+  chev:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6.5L8 10l4-3.5"/></svg>'
+};
+
+function counts(){
+  const it=state.items;
+  return {
+    all:it.length,
+    running:it.filter(i=>i.state==='running').length,
+    native:it.filter(i=>i.sup==='native').length,
+    update:it.filter(i=>i.latest&&i.latest!==i.ver).length,
+    error:it.filter(i=>i.state==='error').length
+  };
+}
+
+function visible(){
+  const q=state.q.trim().toLowerCase();
+  return state.items.filter(i=>{
+    if(state.filter==='running'&&i.state!=='running') return false;
+    if(state.filter==='native'&&i.sup!=='native') return false;
+    if(state.filter==='update'&&!(i.latest&&i.latest!==i.ver)) return false;
+    if(state.filter==='error'&&i.state!=='error') return false;
+    if(state.cat&&i.cat!==state.cat) return false;
+    if(q&&!(i.name+' '+i.id+' '+i.port+' '+i.cat).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+function renderRail(){
+  const c=counts();
+  const views=[['all','全部程序',c.all,'#64748b'],['running','运行中',c.running,'#16a34a'],['native','系统调度',c.native,'#d97706'],['update','有更新',c.update,'#4f8cff'],['error','异常',c.error,'#e11d48']];
+  $('#nav-views').innerHTML=views.map(([k,label,n,col])=>
+    `<div class="nav-item ${state.filter===k&&!state.cat?'on':''}" data-view="${k}">
+       <span class="cdot" style="background:${col}"></span><span class="n">${label}</span><span class="cnt">${n}</span>
+     </div>`).join('');
+  const cats=[...new Set(state.items.map(i=>i.cat))];
+  $('#nav-cats').innerHTML=cats.map(cat=>{
+    const n=state.items.filter(i=>i.cat===cat).length;
+    const on=state.cat===cat;
+    return `<div class="nav-item ${on?'on':''}" data-cat="${esc(cat)}">
+      <span class="cdot" style="background:${CAT_COLOR[cat]||'#94a3b8'}"></span>
+      <span class="n">${esc(cat)}</span><span class="cnt">${n}</span></div>`;
+  }).join('');
+  $('#rail-sub').textContent=state.items.length+' 个程序';
+}
+
+function card(i){
+  const upd=i.latest&&i.latest!==i.ver;
+  const picked=state.checked.has(i.id);
+  const action=i.state==='running'
+    ? `<button class="btn sm" data-act="stop" data-id="${i.id}">${ICO.stop}停止</button>`
+    : `<button class="btn sm primary" data-act="start" data-id="${i.id}">${ICO.play}启动</button>`;
+  return `<article class="card ${picked?'picked':''}" data-id="${i.id}">
+    <label class="cbx"><input type="checkbox" ${picked?'checked':''} data-check="${i.id}"></label>
+    <div class="ctop">
+      <span class="tile" style="background:${i.hue}">${esc(i.name.slice(0,1).toUpperCase())}</span>
+      <div class="cname"><b title="${esc(i.name)}">${esc(i.name)}</b>
+        <span class="sub">${esc(i.id)}${i.port?` · :${i.port}`:''}</span></div>
+    </div>
+    <div class="cmeta">
+      <span class="st ${i.state}"><i></i>${ST[i.state]}</span>
+      ${i.sup==='native'?'<span class="badge sys">系统调度</span>':'<span class="badge">壳托管</span>'}
+      ${upd?`<span class="badge upd">${i.ver} → ${i.latest}</span>`:`<span class="badge">v${i.ver}</span>`}
+    </div>
+    <div class="cfoot">
+      ${action}
+      <button class="btn sm ghost icon" title="日志" data-act="log" data-id="${i.id}">${ICO.log}</button>
+      <button class="btn sm ghost icon" title="更多" data-act="more" data-id="${i.id}">${ICO.more}</button>
+      <span class="uptime">${i.state==='running'&&i.up?'运行 '+i.up:''}</span>
+    </div>
+  </article>`;
+}
+
+function render(){
+  const rows=visible();
+  const groups=new Map();
+  for(const i of rows){ if(!groups.has(i.cat)) groups.set(i.cat,[]); groups.get(i.cat).push(i); }
+  if(!rows.length){ $('#content').innerHTML='<div class="empty">没有匹配的程序，试试清空搜索或切换筛选。</div>'; return; }
+  let html='';
+  for(const [cat,list] of groups){
+    const coll=state.collapsed.has(cat);
+    const run=list.filter(i=>i.state==='running').length;
+    html+=`<section class="group">
+      <div class="ghead ${coll?'collapsed':''}" data-gcat="${esc(cat)}">
+        <button class="chev">${ICO.chev}</button>
+        <b>${esc(cat)}</b>
+        <span class="gcount">${list.length} 个 · ${run} 运行中</span>
+        <span class="gbar"></span>
+        <span class="gact">
+          <button class="btn sm ghost" data-gact="start" data-gcat="${esc(cat)}">全部启动</button>
+          <button class="btn sm ghost" data-gact="select" data-gcat="${esc(cat)}">选择本组</button>
+        </span>
+      </div>
+      ${coll?'':`<div class="grid ${state.density==='dense'?'dense':''}">${list.map(card).join('')}</div>`}
+    </section>`;
+  }
+  $('#content').innerHTML=html;
+  syncSel();
+}
+
+function syncSel(){
+  const ids=visible().map(i=>i.id);
+  const picked=ids.filter(id=>state.checked.has(id)).length;
+  const box=$('#selall');
+  box.checked=ids.length>0&&picked===ids.length;
+  box.indeterminate=picked>0&&picked<ids.length;
+  $('#bulk').classList.toggle('show',state.checked.size>0);
+  $('#bulk-n').textContent='已选 '+state.checked.size+' 项';
+}
+
+function toast(msg){
+  const t=$('#toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'),1800);
+}
+
+/* ---------- 事件 ---------- */
+document.addEventListener('click',e=>{
+  const view=e.target.closest('[data-view]');
+  if(view){ state.filter=view.dataset.view; state.cat=null; renderRail(); render(); return; }
+  const cat=e.target.closest('[data-cat]');
+  if(cat&&!e.target.closest('[data-gact]')){ state.cat=cat.dataset.cat===state.cat?null:cat.dataset.cat; state.filter='all'; renderRail(); render(); return; }
+  const chip=e.target.closest('[data-f]');
+  if(chip){ state.filter=chip.dataset.f; state.cat=null;
+    document.querySelectorAll('#chips .chip').forEach(c=>c.classList.toggle('on',c===chip));
+    renderRail(); render(); return; }
+  const den=e.target.closest('[data-d]');
+  if(den){ state.density=den.dataset.d;
+    document.querySelectorAll('#density button').forEach(b=>b.classList.toggle('on',b===den)); render(); return; }
+  const head=e.target.closest('[data-gcat]');
+  if(head&&!e.target.closest('[data-gact]')){
+    const c=head.dataset.gcat;
+    state.collapsed.has(c)?state.collapsed.delete(c):state.collapsed.add(c);
+    render(); return;
+  }
+  const gact=e.target.closest('[data-gact]');
+  if(gact){
+    const c=gact.dataset.gcat;
+    const list=state.items.filter(i=>i.cat===c);
+    if(gact.dataset.gact==='select'){ list.forEach(i=>state.checked.add(i.id)); toast('已选择「'+c+'」'+list.length+' 个'); }
+    else { list.forEach(i=>{ if(i.state!=='running') i.state='running'; }); toast('已启动「'+c+'」全部程序'); }
+    renderRail(); render(); return;
+  }
+  const act=e.target.closest('[data-act]');
+  if(act&&!act.closest('.bulk')){
+    const id=act.dataset.id, a=act.dataset.act;
+    const it=state.items.find(i=>i.id===id);
+    if(a==='start'&&it){ it.state='running'; it.up='刚刚'; toast(it.name+' 已启动'); renderRail(); render(); }
+    if(a==='stop'&&it){ it.state='stopped'; it.up=''; toast(it.name+' 已停止'); renderRail(); render(); }
+    if(a==='log') toast('打开日志抽屉：'+id);
+    if(a==='more') toast('更多操作：编辑 / 调度 / 删除');
+    return;
+  }
+  const bulkBtn=e.target.closest('.bulk [data-act]');
+  if(bulkBtn){
+    const a=bulkBtn.dataset.act;
+    if(a==='clear'){ state.checked.clear(); render(); return; }
+    if(a==='delete'){ toast('已删除 '+state.checked.size+' 项（原型示意）'); state.checked.clear(); render(); return; }
+    const label={start:'启动',stop:'停止',restart:'重启',update:'更新'}[a];
+    state.items.forEach(i=>{
+      if(!state.checked.has(i.id)) return;
+      if(a==='start') i.state='running';
+      if(a==='stop') i.state='stopped';
+      if(a==='restart') i.state='running';
+    });
+    toast('已对 '+state.checked.size+' 项执行「'+label+'」');
+    renderRail(); render(); return;
+  }
+});
+
+document.addEventListener('change',e=>{
+  const chk=e.target.closest('[data-check]');
+  if(chk){
+    const id=chk.dataset.check;
+    chk.checked?state.checked.add(id):state.checked.delete(id);
+    chk.closest('.card').classList.toggle('picked',chk.checked);
+    syncSel(); return;
+  }
+  if(e.target.id==='selall'){
+    const ids=visible().map(i=>i.id);
+    if(e.target.checked) ids.forEach(id=>state.checked.add(id)); else ids.forEach(id=>state.checked.delete(id));
+    render(); return;
+  }
+  if(e.target.id==='scale'){
+    const n=+e.target.value;
+    state.scale=n; state.items=build(n); state.checked.clear();
+    renderRail(); render(); toast('已切换到 '+n+' 个程序的规模');
+  }
+});
+
+$('#q').addEventListener('input',e=>{ state.q=e.target.value; render(); });
+$('#new-btn').addEventListener('click',()=>toast('新建程序 / 手建服务'));
+$('#content').addEventListener('scroll',()=>{},true);
+
+renderRail(); render();
+</script>
+</body>
+</html>

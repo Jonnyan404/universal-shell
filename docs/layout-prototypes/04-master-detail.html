@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方案 D · 主从详情 + 命令面板 — Universal Shell 布局原型</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#f1f5f9;--panel:#fff;--panel2:#eef1f6;--text:#1e293b;--muted:#64748b;
+  --border:rgba(148,163,184,.28);--border-strong:rgba(148,163,184,.5);
+  --accent:#4f8cff;--accent-soft:rgba(79,140,255,.12);
+  --ok:#16a34a;--ok-soft:rgba(22,163,74,.12);--warn:#d97706;--danger:#e11d48;--danger-soft:rgba(225,29,72,.1);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+}
+html,body{height:100%}
+body{margin:0;font:13px/1.45 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;overflow:hidden}
+button{font:inherit;cursor:pointer;color:inherit}
+input,select{font:inherit;color:inherit}
+a{color:inherit;text-decoration:none}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:8px;border:2px solid transparent;background-clip:content-box}
+
+.proto-bar{height:38px;display:flex;align-items:center;gap:10px;padding:0 14px;background:#0f172a;color:#cbd5e1;font-size:12px;flex-shrink:0}
+.proto-bar a{display:flex;align-items:center;gap:5px;color:#e2e8f0;padding:4px 8px;border-radius:7px;border:1px solid rgba(148,163,184,.35)}
+.proto-bar a:hover{background:rgba(148,163,184,.15)}
+.proto-bar .pb-title{font-weight:700;color:#fff}
+.proto-bar .pb-sep{width:1px;height:14px;background:rgba(148,163,184,.35)}
+.proto-bar .pb-chips{display:flex;gap:6px}
+.pb-chip{font-size:11px;padding:2px 7px;border-radius:99px;background:rgba(79,140,255,.16);color:#bfd4ff;border:1px solid rgba(79,140,255,.3)}
+.proto-bar .spacer{flex:1}
+.scale-wrap{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#94a3b8}
+.scale-wrap select{background:#1e293b;color:#e2e8f0;border:1px solid rgba(148,163,184,.35);border-radius:7px;padding:3px 6px;font-size:11.5px}
+
+.app{display:flex;height:calc(100vh - 38px)}
+.iconrail{width:50px;min-width:50px;background:#0f172a;display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:5px}
+.iconrail .ir-logo{width:28px;height:28px;border-radius:8px;background:linear-gradient(140deg,#4f8cff,#2f6fe4);color:#fff;display:grid;place-items:center;font-weight:800;font-size:10px;margin-bottom:6px}
+.iconrail button{width:32px;height:32px;border-radius:8px;border:0;background:transparent;color:#94a3b8;display:grid;place-items:center}
+.iconrail button:hover{background:rgba(148,163,184,.14);color:#e2e8f0}
+.iconrail button.on{background:rgba(79,140,255,.2);color:#8fb6ff}
+.iconrail svg{width:15px;height:15px}
+.iconrail .spacer{flex:1}
+
+/* ---------- 中栏：列表 ---------- */
+.listpane{width:322px;min-width:322px;background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column}
+.lp-head{padding:11px 12px 9px;border-bottom:1px solid var(--border)}
+.lp-title{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;margin-bottom:9px}
+.lp-title small{font-weight:400;color:var(--muted);font-size:11px}
+.lp-title .spacer{flex:1}
+.kbdbtn{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 7px;border-radius:6px;border:1px solid var(--border);background:var(--panel2);font-size:10.5px;color:#64748b}
+.kbdbtn kbd{font-family:inherit;font-size:10px;background:#fff;border:1px solid var(--border);border-radius:4px;padding:0 3px;color:#475569}
+.search{position:relative;margin-bottom:8px}
+.search svg{position:absolute;left:8px;top:50%;transform:translateY(-50%);width:12px;height:12px;color:#94a3b8}
+.search input{width:100%;height:29px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);padding:0 9px 0 26px;font-size:12px;outline:none}
+.search input:focus{background:#fff;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.mini-chips{display:flex;gap:4px}
+.mc{border:1px solid transparent;background:transparent;font-size:11px;color:#64748b;padding:3px 7px;border-radius:6px}
+.mc:hover{background:var(--panel2)}
+.mc.on{background:var(--accent-soft);color:#1e40af;border-color:rgba(79,140,255,.3);font-weight:600}
+.rows{flex:1;overflow-y:auto;padding:5px 6px 12px}
+.row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:9px;cursor:pointer;border:1px solid transparent;margin-bottom:1px}
+.row:hover{background:var(--panel2)}
+.row.on{background:var(--accent-soft);border-color:rgba(79,140,255,.35)}
+.row .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot.running{background:var(--ok);box-shadow:0 0 0 3px rgba(22,163,74,.14)}
+.dot.stopped{background:#cbd5e1}
+.dot.error{background:var(--danger);box-shadow:0 0 0 3px rgba(225,29,72,.14)}
+.dot.missing{background:#fff;border:1.5px dashed #cbd5e1}
+.row .rt{flex:1;min-width:0}
+.row .rn{display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row.on .rn{color:#1e40af;font-weight:600}
+.row .rs{font-size:10.5px;color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.row .rb{display:flex;align-items:center;gap:3px;flex-shrink:0}
+.mini-tag{font-size:9.5px;padding:0 4px;border-radius:4px;background:rgba(217,119,6,.12);color:#b45309;border:1px solid rgba(217,119,6,.22);line-height:15px}
+.mini-tag.up{background:var(--accent-soft);color:#1d4ed8;border-color:rgba(79,140,255,.3);font-weight:700}
+.row .quick{opacity:0;transition:.1s;border:0;background:#fff;border:1px solid var(--border);width:22px;height:22px;border-radius:6px;display:grid;place-items:center;color:#475569}
+.row:hover .quick{opacity:1}
+.row .quick:hover{border-color:var(--accent);color:#1d4ed8}
+.row .quick svg{width:10px;height:10px}
+.lp-foot{padding:7px 12px;border-top:1px solid var(--border);font-size:10.5px;color:#94a3b8;display:flex;gap:8px;align-items:center}
+.lp-foot .spacer{flex:1}
+
+/* ---------- 右栏：详情 ---------- */
+.detail{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+.d-head{background:#fff;border-bottom:1px solid var(--border);padding:14px 20px 0}
+.d-head-top{display:flex;align-items:flex-start;gap:12px}
+.avatar{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;color:#fff;font-size:17px;font-weight:800;flex-shrink:0;box-shadow:0 4px 12px -4px rgba(15,23,42,.35)}
+.d-title{min-width:0}
+.d-title h1{margin:0;font-size:17px;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+.d-title .idline{font-size:11.5px;color:#94a3b8;margin-top:2px;font-family:var(--mono)}
+.d-title .idline b{color:#64748b;font-weight:500}
+.d-actions{margin-left:auto;display:flex;gap:6px;flex-shrink:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;height:29px;padding:0 10px;border-radius:8px;border:1px solid var(--border-strong);background:#fff;font-size:12px;white-space:nowrap}
+.btn:hover{background:var(--panel2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.danger{color:#be123c;border-color:rgba(225,29,72,.35)}
+.btn.sm{height:25px;font-size:11.5px;padding:0 8px}
+.btn.icon{width:29px;padding:0}
+.btn svg{width:12px;height:12px}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:99px}
+.pill.running{background:var(--ok-soft);color:#15803d}
+.pill.stopped{background:var(--panel2);color:#64748b}
+.pill.error{background:var(--danger-soft);color:#be123c}
+.pill i{width:5px;height:5px;border-radius:50%;background:currentColor}
+.tabs{display:flex;gap:2px;margin-top:13px}
+.tab{border:0;background:transparent;padding:8px 11px;font-size:12.5px;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab:hover{color:#334155}
+.tab.on{color:#1e40af;font-weight:600;border-bottom-color:var(--accent)}
+.d-body{flex:1;overflow-y:auto;padding:16px 20px 24px}
+
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:14px}
+.kpi{background:#fff;border:1px solid var(--border);border-radius:11px;padding:10px 12px}
+.kpi .k{font-size:10.5px;color:#94a3b8;letter-spacing:.3px}
+.kpi .v{font-size:16px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums;letter-spacing:-.2px}
+.kpi .v small{font-size:11px;font-weight:500;color:#94a3b8;margin-left:2px}
+.kpi .spark{height:18px;margin-top:4px}
+.card{background:#fff;border:1px solid var(--border);border-radius:12px;margin-bottom:12px;overflow:hidden}
+.card-h{display:flex;align-items:center;gap:6px;padding:9px 13px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600;background:#fbfcfe}
+.card-h .spacer{flex:1}
+.card-h .hint{font-weight:400;font-size:10.5px;color:#94a3b8}
+.card-b{padding:12px 13px}
+.kv{display:grid;grid-template-columns:96px 1fr;gap:7px 10px;font-size:12px}
+.kv dt{color:#94a3b8;font-size:11.5px}
+.kv dd{margin:0;font-family:var(--mono);font-size:11.5px;color:#334155;word-break:break-all}
+.kv dd .plain{font-family:inherit}
+.chips{display:flex;gap:5px;flex-wrap:wrap}
+.chip{font-size:11px;padding:2px 8px;border-radius:6px;background:var(--panel2);border:1px solid var(--border);color:#475569;font-family:var(--mono)}
+.chip.dep{background:#f5f3ff;border-color:rgba(139,92,246,.3);color:#6d28d9}
+.tl{list-style:none;margin:0;padding:0}
+.tl li{display:flex;gap:9px;padding:6px 0;font-size:12px;position:relative}
+.tl li+li{border-top:1px dashed rgba(148,163,184,.28)}
+.tl .t{font-family:var(--mono);font-size:10.5px;color:#94a3b8;width:42px;flex-shrink:0;padding-top:1px}
+.tl .d{color:#475569}
+.tl .d b{color:#0f172a;font-weight:600}
+.term{background:#0f172a;color:#cbd5e1;font-family:var(--mono);font-size:11.5px;line-height:1.65;padding:10px 12px;border-radius:0 0 12px 12px;max-height:210px;overflow:auto;white-space:pre-wrap}
+.term .g{color:#4ade80}.term .y{color:#fbbf24}.term .r{color:#fb7185}.term .b{color:#93c5fd}.term .m{color:#64748b}
+.logbar{display:flex;align-items:center;gap:5px;padding:6px 10px;background:#1e293b;color:#94a3b8;font-size:10.5px;border-radius:12px 12px 0 0}
+.logbar .spacer{flex:1}
+.logbar button{border:1px solid rgba(148,163,184,.3);background:transparent;color:#cbd5e1;height:20px;padding:0 6px;border-radius:5px;font-size:10px}
+.fields{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.field{border:1px solid var(--border);border-radius:9px;padding:8px 10px;background:#fbfcfe}
+.field label{display:block;font-size:10.5px;color:#94a3b8;margin-bottom:2px}
+.field .val{font-size:12px;color:#334155;font-family:var(--mono)}
+.sched{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.sched .s{border:1px solid var(--border);border-radius:9px;padding:9px 11px}
+.sched .s .k{font-size:10.5px;color:#94a3b8}
+.sched .s .v{font-size:12.5px;margin-top:2px;font-weight:600}
+.updrow{display:flex;align-items:center;gap:10px;padding:10px 0}
+.updrow .box{border:1px solid var(--border);border-radius:10px;padding:8px 12px;text-align:center;min-width:96px}
+.updrow .box .k{font-size:10px;color:#94a3b8}
+.updrow .box .v{font-family:var(--mono);font-size:12.5px;font-weight:600;margin-top:2px}
+.updrow .arrow{color:#94a3b8}
+.note{font-size:11.5px;color:#64748b;background:#fffbeb;border:1px solid rgba(217,119,6,.28);color:#92400e;padding:8px 10px;border-radius:9px;margin-top:10px}
+
+/* ---------- 命令面板 ---------- */
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);backdrop-filter:blur(2px);display:none;align-items:flex-start;justify-content:center;padding-top:14vh;z-index:80}
+.overlay.show{display:flex}
+.palette{width:560px;background:#fff;border-radius:14px;box-shadow:0 30px 70px -20px rgba(15,23,42,.6);overflow:hidden;border:1px solid rgba(148,163,184,.4)}
+.pal-search{display:flex;align-items:center;gap:9px;padding:12px 14px;border-bottom:1px solid var(--border)}
+.pal-search svg{width:15px;height:15px;color:#94a3b8}
+.pal-search input{flex:1;border:0;outline:none;font-size:14px;background:transparent}
+.pal-search kbd{font-size:10px;color:#94a3b8;border:1px solid var(--border);border-radius:5px;padding:1px 5px;font-family:inherit}
+.pal-list{max-height:340px;overflow-y:auto;padding:6px}
+.pal-sec{font-size:10px;letter-spacing:.5px;color:#94a3b8;font-weight:700;padding:8px 10px 4px}
+.pal-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;font-size:12.5px}
+.pal-item .pi-ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:var(--panel2);color:#64748b;flex-shrink:0}
+.pal-item .pi-ic svg{width:12px;height:12px}
+.pal-item .pi-sub{margin-left:auto;font-size:10.5px;color:#94a3b8}
+.pal-item.sel{background:var(--accent-soft);color:#1e40af}
+.pal-item.sel .pi-sub{color:#3b82f6}
+.pal-foot{display:flex;gap:12px;padding:7px 12px;border-top:1px solid var(--border);font-size:10.5px;color:#94a3b8;background:#fbfcfe}
+.pal-foot kbd{font-family:inherit;border:1px solid var(--border);border-radius:4px;padding:0 4px;background:#fff;color:#64748b}
+.toast{position:fixed;right:18px;bottom:20px;background:#0f172a;color:#fff;font-size:12px;padding:9px 13px;border-radius:10px;opacity:0;transform:translateY(8px);transition:.18s;z-index:90}
+.toast.show{opacity:1;transform:none}
+</style>
+</head>
+<body>
+
+<div class="proto-bar">
+  <a href="index.html">← 方案总览</a>
+  <span class="pb-sep"></span>
+  <span class="pb-title">方案 D · 主从详情 + 命令面板</span>
+  <span class="pb-chips">
+    <span class="pb-chip">信息密度 中</span>
+    <span class="pb-chip">导航 键盘优先 ⌘K</span>
+    <span class="pb-chip">单点深度最高</span>
+  </span>
+  <span class="spacer"></span>
+  <label class="scale-wrap">规模
+    <select id="scale">
+      <option value="24">24 个</option>
+      <option value="48" selected>48 个</option>
+      <option value="120">120 个</option>
+    </select>
+  </label>
+</div>
+
+<div class="app">
+  <nav class="iconrail">
+    <span class="ir-logo">US</span>
+    <button class="on" title="程序"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M2.5 6.5h11M6.5 6.5v7"/></svg></button>
+    <button title="模板库"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2.2l5.3 2.8L8 7.8 2.7 5z"/><path d="M2.7 8L8 10.8 13.3 8M2.7 11L8 13.8l5.3-2.8"/></svg></button>
+    <button title="日志"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h6"/></svg></button>
+    <span class="spacer"></span>
+    <button title="设置"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1"/></svg></button>
+  </nav>
+
+  <section class="listpane">
+    <div class="lp-head">
+      <div class="lp-title">程序 <small id="lp-count">48</small><span class="spacer"></span>
+        <button class="kbdbtn" id="pal-btn"><kbd>⌘</kbd><kbd>K</kbd> 命令</button>
+      </div>
+      <div class="search">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6L14 14"/></svg>
+        <input id="q" placeholder="筛选列表（/ 聚焦）" />
+      </div>
+      <div class="mini-chips" id="chips">
+        <button class="mc on" data-f="all">全部</button>
+        <button class="mc" data-f="running">运行中</button>
+        <button class="mc" data-f="native">系统</button>
+        <button class="mc" data-f="update">更新</button>
+      </div>
+    </div>
+    <div class="rows" id="rows"></div>
+    <div class="lp-foot"><span id="foot-stat">48 个 · 31 运行</span><span class="spacer"></span><span>↑↓ 切换 · ⌘K 命令</span></div>
+  </section>
+
+  <section class="detail">
+    <div class="d-head">
+      <div class="d-head-top">
+        <span class="avatar" id="d-avatar">D</span>
+        <div class="d-title">
+          <h1 id="d-name">dufs <span class="pill running" id="d-pill"><i></i>运行中</span></h1>
+          <div class="idline"><b>id</b> <span id="d-id">dufs</span> · <b>repo</b> <span id="d-repo">sigoden/dufs</span></div>
+        </div>
+        <div class="d-actions">
+          <button class="btn primary" id="d-toggle">■ 停止</button>
+          <button class="btn" id="d-restart">↻ 重启</button>
+          <button class="btn" id="d-open">↗ 打开网站</button>
+          <button class="btn icon" id="d-more">⋯</button>
+        </div>
+      </div>
+      <div class="tabs" id="tabs">
+        <button class="tab on" data-t="overview">概览</button>
+        <button class="tab" data-t="config">配置</button>
+        <button class="tab" data-t="sched">调度</button>
+        <button class="tab" data-t="logs">日志</button>
+        <button class="tab" data-t="update">更新 <span style="font-size:9px;color:#1d4ed8;background:var(--accent-soft);border-radius:99px;padding:0 4px;margin-left:2px" id="upd-dot">1</span></button>
+      </div>
+    </div>
+    <div class="d-body" id="d-body"></div>
+  </section>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="palette">
+    <div class="pal-search">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="4.6"/><path d="M10.6 10.6L14 14"/></svg>
+      <input id="pal-q" placeholder="搜索程序，或输入命令：启动 / 停止 / 更新…" />
+      <kbd>ESC</kbd>
+    </div>
+    <div class="pal-list" id="pal-list"></div>
+    <div class="pal-foot"><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>↵</kbd> 执行</span><span><kbd>⌘</kbd><kbd>K</kbd> 关闭</span></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const RAW = [
+  ['dufs','dufs','文件共享','running','managed','0.43.0','0.44.0',5000,1,'3d 4h'],
+  ['filebrowser','File Browser','文件共享','running','native','2.31.2','',8088,1,'12d'],
+  ['alist','AList','文件共享','running','managed','3.41.0','',5244,1,'6d 2h'],
+  ['cloud-clipboard','Cloud Clipboard','文件共享','stopped','managed','0.4.6','0.5.0',8300,0,''],
+  ['sftpgo','SFTPGo','文件共享','running','native','2.6.1','',2022,1,'12d'],
+  ['syncthing','Syncthing','同步与备份','running','native','1.29.2','',8384,1,'12d'],
+  ['rclone-web','Rclone WebUI','同步与备份','stopped','managed','1.68.1','',5572,0,''],
+  ['restic-rest','Restic REST','同步与备份','running','managed','0.13.0','',8000,1,'2d 7h'],
+  ['kopia','Kopia','同步与备份','error','managed','0.18.2','',51515,0,''],
+  ['duplicati','Duplicati','同步与备份','stopped','managed','2.1.0','',8200,0,''],
+  ['frp','FRP Server','代理与网络','running','native','0.61.0','',7000,1,'12d'],
+  ['nginx','Nginx','代理与网络','running','native','1.27.3','',80,1,'12d'],
+  ['caddy','Caddy','代理与网络','running','native','2.9.0','',443,1,'12d'],
+  ['sing-box','sing-box','代理与网络','running','managed','1.11.3','1.12.0',2080,1,'5d'],
+  ['adguard','AdGuard Home','代理与网络','running','native','0.107.55','',3000,1,'12d'],
+  ['wg-ui','WireGuard UI','代理与网络','stopped','managed','0.6.2','',5001,0,''],
+  ['minio','MinIO','存储与数据库','running','native','2024.11.2','',9000,1,'12d'],
+  ['postgres','PostgreSQL','存储与数据库','running','native','16.4','',5432,1,'12d'],
+  ['redis','Redis','存储与数据库','running','native','7.4.1','',6379,1,'12d'],
+  ['mongo-express','Mongo Express','存储与数据库','stopped','managed','1.0.2','',8081,0,''],
+  ['meilisearch','Meilisearch','存储与数据库','running','managed','1.11.2','1.12.0',7700,1,'9d'],
+  ['gitea','Gitea','开发工具','running','native','1.22.4','1.23.0',3001,1,'12d'],
+  ['code-server','code-server','开发工具','running','managed','4.95.3','',8443,1,'4d 1h'],
+  ['registry','Docker Registry','开发工具','running','native','2.8.3','',5000,1,'12d'],
+  ['act-runner','Gitea Runner','开发工具','stopped','managed','0.2.11','',0,0,''],
+  ['n8n','n8n','开发工具','running','managed','1.68.0','',5678,1,'1d 6h'],
+  ['jellyfin','Jellyfin','媒体服务','running','native','10.10.3','10.10.4',8096,1,'12d'],
+  ['navidrome','Navidrome','媒体服务','running','managed','0.53.3','',4533,1,'8d'],
+  ['immich','Immich','媒体服务','error','managed','1.119.0','1.120.2',2283,1,''],
+  ['calibre-web','Calibre-Web','媒体服务','stopped','managed','0.6.23','',8083,0,''],
+  ['komga','Komga','媒体服务','stopped','managed','1.15.0','',25600,0,''],
+  ['uptime-kuma','Uptime Kuma','监控运维','running','native','1.23.16','',3001,1,'12d'],
+  ['grafana','Grafana','监控运维','running','native','11.3.0','11.4.0',3000,1,'12d'],
+  ['prometheus','Prometheus','监控运维','running','native','2.55.1','',9090,1,'12d'],
+  ['loki','Loki','监控运维','running','native','3.2.1','',3100,1,'12d'],
+  ['dozzle','Dozzle','监控运维','stopped','managed','8.5.0','',8888,0,''],
+  ['watchtower','Watchtower','监控运维','running','native','1.7.1','',0,1,'12d'],
+  ['portainer','Portainer','监控运维','running','native','2.21.4','',9443,1,'12d'],
+  ['memos','Memos','知识管理','running','managed','0.22.4','',5230,1,'2d'],
+  ['wallabag','Wallabag','知识管理','stopped','managed','2.6.9','',8080,0,''],
+  ['freshrss','FreshRSS','知识管理','running','managed','1.24.2','',8082,1,'7d'],
+  ['qbittorrent','qBittorrent','下载工具','running','native','5.0.2','',8080,1,'12d'],
+  ['aria2','Aria2','下载工具','running','managed','1.37.0','',6800,1,'10d'],
+  ['transmission','Transmission','下载工具','stopped','managed','4.0.6','',9091,0,''],
+  ['homepage','Homepage','导航面板','running','managed','0.10.9','',3000,1,'11d'],
+  ['dockge','Dockge','导航面板','running','managed','1.4.2','',5001,1,'11d'],
+  ['npm','NPM Plus','代理与网络','stopped','managed','2.12.0','',81,0,''],
+  ['vaultwarden','Vaultwarden','知识管理','running','native','1.32.7','',8222,1,'12d']
+];
+const TILE=['#4f8cff','#8b5cf6','#0ea5e9','#f59e0b','#10b981','#ec4899','#ef4444','#6366f1','#14b8a6','#a855f7'];
+const ST={running:'运行中',stopped:'已停止',error:'异常',missing:'未安装'};
+
+function build(n){
+  let list=RAW.map((r,i)=>({id:r[0],name:r[1],cat:r[2],state:r[3],sup:r[4],ver:r[5],latest:r[6],port:r[7],auto:!!r[8],up:r[9],hue:TILE[i%TILE.length],
+    repo:'Jonnyan404/'+r[0],mem:18+(i*7)%120}));
+  if(n>list.length){
+    const cats=[...new Set(RAW.map(r=>r[2]))];
+    const states=['running','running','running','running','running','stopped','stopped','stopped','stopped','stopped','error','running'];
+    for(let i=list.length;i<n;i++){
+      const base=RAW[i%RAW.length],k=Math.floor(i/RAW.length);
+      list.push({id:base[0]+'-w'+String(k).padStart(2,'0'),name:base[1]+' #'+k,cat:cats[i%cats.length],
+        state:states[i%states.length],sup:i%3===0?'native':'managed',ver:base[5],
+        latest:i%7===0?base[5].replace(/(\d+)$/,m=>+m+1):'',port:10000+(i*7)%40000,
+        auto:i%2===0,up:i%3===0?'1d 3h':'',hue:TILE[i%TILE.length],repo:'Jonnyan404/'+base[0],mem:18+(i*11)%160});
+    }
+  }
+  return list;
+}
+
+const S={items:build(48),filter:'all',q:'',sel:'dufs',tab:'overview',pal:false,palSel:0,palQ:''};
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ICO={
+  play:'<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 2.6l8.2 5.4-8.2 5.4z"/></svg>',
+  stop:'<svg viewBox="0 0 16 16" fill="currentColor"><rect x="3.6" y="3.6" width="8.8" height="8.8" rx="1.6"/></svg>',
+  log:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5h10M3 8h10M3 11.5h6"/></svg>',
+  playS:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/><path d="M6.8 5.8l3.6 2.2-3.6 2.2z" fill="currentColor"/></svg>'
+};
+
+function visible(){
+  const q=S.q.trim().toLowerCase();
+  return S.items.filter(i=>{
+    if(S.filter==='running'&&i.state!=='running') return false;
+    if(S.filter==='native'&&i.sup!=='native') return false;
+    if(S.filter==='update'&&!(i.latest&&i.latest!==i.ver)) return false;
+    if(q&&!(i.name+' '+i.id).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+function renderList(){
+  const rows=visible();
+  $('#rows').innerHTML=rows.map(i=>{
+    const upd=i.latest&&i.latest!==i.ver;
+    return `<div class="row ${i.id===S.sel?'on':''}" data-id="${i.id}">
+      <span class="dot ${i.state}"></span>
+      <div class="rt"><div class="rn">${esc(i.name)}</div>
+        <div class="rs">${i.port?':'+i.port+' · ':''}v${esc(i.ver)}${i.state==='running'&&i.up?' · '+i.up:''}</div></div>
+      <div class="rb">
+        ${upd?'<span class="mini-tag up">↑</span>':''}
+        ${i.sup==='native'?'<span class="mini-tag">系统</span>':''}
+        <button class="quick" data-quick="${i.id}" title="${i.state==='running'?'停止':'启动'}">${i.state==='running'?ICO.stop:ICO.play}</button>
+      </div>
+    </div>`;
+  }).join('')||'<div style="padding:30px;text-align:center;color:#94a3b8;font-size:12px">无匹配</div>';
+  $('#lp-count').textContent=rows.length;
+  const run=S.items.filter(i=>i.state==='running').length;
+  $('#foot-stat').textContent=S.items.length+' 个 · '+run+' 运行';
+}
+
+function cur(){ return S.items.find(i=>i.id===S.sel)||S.items[0]; }
+
+function renderDetail(){
+  const i=cur(); if(!i) return;
+  $('#d-avatar').textContent=i.name.slice(0,1).toUpperCase();
+  $('#d-avatar').style.background=i.hue;
+  $('#d-name').innerHTML=esc(i.name)+` <span class="pill ${i.state}"><i></i>${ST[i.state]}</span>`;
+  $('#d-id').textContent=i.id;
+  $('#d-repo').textContent=i.repo||'（本地程序）';
+  $('#d-toggle').innerHTML=(i.state==='running'?'■ 停止':'▶ 启动');
+  $('#d-toggle').className='btn '+(i.state==='running'?'':'primary');
+  $('#upd-dot').style.display=(i.latest&&i.latest!==i.ver)?'':'none';
+
+  const body=$('#d-body');
+  if(S.tab==='overview'){
+    body.innerHTML=`
+      <div class="kpis">
+        <div class="kpi"><div class="k">运行时长</div><div class="v">${i.state==='running'?(i.up||'刚刚'):'—'}</div>
+          <svg class="spark" viewBox="0 0 100 18" preserveAspectRatio="none"><polyline points="0,14 10,12 20,13 30,9 40,11 50,7 60,8 70,5 80,6 90,3 100,4" fill="none" stroke="#16a34a" stroke-width="1.4"/></svg></div>
+        <div class="kpi"><div class="k">监听端口</div><div class="v">${i.port||'—'}<small>${i.port?'TCP':''}</small></div>
+          <div style="font-size:10.5px;color:#94a3b8;margin-top:6px">${i.port?'127.0.0.1':'未绑定'}</div></div>
+        <div class="kpi"><div class="k">内存占用</div><div class="v">${i.state==='running'?i.mem:'0'}<small>MB</small></div>
+          <svg class="spark" viewBox="0 0 100 18" preserveAspectRatio="none"><polyline points="0,12 10,13 20,10 30,11 40,9 50,12 60,10 70,8 80,9 90,7 100,8" fill="none" stroke="#4f8cff" stroke-width="1.4"/></svg></div>
+        <div class="kpi"><div class="k">版本</div><div class="v" style="font-size:14px">v${esc(i.ver)}</div>
+          <div style="font-size:10.5px;color:${i.latest&&i.latest!==i.ver?'#1d4ed8':'#94a3b8'};margin-top:6px">${i.latest&&i.latest!==i.ver?'可更新至 '+esc(i.latest):'已是最新'}</div></div>
+      </div>
+      <div class="card">
+        <div class="card-h">运行配置<span class="spacer"></span><span class="hint">来自 shell.json 快照</span></div>
+        <div class="card-b"><dl class="kv">
+          <dt>可执行文件</dt><dd>~/.universal-shell/bin/${esc(i.id)}</dd>
+          <dt>启动参数</dt><dd>--port ${i.port||'—'} --allow-all</dd>
+          <dt>工作目录</dt><dd>~/.universal-shell/data/${esc(i.id)}</dd>
+          <dt>调度归属</dt><dd><span class="plain">${i.sup==='native'?'系统调度（launchd / systemd）':'壳托管子进程'}</span></dd>
+          <dt>开机自启</dt><dd><span class="plain">${i.auto?'已开启':'未开启'}</span></dd>
+          <dt>分类</dt><dd><span class="plain">${esc(i.cat)}</span></dd>
+        </dl></div>
+      </div>
+      <div class="card">
+        <div class="card-h">依赖与关联<span class="spacer"></span><span class="hint">${i.sup==='native'?'系统调度按序拉起':'壳托管不涉及'}</span></div>
+        <div class="card-b"><div class="chips">
+          ${(i.sup==='native'?'<span class="chip dep">depends: redis</span><span class="chip dep">depends: postgres</span>':'<span class="chip">无外部依赖</span>')}
+          <span class="chip">模板 ${esc(i.id)}</span>
+          <span class="chip">导入于 2026-11-02</span>
+        </div></div>
+      </div>
+      <div class="card">
+        <div class="card-h">最近事件<span class="spacer"></span><span class="hint">来自状态订阅</span></div>
+        <div class="card-b"><ul class="tl">
+          <li><span class="t">23:41</span><span class="d"><b>状态变更</b> · running → ${i.state==='running'?'running':'stopped'}</span></li>
+          <li><span class="t">23:40</span><span class="d"><b>${esc(i.id)}</b> 由壳启动，pid 48213，监听 :${i.port||'—'}</span></li>
+          <li><span class="t">11:02</span><span class="d"><b>配置更新</b> · args 增加 <code style="font-family:var(--mono);font-size:11px">--allow-all</code></span></li>
+        </ul></div>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <div class="logbar"><b style="color:#e2e8f0;font-weight:600">日志 · stdout</b><span class="spacer"></span><button>跟随中</button><button>清空</button><button>展开</button></div>
+        <div class="term"><span class="m">23:40:12</span> <span class="g">INFO</span> dufs listening on <span class="b">http://127.0.0.1:${i.port||5000}</span>
+<span class="m">23:40:12</span> <span class="g">INFO</span> serving path <span class="b">/Users/jonny/share</span>
+<span class="m">23:41:03</span> <span class="y">WARN</span> client disconnected before response (10.0.0.4)
+<span class="m">23:41:44</span> <span class="g">INFO</span> GET /index.html <span class="g">200</span> 3.2ms
+<span class="m">23:42:10</span> <span class="g">INFO</span> GET /assets/app.js <span class="g">200</span> 1.8ms</div>
+      </div>`;
+  }
+  if(S.tab==='config'){
+    body.innerHTML=`<div class="card"><div class="card-h">字段（模板定义）<span class="spacer"></span><button class="btn sm">编辑</button></div>
+      <div class="card-b"><div class="fields">
+        <div class="field"><label>共享目录 share_dir</label><div class="val">/Users/jonny/share</div></div>
+        <div class="field"><label>监听端口 port</label><div class="val">${i.port||'—'}</div></div>
+        <div class="field"><label>访问路径 path</label><div class="val">/</div></div>
+        <div class="field"><label>只读模式 read_only</label><div class="val">false</div></div>
+      </div></div></div>
+      <div class="card"><div class="card-h">环境变量<span class="spacer"></span><span class="hint">启动时注入，不写日志</span></div>
+        <div class="card-b"><dl class="kv">
+          <dt>RUST_LOG</dt><dd>info</dd>
+          <dt>DUFS_AUTH</dt><dd>••••••（已隐藏）</dd>
+        </dl></div></div>
+      <div class="card" style="margin-bottom:0"><div class="card-h">原始 JSON<span class="spacer"></span><button class="btn sm">复制</button></div>
+        <div class="term" style="border-radius:0 0 12px 12px;max-height:240px">{
+  <span class="b">"id"</span>: <span class="g">"${esc(i.id)}"</span>,
+  <span class="b">"name"</span>: <span class="g">"${esc(i.name)}"</span>,
+  <span class="b">"binary"</span>: <span class="g">"${esc(i.id)}"</span>,
+  <span class="b">"supervisor"</span>: <span class="g">"${i.sup}"</span>,
+  <span class="b">"args"</span>: [<span class="g">"--port"</span>, <span class="g">"${i.port||0}"</span>],
+  <span class="b">"template_source"</span>: <span class="g">"${esc(i.id)}"</span>
+}</div></div>`;
+  }
+  if(S.tab==='sched'){
+    body.innerHTML=`<div class="card"><div class="card-h">调度参数<span class="spacer"></span><span class="hint">${i.sup==='native'?'由 us-svc 生成系统配置':'壳托管时以下参数忽略'}</span></div>
+      <div class="card-b"><div class="sched">
+        <div class="s"><div class="k">归属</div><div class="v">${i.sup==='native'?'系统调度':'壳托管'}</div></div>
+        <div class="s"><div class="k">重启策略</div><div class="v">on_failure</div></div>
+        <div class="s"><div class="k">启动延迟</div><div class="v">3 s</div></div>
+        <div class="s"><div class="k">作用域</div><div class="v">user</div></div>
+        <div class="s"><div class="k">就绪探测</div><div class="v">:${i.port||'—'} / TCP</div></div>
+        <div class="s"><div class="k">超时</div><div class="v">30 s</div></div>
+      </div>
+      <div class="note">依赖的程序会先被拉起并等待就绪端口；任一依赖失败时本程序不会启动。</div></div></div>
+      <div class="card" style="margin-bottom:0"><div class="card-h">生成的系统单元<span class="spacer"></span><button class="btn sm">查看</button></div>
+        <div class="term" style="border-radius:0 0 12px 12px">[Unit]
+Description=${esc(i.name)} (universal-shell)
+After=network-online.target redis.service
+
+[Service]
+ExecStart=/Users/jonny/.universal-shell/bin/${esc(i.id)} --port ${i.port||0}
+Restart=on-failure
+RestartSec=3</div></div>`;
+  }
+  if(S.tab==='logs'){
+    body.innerHTML=`<div class="card" style="margin-bottom:0"><div class="logbar"><b style="color:#e2e8f0">${esc(i.id)}.log</b><span class="spacer"></span><button>跟随中</button><button>复制</button><button>下载</button><button>清空</button></div>
+      <div class="term" style="max-height:none;min-height:420px;border-radius:0 0 12px 12px"><span class="m">23:38:02</span> <span class="g">INFO</span> starting ${esc(i.id)} v${esc(i.ver)}
+<span class="m">23:38:02</span> <span class="g">INFO</span> config loaded from /Users/jonny/.universal-shell/data/${esc(i.id)}
+<span class="m">23:38:02</span> <span class="g">INFO</span> listening on 127.0.0.1:${i.port||'—'}
+<span class="m">23:39:15</span> <span class="y">WARN</span> slow request 812ms GET /api/list
+<span class="m">23:40:12</span> <span class="g">INFO</span> GET / 200 2.1ms
+<span class="m">23:41:03</span> <span class="y">WARN</span> client disconnected before response
+<span class="m">23:41:44</span> <span class="g">INFO</span> GET /index.html 200 3.2ms
+<span class="m">23:42:10</span> <span class="r">ERROR</span> upstream timeout (retry 1/3)</div></div>`;
+  }
+  if(S.tab==='update'){
+    const upd=i.latest&&i.latest!==i.ver;
+    body.innerHTML=`<div class="card"><div class="card-h">版本对比<span class="spacer"></span><span class="hint">通道 stable</span></div>
+      <div class="card-b">
+        <div class="updrow">
+          <div class="box"><div class="k">本地版本</div><div class="v">v${esc(i.ver)}</div></div>
+          <span class="arrow">→</span>
+          <div class="box"><div class="k">最新版本</div><div class="v" style="color:${upd?'#1d4ed8':'#334155'}">${i.latest?'v'+esc(i.latest):'—'}</div></div>
+          <div style="flex:1"></div>
+          ${upd?'<button class="btn primary" id="do-upd">应用更新</button>':'<span style="font-size:12px;color:#16a34a">已是最新</span>'}
+        </div>
+        ${upd?`<div class="note">更新将保留已填字段（share_dir / port），仅替换二进制并重启进程。</div>`:''}
+      </div></div>
+      <div class="card" style="margin-bottom:0"><div class="card-h">发布说明<span class="spacer"></span><a href="#" style="font-size:11px;color:#4f8cff">在 GitHub 查看</a></div>
+        <div class="card-b" style="font-size:12px;color:#475569;line-height:1.7">
+          <b style="color:#0f172a">v${esc(i.latest||i.ver)}</b> · 2026-11-18<br>
+          · 新增 <code style="font-family:var(--mono)">--allow-all</code> 参数<br>
+          · 修复 macOS 上大文件断点续传失败<br>
+          · 依赖升级：tokio 1.42
+        </div></div>`;
+  }
+}
+
+function renderAll(){ renderList(); renderDetail(); }
+
+/* 列表交互 */
+$('#rows').addEventListener('click',e=>{
+  const q=e.target.closest('[data-quick]');
+  if(q){
+    e.stopPropagation();
+    const i=S.items.find(x=>x.id===q.dataset.quick);
+    if(i.state==='running'){ i.state='stopped'; i.up=''; toast(i.name+' 已停止'); }
+    else { i.state='running'; i.up='刚刚'; toast(i.name+' 已启动'); }
+    renderAll(); return;
+  }
+  const row=e.target.closest('[data-id]');
+  if(row){ S.sel=row.dataset.id; renderAll(); }
+});
+$('#chips').addEventListener('click',e=>{
+  const c=e.target.closest('[data-f]'); if(!c) return;
+  S.filter=c.dataset.f;
+  document.querySelectorAll('#chips .mc').forEach(b=>b.classList.toggle('on',b===c));
+  renderList();
+});
+$('#tabs').addEventListener('click',e=>{
+  const t=e.target.closest('[data-t]'); if(!t) return;
+  S.tab=t.dataset.t;
+  document.querySelectorAll('#tabs .tab').forEach(b=>b.classList.toggle('on',b===t));
+  renderDetail();
+});
+$('#d-toggle').addEventListener('click',()=>{
+  const i=cur();
+  if(i.state==='running'){ i.state='stopped'; i.up=''; toast(i.name+' 已停止'); }
+  else { i.state='running'; i.up='刚刚'; toast(i.name+' 已启动'); }
+  renderAll();
+});
+$('#d-restart').addEventListener('click',()=>{ const i=cur(); i.state='running'; i.up='刚刚'; toast(i.name+' 已重启'); renderAll(); });
+$('#d-open').addEventListener('click',()=>{ const i=cur(); toast(i.port?'打开 http://127.0.0.1:'+i.port:'未绑定端口，无法打开'); });
+$('#d-more').addEventListener('click',()=>toast('编辑 / 复制 ID / 删除'));
+$('#d-body').addEventListener('click',e=>{ if(e.target.id==='do-upd'){ const i=cur(); i.ver=i.latest; toast(i.name+' 已更新到 v'+i.ver); renderAll(); } });
+$('#q').addEventListener('input',e=>{ S.q=e.target.value; renderList(); });
+$('#scale').addEventListener('change',e=>{ S.items=build(+e.target.value); S.sel=S.items[0].id; renderAll(); toast('规模切换到 '+e.target.value+' 个'); });
+
+/* ---------- 命令面板 ---------- */
+function palItems(){
+  const q=S.palQ.trim().toLowerCase();
+  const acts=[
+    {id:'a:start',label:'启动全部已停止的程序',sub:'批量',ic:ICO.play},
+    {id:'a:check',label:'检查全部程序更新',sub:'批量',ic:ICO.playS},
+    {id:'a:new',label:'新建程序 / 手建服务',sub:'新建',ic:ICO.playS},
+    {id:'a:lib',label:'打开模板库',sub:'导航',ic:ICO.log}
+  ].filter(a=>!q||a.label.toLowerCase().includes(q));
+  const progs=S.items.filter(i=>!q||(i.name+' '+i.id).toLowerCase().includes(q)).slice(0,7)
+    .map(i=>({id:'p:'+i.id,label:i.name,sub:':'+(i.port||'—')+' · '+ST[i.state],ic:i.state==='running'?ICO.stop:ICO.play,hue:i.hue}));
+  return [...acts,...progs];
+}
+function renderPal(){
+  const items=palItems();
+  S.palSel=Math.max(0,Math.min(S.palSel,items.length-1));
+  const q=S.palQ.trim().toLowerCase();
+  let html='';
+  const acts=items.filter(i=>i.id.startsWith('a:'));
+  const progs=items.filter(i=>i.id.startsWith('p:'));
+  if(acts.length) html+='<div class="pal-sec">操作</div>'+acts.map((it,idx)=>{
+    const gi=items.indexOf(it);
+    return `<div class="pal-item ${gi===S.palSel?'sel':''}" data-pal="${gi}">
+      <span class="pi-ic">${it.ic}</span><span>${esc(it.label)}</span><span class="pi-sub">${esc(it.sub)}</span></div>`;
+  }).join('');
+  if(progs.length) html+='<div class="pal-sec">程序</div>'+progs.map(it=>{
+    const gi=items.indexOf(it);
+    return `<div class="pal-item ${gi===S.palSel?'sel':''}" data-pal="${gi}">
+      <span class="pi-ic" style="background:${it.hue};color:#fff;font-size:9px;font-weight:800">${esc(it.label.slice(0,1).toUpperCase())}</span>
+      <span>${esc(it.label)}</span><span class="pi-sub">${esc(it.sub)}</span></div>`;
+  }).join('');
+  $('#pal-list').innerHTML=html||'<div style="padding:20px;text-align:center;color:#94a3b8;font-size:12px">无匹配结果</div>';
+}
+function openPal(){ S.pal=true; S.palQ=''; S.palSel=0; $('#pal-q').value=''; $('#overlay').classList.add('show'); renderPal(); setTimeout(()=>$('#pal-q').focus(),20); }
+function closePal(){ S.pal=false; $('#overlay').classList.remove('show'); }
+function runPal(){
+  const it=palItems()[S.palSel]; if(!it) return;
+  closePal();
+  if(it.id.startsWith('p:')){
+    S.sel=it.id.slice(2); S.tab='overview';
+    document.querySelectorAll('#tabs .tab').forEach(b=>b.classList.toggle('on',b.dataset.t==='overview'));
+    renderAll(); toast('已定位到 '+it.label);
+  } else if(it.id==='a:start'){
+    let n=0; S.items.forEach(i=>{ if(i.state!=='running'){ i.state='running'; i.up='刚刚'; n++; } });
+    renderAll(); toast('已启动 '+n+' 个程序');
+  } else if(it.id==='a:check'){
+    const n=S.items.filter(i=>i.latest&&i.latest!==i.ver).length;
+    toast('检查完成，'+n+' 个程序有更新');
+  } else toast(it.label);
+}
+$('#pal-btn').addEventListener('click',openPal);
+$('#pal-q').addEventListener('input',e=>{ S.palQ=e.target.value; S.palSel=0; renderPal(); });
+$('#pal-list').addEventListener('click',e=>{ const it=e.target.closest('[data-pal]'); if(it){ S.palSel=+it.dataset.pal; runPal(); } });
+$('#overlay').addEventListener('click',e=>{ if(e.target.id==='overlay') closePal(); });
+
+document.addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){ e.preventDefault(); S.pal?closePal():openPal(); return; }
+  if(S.pal){
+    if(e.key==='Escape'){ closePal(); }
+    if(e.key==='ArrowDown'){ e.preventDefault(); S.palSel++; renderPal(); }
+    if(e.key==='ArrowUp'){ e.preventDefault(); S.palSel=Math.max(0,S.palSel-1); renderPal(); }
+    if(e.key==='Enter'){ e.preventDefault(); runPal(); }
+    return;
+  }
+  if(e.target.matches('input')) return;
+  if(e.key==='/'){ e.preventDefault(); $('#q').focus(); }
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    e.preventDefault();
+    const rows=visible(); const idx=rows.findIndex(i=>i.id===S.sel);
+    const next=Math.max(0,Math.min(rows.length-1,idx+(e.key==='ArrowDown'?1:-1)));
+    if(rows[next]){ S.sel=rows[next].id; renderAll(); document.querySelector('.row.on')?.scrollIntoView({block:'nearest'}); }
+  }
+  if(e.key==='Enter'){ $('#d-toggle').click(); }
+});
+
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove('show'),1700);}
+renderAll();
+</script>
+</body>
+</html>

@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Universal Shell 主界面布局方案对比</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  --bg:#f1f5f9;--panel:#fff;--panel2:#eef1f6;--text:#1e293b;--muted:#64748b;
+  --border:rgba(148,163,184,.28);--border-strong:rgba(148,163,184,.5);
+  --accent:#4f8cff;--accent-soft:rgba(79,140,255,.12);
+  --ok:#16a34a;--warn:#d97706;--danger:#e11d48;
+}
+body{margin:0;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1180px;margin:0 auto;padding:34px 24px 60px}
+.hero{display:flex;align-items:flex-start;gap:16px;margin-bottom:8px}
+.logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(140deg,#4f8cff,#2f6fe4);color:#fff;display:grid;place-items:center;font-weight:800;font-size:14px;box-shadow:0 6px 18px -6px rgba(79,140,255,.6);flex-shrink:0}
+h1{margin:0;font-size:24px;letter-spacing:-.3px}
+.sub{color:var(--muted);font-size:13px;margin-top:3px}
+.hero-meta{margin-left:auto;text-align:right;font-size:11.5px;color:#94a3b8;line-height:1.7;flex-shrink:0}
+
+.section{margin-top:30px}
+h2{font-size:14px;letter-spacing:.4px;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+h2::after{content:"";flex:1;height:1px;background:var(--border)}
+
+.diag{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.dcard{background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px 13px}
+.dcard .n{font-size:11px;color:#94a3b8;letter-spacing:.4px;font-weight:700}
+.dcard .t{font-size:13px;font-weight:600;margin:4px 0 3px}
+.dcard .d{font-size:11.5px;color:#64748b;line-height:1.55}
+
+.plans{display:flex;flex-direction:column;gap:12px}
+.plan{display:grid;grid-template-columns:270px 1fr 300px;gap:16px;background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px;align-items:stretch;transition:.15s}
+.plan:hover{border-color:rgba(79,140,255,.5);box-shadow:0 14px 36px -18px rgba(15,23,42,.35)}
+.thumb{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--panel2);display:flex}
+.thumb svg{width:100%;height:auto;display:block}
+.plan-main{min-width:0;display:flex;flex-direction:column}
+.plan-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.badge{font-size:10.5px;font-weight:700;letter-spacing:.3px;padding:1px 7px;border-radius:5px;background:var(--accent-soft);color:#1e40af}
+.plan-title h3{margin:0;font-size:15.5px}
+.plan-title .en{font-size:11px;color:#94a3b8;font-weight:400}
+.plan-desc{font-size:12.5px;color:#475569;margin:7px 0 8px;line-height:1.65}
+.tags{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
+.tag{font-size:10.5px;padding:1px 7px;border-radius:99px;border:1px solid var(--border);color:#475569;background:#fbfcfe}
+.tag.bad{color:#be123c;border-color:rgba(225,29,72,.28);background:#fff7f8}
+.tag.good{color:#15803d;border-color:rgba(22,163,74,.28);background:#f6fdf9}
+.plan-foot{margin-top:auto;display:flex;align-items:center;gap:8px}
+.open{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border-radius:8px;background:var(--accent);color:#fff;font-size:12px;font-weight:600;box-shadow:0 2px 8px -2px rgba(79,140,255,.5)}
+.open:hover{background:#3d7cf5}
+.cost{font-size:11px;color:#94a3b8;margin-left:auto}
+
+.scores{display:flex;flex-direction:column;gap:5px;justify-content:center}
+.score{display:flex;align-items:center;gap:8px;font-size:11px;color:#64748b}
+.score .k{width:64px;flex-shrink:0}
+.score .track{flex:1;height:6px;background:var(--panel2);border-radius:99px;overflow:hidden}
+.score .fill{height:100%;border-radius:99px;background:var(--accent)}
+.score .fill.hi{background:#16a34a}
+.score .fill.lo{background:#cbd5e1}
+.score .v{width:26px;text-align:right;font-variant-numeric:tabular-nums;color:#334155;font-weight:600}
+
+table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;font-size:12.5px}
+th,td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--border)}
+th{background:#f8fafc;font-size:11px;color:#64748b;letter-spacing:.4px;font-weight:600}
+tr:last-child td{border-bottom:0}
+td.c,th.c{text-align:center}
+td b{color:#0f172a}
+.dotv{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:1px}
+
+.rec{background:linear-gradient(180deg,#fff,#f7fbff);border:1px solid rgba(79,140,255,.35);border-radius:14px;padding:18px 20px}
+.rec h3{margin:0 0 6px;font-size:15px}
+.rec p{margin:0 0 10px;font-size:12.5px;color:#475569;line-height:1.75}
+.rec ol{margin:0;padding-left:18px;font-size:12.5px;color:#475569;line-height:1.9}
+.rec b{color:#0f172a}
+.rec .callout{margin-top:12px;font-size:12px;color:#1e40af;background:var(--accent-soft);border-radius:9px;padding:9px 11px}
+.qs{margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.q{background:#fff;border:1px dashed var(--border-strong);border-radius:11px;padding:11px 12px;font-size:12px;color:#475569}
+.q b{display:block;font-size:12px;color:#0f172a;margin-bottom:3px}
+.foot-note{margin-top:22px;font-size:11.5px;color:#94a3b8;line-height:1.8}
+kbd{font-family:inherit;font-size:10.5px;border:1px solid var(--border);border-radius:4px;padding:0 4px;background:#fff;color:#64748b}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <span class="logo">US</span>
+    <div>
+      <h1>主界面布局方案对比</h1>
+      <div class="sub">面向「大批量程序管理」的五套布局原型 · 同一份数据、同一套设计语言、可切换 24 / 48 / 120 规模</div>
+    </div>
+    <div class="hero-meta">
+      5 套原型 · 全部可交互<br>
+      数据字段对齐 <code style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px">workspace_list</code>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>当前布局为什么撑不住</h2>
+    <div class="diag">
+      <div class="dcard"><div class="n">01 · 空间</div><div class="t">200px 侧栏装不下元信息</div><div class="d">名称 + 状态 + 调度归属已挤满两行，端口、版本、分类只能省略。程序过 30 个就只能靠滚动找。</div></div>
+      <div class="dcard"><div class="n">02 · 结构</div><div class="t">一维平铺，没有分组层级</div><div class="d">分类字段存在于 Program 里却没用起来；同类程序散落在列表各处，无法整组操作。</div></div>
+      <div class="dcard"><div class="n">03 · 操作</div><div class="t">批量入口藏在勾选后</div><div class="d">勾选框和状态点抢同一行空间，批量条出现时会挤动列表，长列表下选中态难以确认。</div></div>
+      <div class="dcard"><div class="n">04 · 全局</div><div class="t">没有「整体健康」视图</div><div class="d">只能逐个点开才知道谁异常、谁待更新。异常发现依赖你恰好翻到那一行。</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>五套方案</h2>
+    <div class="plans">
+
+      <div class="plan">
+        <div class="thumb">
+          <svg viewBox="0 0 270 150">
+            <rect width="270" height="150" fill="#f8fafc"/>
+            <rect x="0" y="0" width="62" height="150" fill="#fff" stroke="#e2e8f0"/>
+            <rect x="7" y="8" width="48" height="5" rx="2.5" fill="#cbd5e1"/>
+            <rect x="7" y="22" width="40" height="4" rx="2" fill="#e2e8f0"/><rect x="7" y="30" width="34" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="7" y="42" width="44" height="4" rx="2" fill="#e2e8f0"/><rect x="7" y="50" width="30" height="4" rx="2" fill="#e2e8f0"/>
+            <rect x="70" y="8" width="70" height="9" rx="3" fill="#cbd5e1"/>
+            <rect x="70" y="24" width="88" height="26" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="70" y="55" width="88" height="26" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="70" y="86" width="88" height="26" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="76" y="30" width="12" height="12" rx="3" fill="#4f8cff"/><rect x="92" y="31" width="34" height="4" rx="2" fill="#94a3b8"/><rect x="92" y="39" width="24" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="76" y="61" width="12" height="12" rx="3" fill="#8b5cf6"/><rect x="92" y="62" width="40" height="4" rx="2" fill="#94a3b8"/><rect x="92" y="70" width="20" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="76" y="92" width="12" height="12" rx="3" fill="#10b981"/><rect x="92" y="93" width="30" height="4" rx="2" fill="#94a3b8"/><rect x="92" y="101" width="26" height="3" rx="1.5" fill="#e2e8f0"/>
+            <rect x="164" y="24" width="88" height="26" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="164" y="55" width="88" height="26" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="164" y="86" width="88" height="26" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="170" y="30" width="12" height="12" rx="3" fill="#0ea5e9"/><rect x="186" y="31" width="30" height="4" rx="2" fill="#94a3b8"/>
+            <rect x="170" y="61" width="12" height="12" rx="3" fill="#f59e0b"/><rect x="186" y="62" width="36" height="4" rx="2" fill="#94a3b8"/>
+            <rect x="170" y="92" width="12" height="12" rx="3" fill="#ec4899"/><rect x="186" y="93" width="26" height="4" rx="2" fill="#94a3b8"/>
+            <rect x="70" y="122" width="182" height="20" rx="4" fill="#fff" stroke="#dbe3ee" stroke-dasharray="3 3"/>
+          </svg>
+        </div>
+        <div class="plan-main">
+          <div class="plan-title"><span class="badge">方案 A</span><h3>分组卡片视图</h3><span class="en">Grouped Cards</span></div>
+          <div class="plan-desc">按分类分组的卡片栅格，组头可折叠、可整组启停；卡片承载图标、状态、版本、端口与两个高频操作。左侧分类树带计数，是「浏览 + 轻度操作」的均衡解。</div>
+          <div class="tags"><span class="tag good">一眼识别</span><span class="tag">分组折叠</span><span class="tag">整组操作</span><span class="tag bad">单屏可见约 12 个</span></div>
+          <div class="plan-foot"><a class="open" href="01-grouped-cards.html">打开原型 →</a><span class="cost">实现成本：低（复用现有卡片样式）</span></div>
+        </div>
+        <div class="scores">
+          <div class="score"><span class="k">信息密度</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="v">3.0</span></div>
+          <div class="score"><span class="k">导航效率</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="v">3.0</span></div>
+          <div class="score"><span class="k">批量操作</span><span class="track"><span class="fill lo" style="width:50%"></span></span><span class="v">2.5</span></div>
+          <div class="score"><span class="k">单点深度</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="v">3.0</span></div>
+          <div class="score"><span class="k">全局监控</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="v">3.0</span></div>
+        </div>
+      </div>
+
+      <div class="plan">
+        <div class="thumb">
+          <svg viewBox="0 0 270 150">
+            <rect width="270" height="150" fill="#fff"/>
+            <rect x="0" y="0" width="270" height="18" fill="#f8fafc"/>
+            <rect x="8" y="6" width="40" height="6" rx="3" fill="#cbd5e1"/>
+            <rect x="8" y="24" width="254" height="12" fill="#f1f5f9"/>
+            <rect x="14" y="28" width="22" height="4" rx="2" fill="#94a3b8"/><rect x="52" y="28" width="40" height="4" rx="2" fill="#94a3b8"/>
+            <rect x="106" y="28" width="26" height="4" rx="2" fill="#94a3b8"/><rect x="146" y="28" width="22" height="4" rx="2" fill="#94a3b8"/>
+            <rect x="182" y="28" width="18" height="4" rx="2" fill="#94a3b8"/><rect x="214" y="28" width="34" height="4" rx="2" fill="#94a3b8"/>
+            <g>
+              <rect x="14" y="43" width="6" height="6" rx="3" fill="#16a34a"/><rect x="26" y="44" width="22" height="4" rx="2" fill="#cbd5e1"/><rect x="56" y="43" width="52" height="5" rx="2" fill="#94a3b8"/><rect x="112" y="44" width="24" height="4" rx="2" fill="#e2e8f0"/><rect x="150" y="43" width="18" height="5" rx="2" fill="#cbd5e1"/><rect x="186" y="44" width="14" height="4" rx="2" fill="#e2e8f0"/>
+              <rect x="8" y="54" width="254" height="1" fill="#eef2f7"/>
+            </g>
+            <g>
+              <rect x="14" y="60" width="6" height="6" rx="3" fill="#16a34a"/><rect x="26" y="61" width="22" height="4" rx="2" fill="#cbd5e1"/><rect x="56" y="60" width="46" height="5" rx="2" fill="#94a3b8"/><rect x="112" y="61" width="24" height="4" rx="2" fill="#e2e8f0"/><rect x="150" y="60" width="18" height="5" rx="2" fill="#cbd5e1"/><rect x="186" y="61" width="14" height="4" rx="2" fill="#e2e8f0"/>
+              <rect x="8" y="71" width="254" height="1" fill="#eef2f7"/>
+            </g>
+            <g>
+              <rect x="14" y="77" width="6" height="6" rx="3" fill="#e11d48"/><rect x="26" y="78" width="22" height="4" rx="2" fill="#fecdd3"/><rect x="56" y="77" width="58" height="5" rx="2" fill="#94a3b8"/><rect x="112" y="78" width="24" height="4" rx="2" fill="#e2e8f0"/><rect x="150" y="77" width="18" height="5" rx="2" fill="#cbd5e1"/><rect x="186" y="78" width="14" height="4" rx="2" fill="#e2e8f0"/>
+              <rect x="8" y="88" width="254" height="1" fill="#eef2f7"/>
+            </g>
+            <g>
+              <rect x="14" y="94" width="6" height="6" rx="3" fill="#cbd5e1"/><rect x="26" y="95" width="22" height="4" rx="2" fill="#cbd5e1"/><rect x="56" y="94" width="40" height="5" rx="2" fill="#94a3b8"/><rect x="112" y="95" width="24" height="4" rx="2" fill="#e2e8f0"/><rect x="150" y="94" width="18" height="5" rx="2" fill="#cbd5e1"/><rect x="186" y="95" width="14" height="4" rx="2" fill="#e2e8f0"/>
+              <rect x="8" y="105" width="254" height="1" fill="#eef2f7"/>
+            </g>
+            <g>
+              <rect x="14" y="111" width="6" height="6" rx="3" fill="#16a34a"/><rect x="26" y="112" width="22" height="4" rx="2" fill="#cbd5e1"/><rect x="56" y="111" width="50" height="5" rx="2" fill="#94a3b8"/><rect x="112" y="112" width="24" height="4" rx="2" fill="#e2e8f0"/><rect x="150" y="111" width="18" height="5" rx="2" fill="#cbd5e1"/><rect x="186" y="112" width="14" height="4" rx="2" fill="#e2e8f0"/>
+            </g>
+            <rect x="0" y="138" width="270" height="12" fill="#f8fafc" stroke="#e2e8f0"/>
+            <rect x="8" y="142" width="60" height="4" rx="2" fill="#cbd5e1"/><rect x="200" y="142" width="60" height="4" rx="2" fill="#cbd5e1"/>
+          </svg>
+        </div>
+        <div class="plan-main">
+          <div class="plan-title"><span class="badge">方案 B</span><h3>高密度数据表</h3><span class="en">Dense Data Table</span></div>
+          <div class="plan-desc">可排序、可隐藏列、双档行高的表格。批量选择支持 Shift 连选，选中后工具栏就地变成批量操作条；状态、版本、端口、调度归属全部一列对齐，便于纵向扫读与比较。</div>
+          <div class="tags"><span class="tag good">单屏 17–24 行</span><span class="tag good">Shift 连选</span><span class="tag">列设置</span><span class="tag bad">缺少视觉记忆点</span></div>
+          <div class="plan-foot"><a class="open" href="02-data-table.html">打开原型 →</a><span class="cost">实现成本：中（排序/选择状态需重写）</span></div>
+        </div>
+        <div class="scores">
+          <div class="score"><span class="k">信息密度</span><span class="track"><span class="fill hi" style="width:100%"></span></span><span class="v">5.0</span></div>
+          <div class="score"><span class="k">导航效率</span><span class="track"><span class="fill hi" style="width:80%"></span></span><span class="v">4.0</span></div>
+          <div class="score"><span class="k">批量操作</span><span class="track"><span class="fill hi" style="width:100%"></span></span><span class="v">5.0</span></div>
+          <div class="score"><span class="k">单点深度</span><span class="track"><span class="fill lo" style="width:50%"></span></span><span class="v">2.5</span></div>
+          <div class="score"><span class="k">全局监控</span><span class="track"><span class="fill lo" style="width:40%"></span></span><span class="v">2.0</span></div>
+        </div>
+      </div>
+
+      <div class="plan">
+        <div class="thumb">
+          <svg viewBox="0 0 270 150">
+            <rect width="270" height="150" fill="#f1f5f9"/>
+            <rect x="6" y="6" width="60" height="138" rx="6" fill="#e9eef6"/>
+            <rect x="72" y="6" width="60" height="138" rx="6" fill="#e9eef6"/>
+            <rect x="138" y="6" width="60" height="138" rx="6" fill="#e9eef6"/>
+            <rect x="204" y="6" width="60" height="138" rx="6" fill="#e9eef6"/>
+            <circle cx="14" cy="15" r="2.5" fill="#e11d48"/><rect x="20" y="13" width="24" height="4" rx="2" fill="#94a3b8"/>
+            <circle cx="80" cy="15" r="2.5" fill="#16a34a"/><rect x="86" y="13" width="20" height="4" rx="2" fill="#94a3b8"/>
+            <circle cx="146" cy="15" r="2.5" fill="#94a3b8"/><rect x="152" y="13" width="18" height="4" rx="2" fill="#94a3b8"/>
+            <circle cx="212" cy="15" r="2.5" fill="#cbd5e1"/><rect x="218" y="13" width="18" height="4" rx="2" fill="#94a3b8"/>
+            <rect x="11" y="25" width="50" height="30" rx="4" fill="#fff" stroke="#fecdd3"/>
+            <rect x="77" y="25" width="50" height="30" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="143" y="25" width="50" height="30" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="209" y="25" width="50" height="30" rx="4" fill="#fff" stroke="#dbe3ee" stroke-dasharray="3 3"/>
+            <rect x="77" y="60" width="50" height="30" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="143" y="60" width="50" height="30" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="209" y="60" width="50" height="30" rx="4" fill="#fff" stroke="#dbe3ee" stroke-dasharray="3 3"/>
+            <rect x="77" y="95" width="50" height="30" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="143" y="95" width="50" height="30" rx="4" fill="#fff" stroke="#dbe3ee"/>
+            <rect x="77" y="25" width="3" height="30" fill="#16a34a"/>
+            <rect x="143" y="25" width="3" height="30" fill="#16a34a"/>
+            <rect x="11" y="25" width="3" height="30" fill="#e11d48"/>
+          </svg>
+        </div>
+        <div class="plan-main">
+          <div class="plan-title"><span class="badge">方案 C</span><h3>状态看板</h3><span class="en">Kanban by State</span></div>
+          <div class="plan-desc">以「异常 / 运行中 / 已停止 / 未安装」分栏，卡片可拖拽流转——拖到「运行中」即执行启动，拖到「已停止」即停止。适合把运维动作做成物理动作，但横向空间消耗大、不适合全量浏览。</div>
+          <div class="tags"><span class="tag good">处置动作直觉</span><span class="tag">拖拽即执行</span><span class="tag bad">单屏约 12 个</span><span class="tag bad">120 个时需大量滚动</span></div>
+          <div class="plan-foot"><a class="open" href="03-kanban.html">打开原型 →</a><span class="cost">实现成本：中（拖拽 + 状态机约束）</span></div>
+        </div>
+        <div class="scores">
+          <div class="score"><span class="k">信息密度</span><span class="track"><span class="fill lo" style="width:30%"></span></span><span class="v">1.5</span></div>
+          <div class="score"><span class="k">导航效率</span><span class="track"><span class="fill" style="width:70%"></span></span><span class="v">3.5</span></div>
+          <div class="score"><span class="k">批量操作</span><span class="track"><span class="fill lo" style="width:40%"></span></span><span class="v">2.0</span></div>
+          <div class="score"><span class="k">单点深度</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="v">3.0</span></div>
+          <div class="score"><span class="k">全局监控</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="v">3.0</span></div>
+        </div>
+      </div>
+
+      <div class="plan">
+        <div class="thumb">
+          <svg viewBox="0 0 270 150">
+            <rect width="270" height="150" fill="#f8fafc"/>
+            <rect x="0" y="0" width="14" height="150" fill="#0f172a"/>
+            <rect x="4" y="6" width="6" height="6" rx="2" fill="#4f8cff"/><rect x="4" y="18" width="6" height="6" rx="2" fill="#334155"/><rect x="4" y="30" width="6" height="6" rx="2" fill="#334155"/>
+            <rect x="14" y="0" width="96" height="150" fill="#fff" stroke="#e2e8f0"/>
+            <rect x="20" y="7" width="52" height="5" rx="2" fill="#cbd5e1"/><rect x="82" y="6" width="22" height="7" rx="3" fill="#eef2f7"/>
+            <rect x="20" y="20" width="78" height="10" rx="4" fill="#eef2f7"/>
+            <rect x="14" y="38" width="96" height="20" fill="#eff5ff" stroke="#dbeafe"/>
+            <rect x="20" y="43" width="5" height="5" rx="2.5" fill="#16a34a"/><rect x="30" y="42" width="36" height="5" rx="2" fill="#3b82f6"/><rect x="30" y="50" width="28" height="3" rx="1.5" fill="#93c5fd"/>
+            <rect x="20" y="64" width="5" height="5" rx="2.5" fill="#16a34a"/><rect x="30" y="63" width="40" height="5" rx="2" fill="#94a3b8"/>
+            <rect x="20" y="80" width="5" height="5" rx="2.5" fill="#e11d48"/><rect x="30" y="79" width="34" height="5" rx="2" fill="#94a3b8"/>
+            <rect x="20" y="96" width="5" height="5" rx="2.5" fill="#cbd5e1"/><rect x="30" y="95" width="30" height="5" rx="2" fill="#94a3b8"/>
+            <rect x="20" y="112" width="5" height="5" rx="2.5" fill="#16a34a"/><rect x="30" y="111" width="38" height="5" rx="2" fill="#94a3b8"/>
+            <rect x="118" y="0" width="152" height="150" fill="#f1f5f9"/>
+            <rect x="126" y="8" width="18" height="18" rx="5" fill="#4f8cff"/><rect x="150" y="9" width="52" height="6" rx="3" fill="#334155"/><rect x="150" y="19" width="40" height="4" rx="2" fill="#cbd5e1"/>
+            <rect x="208" y="9" width="26" height="9" rx="4" fill="#4f8cff"/><rect x="238" y="9" width="24" height="9" rx="4" fill="#fff" stroke="#cbd5e1"/>
+            <rect x="126" y="34" width="136" height="1" fill="#dbe3ee"/>
+            <rect x="126" y="40" width="30" height="4" rx="2" fill="#3b82f6"/><rect x="162" y="40" width="24" height="4" rx="2" fill="#cbd5e1"/><rect x="192" y="40" width="24" height="4" rx="2" fill="#cbd5e1"/>
+            <rect x="126" y="50" width="66" height="26" rx="5" fill="#fff" stroke="#e2e8f0"/><rect x="132" y="56" width="24" height="4" rx="2" fill="#cbd5e1"/><rect x="132" y="64" width="40" height="6" rx="2" fill="#334155"/>
+            <rect x="196" y="50" width="66" height="26" rx="5" fill="#fff" stroke="#e2e8f0"/><rect x="202" y="56" width="24" height="4" rx="2" fill="#cbd5e1"/><rect x="202" y="64" width="34" height="6" rx="2" fill="#334155"/>
+            <rect x="126" y="82" width="136" height="30" rx="5" fill="#fff" stroke="#e2e8f0"/><rect x="132" y="88" width="40" height="4" rx="2" fill="#cbd5e1"/><rect x="132" y="96" width="110" height="3" rx="1.5" fill="#eef2f7"/><rect x="132" y="102" width="86" height="3" rx="1.5" fill="#eef2f7"/>
+            <rect x="126" y="118" width="136" height="26" rx="5" fill="#0f172a"/><rect x="132" y="124" width="60" height="3" rx="1.5" fill="#4ade80"/><rect x="132" y="131" width="90" height="3" rx="1.5" fill="#475569"/>
+          </svg>
+        </div>
+        <div class="plan-main">
+          <div class="plan-title"><span class="badge">方案 D</span><h3>主从详情 + 命令面板</h3><span class="en">Master–Detail + ⌘K</span></div>
+          <div class="plan-desc">左列高密度程序清单，右侧检查器用 Tab 承载概览/配置/调度/日志/更新。<kbd>⌘K</kbd> 唤起命令面板，输入名称即可跳转或执行动作，<kbd>↑↓</kbd> 直接切换程序。适合长时间盯着单个程序排查。</div>
+          <div class="tags"><span class="tag good">键盘优先</span><span class="tag good">单点信息最全</span><span class="tag">不离开列表看日志</span><span class="tag bad">批量能力弱</span></div>
+          <div class="plan-foot"><a class="open" href="04-master-detail.html">打开原型 →</a><span class="cost">实现成本：中高（详情页拆分 + 快捷键）</span></div>
+        </div>
+        <div class="scores">
+          <div class="score"><span class="k">信息密度</span><span class="track"><span class="fill" style="width:80%"></span></span><span class="v">4.0</span></div>
+          <div class="score"><span class="k">导航效率</span><span class="track"><span class="fill hi" style="width:90%"></span></span><span class="v">4.5</span></div>
+          <div class="score"><span class="k">批量操作</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="v">3.0</span></div>
+          <div class="score"><span class="k">单点深度</span><span class="track"><span class="fill hi" style="width:100%"></span></span><span class="v">5.0</span></div>
+          <div class="score"><span class="k">全局监控</span><span class="track"><span class="fill" style="width:60%"></span></span><span class="v">3.0</span></div>
+        </div>
+      </div>
+
+      <div class="plan">
+        <div class="thumb">
+          <svg viewBox="0 0 270 150">
+            <rect width="270" height="150" fill="#f8fafc"/>
+            <g>
+              <rect x="6" y="6" width="40" height="22" rx="4" fill="#fff" stroke="#e2e8f0"/><rect x="11" y="11" width="16" height="3" rx="1.5" fill="#cbd5e1"/><rect x="11" y="18" width="12" height="6" rx="2" fill="#4f8cff"/>
+              <rect x="50" y="6" width="40" height="22" rx="4" fill="#fff" stroke="#e2e8f0"/><rect x="55" y="11" width="16" height="3" rx="1.5" fill="#cbd5e1"/><rect x="55" y="18" width="12" height="6" rx="2" fill="#16a34a"/>
+              <rect x="94" y="6" width="40" height="22" rx="4" fill="#fff" stroke="#fecdd3"/><rect x="99" y="11" width="16" height="3" rx="1.5" fill="#cbd5e1"/><rect x="99" y="18" width="12" height="6" rx="2" fill="#e11d48"/>
+              <rect x="138" y="6" width="40" height="22" rx="4" fill="#fff" stroke="#e2e8f0"/><rect x="143" y="11" width="16" height="3" rx="1.5" fill="#cbd5e1"/><rect x="143" y="18" width="12" height="6" rx="2" fill="#4f8cff"/>
+              <rect x="182" y="6" width="40" height="22" rx="4" fill="#fff" stroke="#e2e8f0"/><rect x="187" y="11" width="16" height="3" rx="1.5" fill="#cbd5e1"/><rect x="187" y="18" width="12" height="6" rx="2" fill="#d97706"/>
+            </g>
+            <rect x="6" y="34" width="176" height="110" rx="5" fill="#fff" stroke="#e2e8f0"/>
+            <rect x="12" y="40" width="34" height="4" rx="2" fill="#94a3b8"/>
+            <g>
+              <rect x="12" y="50" width="26" height="4" rx="2" fill="#cbd5e1"/>
+              <rect x="46" y="48" width="16" height="8" rx="2" fill="#16a34a"/><rect x="66" y="48" width="16" height="8" rx="2" fill="#16a34a"/><rect x="86" y="48" width="16" height="8" rx="2" fill="#16a34a"/><rect x="106" y="48" width="16" height="8" rx="2" fill="#e2e8f0"/><rect x="126" y="48" width="16" height="8" rx="2" fill="#16a34a"/><rect x="146" y="48" width="16" height="8" rx="2" fill="#16a34a"/>
+            </g>
+            <g>
+              <rect x="12" y="64" width="26" height="4" rx="2" fill="#cbd5e1"/>
+              <rect x="46" y="62" width="16" height="8" rx="2" fill="#16a34a"/><rect x="66" y="62" width="16" height="8" rx="2" fill="#e2e8f0"/><rect x="86" y="62" width="16" height="8" rx="2" fill="#e2e8f0"/><rect x="106" y="62" width="16" height="8" rx="2" fill="#e11d48"/><rect x="126" y="62" width="16" height="8" rx="2" fill="#16a34a"/><rect x="146" y="62" width="16" height="8" rx="2" fill="#16a34a"/>
+            </g>
+            <g>
+              <rect x="12" y="78" width="26" height="4" rx="2" fill="#cbd5e1"/>
+              <rect x="46" y="76" width="16" height="8" rx="2" fill="#16a34a"/><rect x="66" y="76" width="16" height="8" rx="2" fill="#16a34a"/><rect x="86" y="76" width="16" height="8" rx="2" fill="#16a34a"/><rect x="106" y="76" width="16" height="8" rx="2" fill="#16a34a"/><rect x="126" y="76" width="16" height="8" rx="2" fill="#e2e8f0"/><rect x="146" y="76" width="16" height="8" rx="2" fill="#e2e8f0"/>
+            </g>
+            <g>
+              <rect x="12" y="92" width="26" height="4" rx="2" fill="#cbd5e1"/>
+              <rect x="46" y="90" width="16" height="8" rx="2" fill="#e2e8f0"/><rect x="66" y="90" width="16" height="8" rx="2" fill="#16a34a"/><rect x="86" y="90" width="16" height="8" rx="2" fill="#16a34a"/><rect x="106" y="90" width="16" height="8" rx="2" fill="#16a34a"/><rect x="126" y="90" width="16" height="8" rx="2" fill="#16a34a"/><rect x="146" y="90" width="16" height="8" rx="2" fill="#16a34a"/>
+            </g>
+            <g>
+              <rect x="12" y="106" width="26" height="4" rx="2" fill="#cbd5e1"/>
+              <rect x="46" y="104" width="16" height="8" rx="2" fill="#16a34a"/><rect x="66" y="104" width="16" height="8" rx="2" fill="#e2e8f0"/><rect x="86" y="104" width="16" height="8" rx="2" fill="#16a34a"/><rect x="106" y="104" width="16" height="8" rx="2" fill="#16a34a"/><rect x="126" y="104" width="16" height="8" rx="2" fill="#16a34a"/><rect x="146" y="104" width="16" height="8" rx="2" fill="#16a34a"/>
+            </g>
+            <rect x="188" y="34" width="76" height="52" rx="5" fill="#fff" stroke="#e2e8f0"/>
+            <rect x="194" y="40" width="30" height="4" rx="2" fill="#94a3b8"/>
+            <rect x="194" y="49" width="64" height="10" rx="3" fill="#fff7f8" stroke="#fecdd3"/><rect x="198" y="52" width="24" height="4" rx="2" fill="#e11d48"/><rect x="238" y="52" width="14" height="4" rx="2" fill="#fda4af"/>
+            <rect x="194" y="62" width="64" height="10" rx="3" fill="#f8fafc"/><rect x="198" y="65" width="24" height="4" rx="2" fill="#64748b"/><rect x="238" y="65" width="14" height="4" rx="2" fill="#cbd5e1"/>
+            <rect x="188" y="92" width="76" height="52" rx="5" fill="#fff" stroke="#e2e8f0"/>
+            <rect x="194" y="98" width="24" height="4" rx="2" fill="#94a3b8"/>
+            <rect x="194" y="107" width="64" height="8" rx="2" fill="#eef2f7"/><rect x="194" y="118" width="64" height="8" rx="2" fill="#eef2f7"/><rect x="194" y="129" width="42" height="8" rx="2" fill="#eef2f7"/>
+          </svg>
+        </div>
+        <div class="plan-main">
+          <div class="plan-title"><span class="badge">方案 E</span><h3>健康矩阵仪表盘</h3><span class="en">Health Matrix</span></div>
+          <div class="plan-desc">每个方块代表一个程序，按分类分行铺满屏幕，颜色即状态；右上「关注队列」按异常 → 可更新 → 未安装排序，点一下就地处理。120 个程序也能一屏看完全局，是异常发现速度最快的方案。</div>
+          <div class="tags"><span class="tag good">全局一屏</span><span class="tag good">异常即时可见</span><span class="tag">关注队列驱动处置</span><span class="tag bad">不适合精细配置</span></div>
+          <div class="plan-foot"><a class="open" href="05-health-matrix.html">打开原型 →</a><span class="cost">实现成本：中（新增聚合查询 + 矩阵渲染）</span></div>
+        </div>
+        <div class="scores">
+          <div class="score"><span class="k">信息密度</span><span class="track"><span class="fill hi" style="width:90%"></span></span><span class="v">4.5</span></div>
+          <div class="score"><span class="k">导航效率</span><span class="track"><span class="fill" style="width:80%"></span></span><span class="v">4.0</span></div>
+          <div class="score"><span class="k">批量操作</span><span class="track"><span class="fill" style="width:70%"></span></span><span class="v">3.5</span></div>
+          <div class="score"><span class="k">单点深度</span><span class="track"><span class="fill lo" style="width:50%"></span></span><span class="v">2.5</span></div>
+          <div class="score"><span class="k">全局监控</span><span class="track"><span class="fill hi" style="width:100%"></span></span><span class="v">5.0</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>横向对比</h2>
+    <table>
+      <thead><tr>
+        <th style="width:150px">维度</th>
+        <th class="c">A 分组卡片</th><th class="c">B 数据表</th><th class="c">C 看板</th><th class="c">D 主从详情</th><th class="c">E 健康矩阵</th>
+      </tr></thead>
+      <tbody>
+        <tr><td><b>单屏可见</b>（48 个规模）</td><td class="c">约 12 个</td><td class="c">17–24 行</td><td class="c">约 12 个</td><td class="c">约 14 行 + 1 详情</td><td class="c">48 个全部</td></tr>
+        <tr><td><b>找某个已知程序</b></td><td class="c">搜索 + 分类树</td><td class="c">搜索 + 排序</td><td class="c">搜索 + 状态列</td><td class="c">⌘K / 输入即筛</td><td class="c">搜索 + 分类定位</td></tr>
+        <tr><td><b>发现异常</b></td><td class="c">需扫视红点</td><td class="c">按状态排序</td><td class="c"><span class="dotv" style="background:#16a34a"></span>异常独立成列</td><td class="c">需扫视列表</td><td class="c"><span class="dotv" style="background:#16a34a"></span>红色方块 + 队列</td></tr>
+        <tr><td><b>批量启停 20 个</b></td><td class="c">分组全选</td><td class="c"><span class="dotv" style="background:#16a34a"></span>Shift 连选 + 批量条</td><td class="c">按列整批</td><td class="c">命令面板批量</td><td class="c">快捷操作</td></tr>
+        <tr><td><b>看单个程序全貌</b></td><td class="c">需跳转</td><td class="c">需跳转</td><td class="c">需跳转</td><td class="c"><span class="dotv" style="background:#16a34a"></span>同屏 Tab</td><td class="c">检查器摘要</td></tr>
+        <tr><td><b>与现有代码契合</b></td><td class="c">高（卡片样式已有）</td><td class="c">中</td><td class="c">中</td><td class="c">中高（详情页已有）</td><td class="c">中</td></tr>
+        <tr><td><b>120 个时是否可用</b></td><td class="c">可用但需滚动</td><td class="c">可用（虚拟滚动）</td><td class="c">吃力</td><td class="c">可用</td><td class="c">可用且最有优势</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="section">
+    <h2>我的建议</h2>
+    <div class="rec">
+      <h3>不要只选一个——用「E 总览 + B 管理 + D 检查器」组合</h3>
+      <p>这五套不是互斥的单选题，而是同一份数据的不同投影。真正撑住大批量的关键，是<strong>让「发现」和「处置」走不同的界面</strong>：</p>
+      <ol>
+        <li><b>首页用 E（健康矩阵）</b>：程序再多也能一屏看完，红色方块 + 关注队列负责「告诉你哪里出事了」，这一步不需要任何导航。</li>
+        <li><b>主管理视图用 B（数据表）</b>：真正要改配置、批量启停、按端口/版本比对时，表格的列对齐和 Shift 连选无可替代。</li>
+        <li><b>详情复用 D 的检查器</b>：从表格或矩阵点进去，右侧（或抽屉）直接给概览/配置/调度/日志/更新五个 Tab，避免来回跳页。</li>
+        <li><b>A 保留为「分类浏览」模式</b>：对刚导入、还不熟悉 id 的程序，卡片比表格更容易认。</li>
+        <li><b>C 只用于异常处置</b>：把它做成「异常」筛选下的临时泳道视图，不要作为主界面——它的横向空间成本太高。</li>
+      </ol>
+      <div class="callout">落地顺序建议：先做 B（收益最直接、改动集中在列表区）→ 再抽 D 的检查器 → 最后加 E 作为首页。三者的数据层完全一致，都读 <code style="font-family:ui-monospace,Menlo,monospace;font-size:11px">workspace_list</code>，不需要改 shared。</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>选之前先回答三个问题</h2>
+    <div class="qs">
+      <div class="q"><b>你 80% 的时间在做什么？</b>如果多是「批量启停 / 改配置」，B 优先；如果多是「某个程序挂了去查」，D 或 E 优先。</div>
+      <div class="q"><b>程序数量会到多少？</b>稳定在 20 以内，A 足够；会到 50+，B 是底线；可能到 100+，E 必须有。</div>
+      <div class="q"><b>主要在桌面还是手机用？</b>桌面选 B/D/E；手机端现有卡片流（阶段 G）已经合适，不必跟着改。</div>
+    </div>
+  </div>
+
+  <div class="foot-note">
+    原型说明：五份 HTML 均为独立文件，无外部依赖，可直接双击打开；顶部「规模」下拉可在 24 / 48 / 120 之间切换，用于对比大批量下的信息密度差异。数据为与 <code style="font-family:ui-monospace,Menlo,monospace">workspace_list</code> 字段对齐的模拟数据（id / name / category / state / supervisor / version / latest_version / port / autostart / uptime），交互为前端模拟，不连接真实服务。
+  </div>
+
+</div>
+</body>
+</html>
