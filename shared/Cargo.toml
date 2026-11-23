@@ -7,7 +7,7 @@ license.workspace = true
 [dependencies]
 serde = { workspace = true }
 # 只要调度库本身（不带看板）：共享层据此把「程序」派生成系统服务
-us-service = { path = "../us-service", default-features = false }
+us-service = { path = "../us-service" }
 serde_json = { workspace = true }
 reqwest = { version = "0.13", features = ["json", "blocking", "socks"], default-features = true }
 log = { workspace = true }
