@@ -618,6 +618,8 @@ fn build_program_from_edit(e: &EditProgramPayload, base: &Program) -> Program {
         channel: base.channel.clone(),
         version_pin: base.version_pin.clone(),
         hidden: base.hidden,
+        supervisor: base.supervisor,
+        native: base.native.clone(),
     }
 }
 
@@ -644,6 +646,8 @@ fn blank_program(id: &str) -> Program {
         channel: String::new(),
         version_pin: None,
         hidden: false,
+        supervisor: Default::default(),
+        native: Default::default(),
     }
 }
 
@@ -754,6 +758,83 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         // ---------- 服务看板（us-service） ----------
         // 配置放在 <data_dir>/services.toml，与 shell.json 同目录。
         // 锁只用来取 data_dir，随后立刻释放：下面的调用会跑 launchctl/systemctl。
+        // 程序 ↔ 服务打通：把某条程序切成「系统调度」或切回「壳托管」
+        "set_supervisor" => {
+            let program_id = arg_str(args, "programId");
+            let native = arg_str(args, "supervisor") == "native";
+            let delay = args.get("delaySecs").and_then(|v| v.as_u64());
+            let restart = args
+                .get("restart")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let scope = args
+                .get("scope")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let mut mgr = state.manager.lock().unwrap();
+            let services_path = mgr.services_config_path();
+            let derived_id = format!("prog-{program_id}");
+
+            // 切回托管：先把已经装进系统的条目卸载（sync 之后条目就没了，来不及卸）
+            if !native && services_path.exists() {
+                if let Ok(cfg) = us_service::config::Config::load(&services_path) {
+                    if let Some(svc) = cfg.get(&derived_id) {
+                        let _ = us_service::uninstall(svc, &services_path);
+                    }
+                }
+            }
+
+            let p = mgr
+                .set_supervisor(
+                    &program_id,
+                    native,
+                    delay,
+                    restart.as_deref(),
+                    scope.as_deref(),
+                    &state.config_path,
+                )
+                .map_err(|e| format!("{e:#}"))?;
+            let changed = mgr.sync_native_services().map_err(|e| format!("{e:#}"))?;
+
+            // 切成 native：同步完立刻装载，否则只是写了配置、开机并不会启动
+            let mut apply_note = String::new();
+            if native {
+                if let Ok(cfg) = us_service::config::Config::load(&services_path) {
+                    if let Some(svc) = cfg.get(&derived_id) {
+                        let one = us_service::Config {
+                            services: vec![svc.clone()],
+                        };
+                        match us_service::Ctx::new(&services_path) {
+                            Ok(ctx) => {
+                                match us_service::plan_for(
+                                    &one,
+                                    &ctx,
+                                    us_service::Platform::current(),
+                                ) {
+                                    Ok(items) => {
+                                        if let Err(e) = us_service::install(&items, &cfg) {
+                                            apply_note = format!("（已保存，但装载失败：{e:#}）");
+                                        }
+                                    }
+                                    Err(e) => apply_note = format!("（生成配置失败：{e:#}）"),
+                                }
+                            }
+                            Err(e) => apply_note = format!("（{e:#}）"),
+                        }
+                    }
+                }
+            }
+            Ok(serde_json::json!({
+                "ok": true,
+                "supervisor": p.supervisor.as_str(),
+                "changed": changed,
+                "message": if native {
+                    format!("{} 已切换为系统调度（开机自启）{apply_note}", p.name)
+                } else {
+                    format!("{} 已切回壳托管", p.name)
+                },
+            }))
+        }
         "services_list" => {
             let dir = { state.manager.lock().unwrap().data_dir.clone() };
             crate::services::list(&dir).map_err(|e| format!("{e:#}"))

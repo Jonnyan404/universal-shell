@@ -8,7 +8,7 @@ use log::{info, warn};
 use rust_i18n::t;
 
 use crate::autostart::AutoStart;
-use crate::config::{AssetRule, ExtractMode, Program, ShellConfig};
+use crate::config::{AssetRule, ExtractMode, Program, ShellConfig, Supervisor};
 use crate::extract;
 use crate::github::{GitHub, LatestRelease};
 use crate::runner::Runner;
@@ -739,6 +739,96 @@ impl ShellManager {
     // ---------- 启动 / 停止 ----------
 
     /// 用字段值渲染 args 并启动子进程
+    /// 把 `supervisor = native` 的程序同步成 `services.toml` 里的派生条目。
+    ///
+    /// 真相在 `shell.json`：派生的服务条目带 `origin = "program:<id>"`，
+    /// 每次同步都会按当前字段值重建（参数展开用的是程序当前的字段值），
+    /// 不再声明 native 的程序对应的条目会被删除。
+    ///
+    /// 返回被写入/删除的服务 id（已去重，仅供日志与界面提示）。
+    pub fn sync_native_services(&mut self) -> anyhow::Result<Vec<String>> {
+        let path = self.services_config_path();
+        let mut cfg = if path.exists() {
+            us_service::config::Config::load(&path)?
+        } else {
+            us_service::config::Config::default()
+        };
+        let before = cfg.to_toml().unwrap_or_default();
+
+        // 期望集合：由程序当前状态派生
+        let mut wanted: Vec<us_service::Service> = Vec::new();
+        for p in self.all_programs() {
+            if p.supervisor != Supervisor::Native {
+                continue;
+            }
+            let values = self.load_field_values(&p);
+            let bin = self.bin_path(&p);
+            let cwd = if p.working_dir == "." {
+                let dir = self.app_dir(&p);
+                let _ = std::fs::create_dir_all(&dir);
+                Some(dir)
+            } else {
+                Some(std::path::PathBuf::from(&p.working_dir))
+            };
+            wanted.push(us_service::Service {
+                id: format!("prog-{}", p.id),
+                name: p.name.clone(),
+                description: p.description.clone(),
+                command: bin.to_string_lossy().into_owned(),
+                args: p.render_args(&values),
+                env: p.render_env(&values).into_iter().collect(),
+                cwd,
+                log: Some(self.log_dir().join(format!("{}.log", p.id))),
+                delay_secs: p.native.delay_secs,
+                restart: us_service::restart_from(p.native.restart_or_default()),
+                restart_secs: 10,
+                scope: us_service::scope_from(p.native.scope_or_default()),
+                enabled: true,
+                depends_on: p.native.depends_on.clone(),
+                wait_timeout_secs: if p.native.wait_timeout_secs == 0 {
+                    60
+                } else {
+                    p.native.wait_timeout_secs
+                },
+                ready_port: p.native.ready_port,
+                ready_file: p.native.ready_file.as_ref().map(std::path::PathBuf::from),
+                origin: Some(format!("program:{}", p.id)),
+            });
+        }
+
+        let mut changed: Vec<String> = Vec::new();
+        let wanted_ids: std::collections::BTreeSet<String> =
+            wanted.iter().map(|s| s.id.clone()).collect();
+        let stale: Vec<String> = cfg
+            .services
+            .iter()
+            .filter(|s| s.origin.as_deref().is_some_and(|o| o.starts_with("program:")))
+            .filter(|s| !wanted_ids.contains(&s.id))
+            .map(|s| s.id.clone())
+            .collect();
+        for id in stale {
+            cfg.remove(&id);
+            changed.push(id);
+        }
+        for svc in wanted {
+            let id = svc.id.clone();
+            cfg.upsert(svc)?;
+            if !changed.contains(&id) {
+                changed.push(id);
+            }
+        }
+
+        if cfg.to_toml().unwrap_or_default() != before {
+            cfg.save(&path)?;
+        }
+        Ok(changed)
+    }
+
+    /// 服务声明文件（与 shell.json 同目录）
+    pub fn services_config_path(&self) -> std::path::PathBuf {
+        self.data_dir.join("services.toml")
+    }
+
     pub fn start(
         &mut self,
         program: &Program,
@@ -1174,6 +1264,41 @@ impl ShellManager {
         self.save_config(path)
     }
 
+    /// 切换某程序的生命周期归属（managed ↔ native），并返回更新后的 Program。
+    ///
+    /// 只改 `shell.json`；要把 native 真正落成系统服务，调用方还需 `sync_native_services()`
+    /// 再用 `us_service::install` 装载。
+    pub fn set_supervisor(
+        &mut self,
+        id: &str,
+        native: bool,
+        delay_secs: Option<u64>,
+        restart: Option<&str>,
+        scope: Option<&str>,
+        path: &Path,
+    ) -> anyhow::Result<Program> {
+        self.patch_update(
+            id,
+            &|p| {
+                p.supervisor = if native {
+                    Supervisor::Native
+                } else {
+                    Supervisor::Managed
+                };
+                if let Some(d) = delay_secs {
+                    p.native.delay_secs = d;
+                }
+                if let Some(r) = restart {
+                    p.native.restart = r.to_string();
+                }
+                if let Some(s) = scope {
+                    p.native.scope = s.to_string();
+                }
+            },
+            path,
+        )
+    }
+
     /// 设置某程序的更新通道(pre/stable)，返回更新后的 Program。内置程序自动落成用户覆盖。
     pub fn set_update_channel(&mut self, id: &str, channel: &str, path: &Path) -> anyhow::Result<Program> {
         let valid = if channel == "pre" {
@@ -1461,7 +1586,7 @@ fn set_exec(p: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Field, FieldKind, Program, SourceSpec};
+    use crate::config::{Field, FieldKind, NativeSpec, Program, SourceSpec, Supervisor};
     use std::io::{Read, Write};
 
     fn prog_copy(p: &Program) -> Program {
@@ -1823,6 +1948,8 @@ mod tests {
             channel: String::new(),
             version_pin: None,
             hidden: false,
+            supervisor: Supervisor::default(),
+            native: NativeSpec::default(),
         };
         let (_, names) = base.candidate_names("x86_64", "0.1.0").unwrap();
         assert!(names.iter().any(|n| n == "dufs-v0.1.0-x86_64-apple-darwin.tar.gz"));
@@ -1991,6 +2118,8 @@ mod tests {
             channel: String::new(),
             version_pin: None,
             hidden: false,
+            supervisor: Supervisor::default(),
+            native: NativeSpec::default(),
         };
         mgr.start(&prog, &BTreeMap::new()).unwrap();
         assert!(mgr.is_program_running(&prog));
@@ -2456,4 +2585,75 @@ mod tests {
         h.join().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn sync_native_services_derives_and_removes_entries() {
+        use crate::config::{NativeSpec, Supervisor};
+        let dir = std::env::temp_dir().join(format!("us-sync-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let mut p = Program {
+            id: "demo".into(),
+            name: "演示".into(),
+            description: String::new(),
+            category: String::new(),
+            repo: String::new(),
+            binary: "/bin/echo".into(),
+            source: None,
+            assets: Default::default(),
+            arch_map: Default::default(),
+            os_map: Default::default(),
+            fields: Vec::new(),
+            args: vec!["hello".into()],
+            env: Vec::new(),
+            working_dir: ".".into(),
+            template_source: None,
+            imported_at: None,
+            check_sha256: None,
+            channel: String::new(),
+            version_pin: None,
+            hidden: false,
+            supervisor: Supervisor::Native,
+            native: NativeSpec {
+                delay_secs: 5,
+                restart: "always".into(),
+                ..Default::default()
+            },
+        };
+        let cfg_path = dir.join("shell.json");
+        let cfg = ShellConfig {
+            programs: vec![p.clone()],
+            ..Default::default()
+        };
+        std::fs::write(&cfg_path, serde_json::to_string(&cfg).unwrap()).unwrap();
+
+        let mut mgr = ShellManager::new(dir.clone()).unwrap();
+        mgr.load_config(&cfg_path).unwrap();
+
+        let changed = mgr.sync_native_services().unwrap();
+        assert!(changed.contains(&"prog-demo".to_string()), "{changed:?}");
+
+        let services = dir.join("services.toml");
+        let text = std::fs::read_to_string(&services).unwrap();
+        assert!(text.contains("prog-demo"), "应生成派生条目:\n{text}");
+        assert!(text.contains("origin = \"program:demo\""), "应标记来源:\n{text}");
+        assert!(text.contains("delay_secs = 5"));
+        assert!(text.contains("restart = \"always\""));
+
+        // 切回托管 → 派生条目应被删除
+        p.supervisor = Supervisor::Managed;
+        let cfg = ShellConfig {
+            programs: vec![p],
+            ..Default::default()
+        };
+        std::fs::write(&cfg_path, serde_json::to_string(&cfg).unwrap()).unwrap();
+        mgr.load_config(&cfg_path).unwrap();
+        mgr.sync_native_services().unwrap();
+        let text = std::fs::read_to_string(&services).unwrap();
+        assert!(!text.contains("prog-demo"), "切回托管后应删除:\n{text}");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 }

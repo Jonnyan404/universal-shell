@@ -486,3 +486,9 @@ log.autostart.launch_failed: '开机自启拉起 %{name} 失败: %{err}'
 log.stop_failed: '停止「%{id}」失败: %{err}'
 log.runner.stopped: '已停止 %{id}'
 log.check_version_fail: '检查「%{name}」最新版本失败: %{err}'
+
+# 程序 ↔ 服务（系统调度）
+svc.native_notice: 此程序由系统调度接管：开机自启，壳退出也不停。
+svc.back_to_managed: 改为壳托管
+svc.open_board: 打开服务页
+svc.make_native: 开机自启

@@ -99,6 +99,7 @@ struct Row {
     ready_port: Option<u16>,
     ready_file: String,
     enabled: bool,
+    origin: Option<String>,
     state: ServiceState,
     state_label: String,
     unit: String,
@@ -141,6 +142,7 @@ async fn list(State(app): State<Arc<App>>) -> Result<Json<ListResp>, (StatusCode
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
             enabled: s.enabled,
+            origin: s.origin.clone(),
             state: st,
             state_label: st.label().into(),
             unit: crate::unit_path_of(s, &app.config).display().to_string(),
@@ -329,6 +331,8 @@ async fn save(State(app): State<Arc<App>>, Json(req): Json<SaveReq>) -> Json<Act
             restart_secs: 10,
             scope: crate::scope_from(&req.scope),
             enabled: req.enabled,
+            // 界面新建的服务不是从程序派生的
+            origin: None,
         };
         let id = svc.id.clone();
         cfg.upsert(svc.clone())?;

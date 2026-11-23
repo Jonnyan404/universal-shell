@@ -486,3 +486,9 @@ log.autostart.launch_failed: 'Autostart launch %{name} failed: %{err}'
 log.stop_failed: 'Failed to stop "%{id}": %{err}'
 log.runner.stopped: 'Stopped %{id}'
 log.check_version_fail: 'Failed to check latest version of "%{name}": %{err}'
+
+# Program <-> service (system scheduling)
+svc.native_notice: 'Managed by the system scheduler: starts at login and survives this app.'
+svc.back_to_managed: Back to app-managed
+svc.open_board: Open services
+svc.make_native: Start at login

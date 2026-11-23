@@ -889,3 +889,5 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .svc-hit { background: rgba(76, 154, 255, .25); border-radius: 2px; }
 .svc-badge-dep { color: #b8860b; border-color: rgba(184, 134, 11, .4); }
 .svc-hint { font-size: 11px; color: var(--muted); margin: -2px 0 6px; }
+.native-notice { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: 100%; padding: 10px 12px; border: 1px solid rgba(76,154,255,.35); background: rgba(76,154,255,.08); border-radius: 8px; font-size: 13px; }
+.svc-badge-origin { color: var(--accent); border-color: rgba(76,154,255,.4); }

@@ -13,11 +13,17 @@ path = "src/lib.rs"
 [[bin]]
 name = "us-svc"
 path = "src/main.rs"
+# 看板需要 axum/tokio；只要库能力（shared 依赖本 crate）时可关掉
+required-features = ["ui"]
+
+[features]
+default = ["ui"]
+ui = ["dep:axum", "dep:tokio"]
 
 [dependencies]
 serde = { workspace = true }
-axum = "0.7"
-tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros"] }
+axum = { version = "0.7", optional = true }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "net", "time", "macros"] }
 time = { workspace = true }
 toml = "0.8"
 anyhow = "1.0"

@@ -96,6 +96,10 @@ pub struct Service {
     /// 是否装载到系统（apply 时跳过 disabled 的项，但配置保留）
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// 来源标记：`program:<id>` 表示由主应用里某条「程序」派生而来。
+    /// 派生条目在同步时会被重建，手改会在下次同步被覆盖。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 impl Service {
@@ -468,6 +472,7 @@ command = "/bin/true"
             ready_file: None,
             scope: Scope::User,
             enabled: true,
+            origin: None,
         };
         cfg.upsert(fresh).unwrap();
         assert_eq!(cfg.services.len(), 3);

@@ -147,7 +147,11 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
     - 超时语义与 systemd `Wants` 一致：等满 `wait_timeout_secs` 只记警告并继续，**不**把整条链卡死（否则一个坏依赖会让所有下游都起不来）。
     - 加载配置时就做环检测（A→B→A 直接拒绝并打印环路径），避免开机后才互相等到超时。
     - 实测：`app` 等 `db` 的就绪文件，日志记录「等待依赖 db 就绪 → 已就绪（3193ms）」；重复 apply 时因文件已存在为 0ms。
-  - **已知未做**：① `Program.run.supervisor` 尚未加——模板库安装的程序与服务仍是两个列表，未打通；② 服务页文案暂用本地 zh/en 表，未进 `shared/locales`；③ 界面保存会重写 TOML（注释不保留）；④ 服务页未进移动端底部 Tab；⑤ Windows 的 `system`（提权）场景 CI 未覆盖。
+  - **程序 ↔ 服务打通（2026-11-23）**：`Program.supervisor`（`managed` 默认 / `native`）+ `Program.native`（delay/restart/scope/depends_on/ready_*）。
+    - 真相仍在 `shell.json`：切到 `native` 时 `sync_native_services()` 把它**派生成** `services.toml` 条目（id `prog-<程序id>`，带 `origin = "program:<id>"`，参数按当前字段值展开），再 `install` 落到系统；切回 `managed` 先 `uninstall` 再删派生条目。
+    - 派生条目在同步时重建，所以改程序字段值后重新切换/同步即可生效；派生条目的手改会被下次同步覆盖（`origin` 已标明来源）。
+    - 管理页在 `native` 下**不再**显示启停按钮（避免壳再 spawn 一个实例造成双开），改为「改为壳托管 / 打开服务页」。
+  - **已知未做**：② 服务页文案暂用本地 zh/en 表，未进 `shared/locales`；③ 界面保存会重写 TOML（注释不保留）；④ 服务页未进移动端底部 Tab；⑤ Windows 的 `system`（提权）场景 CI 未覆盖。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。
   - 依据：① 功能面已被覆盖——桌面用 Tauri、无桌面用 `us-web`，egui 独占场景仅剩「托盘常驻且不起 webview」；② 双份维护成本真实——ROADMAP 中 B7/B8、C4、C5、D1、F1、F10 均为双端条目，且 egui 已落后 5 项（日志中心、模板 diff、二进制上传、局域网开关、主题切换），i18n 258/486；③ Release 资产下载量趋近于 0（egui 与 tauri 同量级），重复维护未服务到用户。

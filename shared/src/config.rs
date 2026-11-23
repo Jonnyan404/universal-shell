@@ -176,6 +176,85 @@ pub struct Program {
     /// 是否在侧栏/主管理列表隐藏（批量管理仍可见）。
     #[serde(default, skip_serializing_if = "is_false")]
     pub hidden: bool,
+    /// 由谁负责让它活着：
+    /// - `managed`（默认）：壳托管子进程，壳退出即结束；
+    /// - `native`：注册为系统服务，开机自启、壳退出也不影响，由 `us-service` 生成配置。
+    #[serde(default, skip_serializing_if = "Supervisor::is_managed")]
+    pub supervisor: Supervisor,
+    /// `native` 时的调度参数（managed 下忽略）
+    #[serde(default, skip_serializing_if = "NativeSpec::is_default")]
+    pub native: NativeSpec,
+}
+
+/// 程序的生命周期归属
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Supervisor {
+    #[default]
+    Managed,
+    Native,
+}
+
+impl Supervisor {
+    pub fn is_managed(&self) -> bool {
+        *self == Supervisor::Managed
+    }
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Supervisor::Managed => "managed",
+            Supervisor::Native => "native",
+        }
+    }
+}
+
+/// 系统调度参数。字段刻意用字符串表达 restart/scope，
+/// 避免把 us-service 的枚举直接塞进对外配置格式。
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NativeSpec {
+    /// 登录后延迟多少秒再起
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub delay_secs: u64,
+    /// `never` / `on_failure` / `always`
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub restart: String,
+    /// `user` / `system`
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub scope: String,
+    /// 依赖的服务 id（派生条目里是 `prog-<程序id>`，手建服务用原 id）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub depends_on: Vec<String>,
+    /// 别人等我时的就绪判定
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ready_file: Option<String>,
+    /// 等待依赖的超时（0 = 用默认 60 秒）
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub wait_timeout_secs: u64,
+}
+
+impl NativeSpec {
+    pub fn is_default(&self) -> bool {
+        *self == NativeSpec::default()
+    }
+    pub fn restart_or_default(&self) -> &str {
+        if self.restart.is_empty() {
+            "on_failure"
+        } else {
+            &self.restart
+        }
+    }
+    pub fn scope_or_default(&self) -> &str {
+        if self.scope.is_empty() {
+            "user"
+        } else {
+            &self.scope
+        }
+    }
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
 }
 
 fn is_false(b: &bool) -> bool {
@@ -453,6 +532,8 @@ mod tests {
             channel: String::new(),
             version_pin: None,
             hidden: false,
+            supervisor: Supervisor::default(),
+            native: NativeSpec::default(),
         }
     }
 
@@ -507,6 +588,8 @@ mod tests {
             channel: String::new(),
             version_pin: None,
             hidden: false,
+            supervisor: Supervisor::default(),
+            native: NativeSpec::default(),
         };
         let mut fv = BTreeMap::new();
         fv.insert("code".into(), "12345678".into());

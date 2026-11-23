@@ -78,6 +78,7 @@ pub fn list(data_dir: &Path) -> Result<Value> {
             "ready_port": s.ready_port,
             "ready_file": s.ready_file.as_ref().map(|p| p.display().to_string()).unwrap_or_default(),
             "enabled": s.enabled,
+            "origin": s.origin,
             "state": st,
             "state_label": st.label(),
             "unit": unit_path_of(s, &path).display().to_string(),
@@ -176,6 +177,8 @@ pub fn save(data_dir: &Path, d: Draft) -> Result<Value> {
         restart_secs: 10,
         scope: us_service::scope_from(&d.scope),
         enabled: d.enabled,
+        // 手工创建/编辑：不标记来源（派生条目由 shared 同步写入）
+        origin: None,
     };
     let id = svc.id.clone();
     cfg.upsert(svc.clone())?;

@@ -832,9 +832,31 @@ function renderEnvDisplay() {
 function renderActions() {
   const actions = el.actions;
   actions.innerHTML = "";
+  // 系统调度接管时，壳不再自己 spawn（否则会出现两个实例），
+  // 这里只给「切回壳托管 / 去服务页」两个出口。
+  if (current && current.supervisor === "native") {
+    const box = document.createElement("div");
+    box.className = "native-notice";
+    const txt = document.createElement("span");
+    txt.textContent = t("svc.native_notice");
+    const back = document.createElement("button");
+    back.textContent = t("svc.back_to_managed");
+    back.onclick = () => setSupervisor(false);
+    const open = document.createElement("button");
+    open.textContent = t("svc.open_board");
+    open.onclick = () => switchView("services");
+    box.append(txt, back, open);
+    actions.appendChild(box);
+    return;
+  }
   // 按钮组整体居中；启停/重启 与 图标组 之间用分隔条隔开
   const group1 = document.createElement("span");
   group1.className = "act-group";
+
+  const nativeBtn = document.createElement("button");
+  nativeBtn.textContent = "⏻ " + t("svc.make_native");
+  nativeBtn.onclick = () => setSupervisor(true);
+  group1.appendChild(nativeBtn);
 
   const start = document.createElement("button");
   start.id = "start-btn";
@@ -964,6 +986,20 @@ function applyStatus(st) {
   syncInstallBtns(current.id);
   updateUpdateCard(st);
   renderSidebar();
+}
+
+async function setSupervisor(native) {
+  try {
+    const r = await invoke("set_supervisor", {
+      programId: current.id,
+      supervisor: native ? "native" : "managed",
+    });
+    showNotice(r.message || "");
+    await reloadPrograms();
+    switchCurrent(current.id);
+  } catch (e) {
+    showNotice(String(e), true);
+  }
 }
 
 function renderChips(st) {

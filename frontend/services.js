@@ -175,6 +175,7 @@ function svcCard(x) {
       : "",
     x.ready_port ? `<span class="svc-badge">:${x.ready_port}</span>` : "",
     x.enabled ? "" : `<span class="svc-badge">off</span>`,
+    x.origin ? `<span class="svc-badge svc-badge-origin">来自程序 ${esc(String(x.origin).replace("program:", ""))}</span>` : "",
   ].join("");
   return `<div class="svc-card ${x.enabled ? "" : "svc-off"}">
     <div class="svc-row">

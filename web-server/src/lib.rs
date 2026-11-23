@@ -86,6 +86,12 @@ pub fn start_preferred(
     bind: &str,
     port: u16,
 ) -> anyhow::Result<WebServerHandle> {
+    // 启动前把 supervisor=native 的程序同步成系统服务条目（真相在 shell.json）
+    if let Ok(mut mgr) = manager.lock() {
+        if let Err(e) = mgr.sync_native_services() {
+            log::warn!("web-server: sync native services failed: {e:#}");
+        }
+    }
     if port != 0 {
         match start(manager.clone(), config_path.clone(), bind, port) {
             Ok(h) => return Ok(h),
