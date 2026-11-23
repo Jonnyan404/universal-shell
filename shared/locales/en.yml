@@ -488,7 +488,64 @@ log.runner.stopped: 'Stopped %{id}'
 log.check_version_fail: 'Failed to check latest version of "%{name}": %{err}'
 
 # Program <-> service (system scheduling)
-svc.native_notice: 'Managed by the system scheduler: starts at login and survives this app.'
+svc.native_notice: 'Managed by the system scheduler: starts at login and survives this app. Its output is under Services.'
 svc.back_to_managed: Back to app-managed
 svc.open_board: Open services
 svc.make_native: Start at login
+
+# Service board (the "Services" view)
+svc.title: Services
+svc.sub: Started by the system scheduler; this page only controls them
+svc.add: ＋ New service
+svc.refresh: Refresh
+svc.auto: Auto refresh
+svc.state.running: Running
+svc.state.stopped: Not running
+svc.state.not_installed: Not enabled
+svc.state.unknown: Unknown
+svc.start: Start
+svc.restart: Restart
+svc.stop: Stop
+svc.log: Logs
+svc.edit: Edit
+svc.enable: Enable
+svc.disable: Disable
+svc.empty: No services yet. Add a command with "New service", or install a program from the library and schedule it here.
+svc.nolog: (no logs yet)
+svc.search_ph: Search this log…
+svc.follow: Follow
+svc.close: Close
+svc.save: Save
+svc.cancel: Cancel
+svc.del: Delete
+svc.confirm_del: 'Delete %{id}? It is also removed from the system scheduler.'
+svc.f.id: id
+svc.f.name: Name
+svc.f.command: Command
+svc.f.args: Arguments (one per line)
+svc.f.env: Environment (KEY=VALUE)
+svc.f.cwd: Working directory
+svc.f.log: Log file (blank = default)
+svc.f.delay: Start delay (s)
+svc.f.deps: Depends on
+svc.f.deps_hint: Comma separated; starts only after they are ready
+svc.f.wait: Wait timeout (s)
+svc.f.rport: Ready port
+svc.f.rfile: Ready file
+svc.f.restart: Restart on crash
+svc.f.scope: Scope
+svc.f.enabled: Enabled
+svc.f.apply: Apply after save
+svc.wait_for: waits
+svc.origin: 'from program %{id}'
+svc.scope.user: User
+svc.scope.system: System
+svc.restart.never: Never
+svc.restart.on_failure: On failure
+svc.restart.always: Always
+svc.creating: New service
+svc.editing: Edit service
+svc.applied: Reloaded with the new settings
+svc.apply_failed: 'Saved, but reloading failed: %{err}'
+svc.summary: '%{total} total, %{running} running'
+svc.native_badge: Scheduled

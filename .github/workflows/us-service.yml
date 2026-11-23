@@ -89,3 +89,43 @@ jobs:
 
           schtasks /Delete /TN "ushell\ci-demo" /F
           if ($LASTEXITCODE -ne 0) { throw "schtasks /Delete failed ($LASTEXITCODE)" }
+
+  windows-system-scope:
+    name: Windows system-scope task
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Generate the system-scope XML
+        run: cargo run -q -p us-service -- gen us-service/ci/windows-system.toml --platform schtasks --out ci-sys
+        shell: bash
+
+      # 验证「个别程序用管理员权限、开机就跑」这条路径：
+      # BootTrigger（不需要人登录）+ HighestAvailable（提权运行）。
+      # 这类任务只有管理员能注册，GitHub 的 Windows runner 正是管理员账户。
+      - name: Assert trigger and run level, then register
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $xml = 'ci-sys/ci-sys.xml'
+          if (-not (Test-Path $xml)) { throw "missing $xml" }
+
+          $text = [System.IO.File]::ReadAllText((Resolve-Path $xml), [System.Text.Encoding]::Unicode)
+          if ($text -notmatch '<BootTrigger>') { throw 'system scope must use a boot trigger' }
+          if ($text -notmatch '<RunLevel>HighestAvailable</RunLevel>') { throw 'system scope must run elevated' }
+          Write-Host 'trigger + run level OK'
+          Get-Content $xml
+
+          schtasks /Create /TN "ushell\ci-sys" /XML $xml /F
+          if ($LASTEXITCODE -ne 0) { throw "schtasks /Create failed ($LASTEXITCODE)" }
+
+          schtasks /Query /TN "ushell\ci-sys" /FO LIST /V | Out-String | Write-Host
+          if ($LASTEXITCODE -ne 0) { throw "schtasks /Query failed ($LASTEXITCODE)" }
+
+          # 只验「装得上、查得到」：BootTrigger 任务不会在这里运行（没人重启机器）
+          schtasks /Delete /TN "ushell\ci-sys" /F
+          if ($LASTEXITCODE -ne 0) { throw "schtasks /Delete failed ($LASTEXITCODE)" }

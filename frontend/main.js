@@ -736,14 +736,34 @@ function renderHeader() {
 
 // 字段值防抖自动保存（对齐桌面端体验）
 const autosaveTimers = {};
+// 系统调度接管时的「重新装载」去抖：连续输入不该把服务反复重启
+const nativeApplyTimers = {};
+
+function scheduleNativeApply(id) {
+  clearTimeout(nativeApplyTimers[id]);
+  nativeApplyTimers[id] = setTimeout(async () => {
+    try {
+      const r = await invoke("apply_supervisor", { programId: id });
+      // 内容没变时后端返回 applied=false，此时什么都不做（避免无谓提示）
+      if (r && r.applied) showNotice(t("svc.applied"));
+    } catch (e) {
+      showNotice(t("svc.apply_failed", { err: String(e) }), true);
+    }
+  }, 1200);
+}
+
 function scheduleAutosave() {
   if (!current) return;
   const id = current.id;
+  const isNative = current.supervisor === "native";
   const snap = { ...values };
   clearTimeout(autosaveTimers[id]);
   autosaveTimers[id] = setTimeout(async () => {
     try {
       await invoke("save_values", { programId: id, values: snap });
+      // 由系统调度接管的程序：字段值改了要重新派生并重装，
+      // 否则系统里跑的仍是旧参数（端口、路径、token 都可能是旧的）。
+      if (isNative) scheduleNativeApply(id);
     } catch (e) {
       showNotice(String(e), true);
     }
@@ -1285,6 +1305,12 @@ function renderBatch() {
     const tr = document.createElement("tr");
     const tdName = document.createElement("td");
     tdName.textContent = item.name;
+    if (item.supervisor === "native") {
+      const tag = document.createElement("span");
+      tag.className = "batch-hidden batch-native";
+      tag.textContent = t("svc.native_badge");
+      tdName.appendChild(tag);
+    }
     if (item.hidden) {
       const tag = document.createElement("span");
       tag.className = "batch-hidden";
@@ -1636,6 +1662,12 @@ function renderBatchMobile() {
     const name = document.createElement("span");
     name.className = "mb-card-name";
     name.textContent = item.name;
+    if (item.supervisor === "native") {
+      const tag = document.createElement("span");
+      tag.className = "batch-hidden batch-native";
+      tag.textContent = t("svc.native_badge");
+      name.appendChild(tag);
+    }
     if (item.hidden) {
       const tag = document.createElement("span");
       tag.className = "batch-hidden";
@@ -3104,6 +3136,7 @@ async function toggleLang() {
     renderSidebar();
     if (view === "batch") renderBatch();
     else if (view === "library") renderLibrary();
+    else if (view === "services") window.usServices && window.usServices.onLangChange();
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -3206,6 +3239,11 @@ function mobSwitchPage(tab) {
   document.body.classList.remove("mob-detail");
   if (tab === "prog") {
     mobShowHome();
+  } else if (tab === "services") {
+    // 服务页在移动端是整页列表，隐藏卡片流外壳避免叠在下面
+    el.mobShell.hidden = true;
+    switchView("services");
+    setMobTab("services");
   } else if (tab === "batch") {
     switchView("batch");
     setMobTab("batch");
@@ -3247,6 +3285,8 @@ document.querySelector("#mob-lang").onclick = toggleLang;
 document.querySelector("#mob-settings").onclick = openSettings;
 document.querySelector("#mob-github").onclick = () => openExternal("https://github.com/Jonnyan404/universal-shell");
 setupMobile();
+
+
 
 document.querySelector("#collapse-btn").onclick = () => {
   const root = document.documentElement;
@@ -3555,9 +3595,17 @@ async function boot() {
   }, 3000);
 }
 
-boot().catch((e) => {
-  showNotice(String(e), true);
-});
+// 深链接（?view=services 等）放在 finally：启动过程中 switchCurrent 会把视图
+// 切回管理页，早切一定被抢走；而 boot 中途出错（如模板源不可达）也要能落到目标页，
+// 所以不能只写在 boot 正常流程的末尾。
+boot()
+  .catch((e) => {
+    showNotice(String(e), true);
+  })
+  .finally(() => {
+    const deep = new URLSearchParams(location.search).get("view");
+    if (deep && ["batch", "library", "log", "services"].includes(deep)) switchView(deep);
+  });
 
 
 

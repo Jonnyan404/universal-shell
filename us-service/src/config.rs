@@ -59,8 +59,12 @@ pub struct Service {
     /// 参数，原样传给 command（不做 shell 展开）
     #[serde(default)]
     pub args: Vec<String>,
-    /// 注入的环境变量（值不写日志）
-    #[serde(default)]
+    /// 注入的环境变量（值不写日志）。
+    ///
+    /// 空表必须省略：`toml` 会把它写成空的 `[env]` 表头，而这个表头在
+    /// `[[services]]` 数组元素里嵌套时会破坏下一层的解析（实测写成
+    /// `[services.env]` 空表后，整份文件再也读不回来）。
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
     /// 工作目录
     #[serde(default)]
@@ -280,6 +284,20 @@ impl Config {
         self.services.iter().find(|s| s.id == id)
     }
 
+    /// 该 id 的条目是否与给定服务完全一致。
+    ///
+    /// 用于判断「改了字段值之后要不要重装系统服务」：只比序列化结果，
+    /// 不做字段逐个比对，避免漏掉某天新增的字段。
+    pub fn identical(&self, svc: &Service) -> bool {
+        match self.get(&svc.id) {
+            Some(old) => match (toml::to_string(old), toml::to_string(svc)) {
+                (Ok(a), Ok(b)) => a == b,
+                _ => false,
+            },
+            None => false,
+        }
+    }
+
     /// 新增或按 id 替换（UI 的「保存」走这里）
     pub fn upsert(&mut self, svc: Service) -> Result<()> {
         svc.validate()?;
@@ -297,16 +315,131 @@ impl Config {
         self.services.len() != before
     }
 
-    /// 写回文件。
+    /// 写回文件，**保留原文件里的注释与顺序**。
     ///
-    /// ⚠️ 会重排/丢失原文件里的注释（toml 序列化不保留），
-    /// 一旦在界面里改过配置，就以界面/本文件为唯一来源。
+    /// 直接序列化会让用户手写的注释全部消失，而这份文件很可能就是他们
+    /// 手写并长期维护的。所以这里在原文档上做增量修改：
+    /// - 文件级注释、每个 `[[services]]` 上方的注释都保留；
+    /// - 内容没变的条目原样不动（连字段的行尾注释一起保留）；
+    /// - 只有真正改过的条目才会被重写，其字段行尾注释会丢。
+    ///
+    /// 文件不存在或无法解析时退化为整份序列化（损坏的文件没什么可保留的）。
     pub fn save(&self, path: &Path) -> Result<()> {
-        let text = self.to_toml()?;
+        let original = match std::fs::read_to_string(path) {
+            Ok(t) => t,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => {
+                return Err(e).with_context(|| format!("读取 {} 失败", path.display()));
+            }
+        };
+        let text = self.merge_into(&original)?;
         std::fs::write(path, text)
             .with_context(|| format!("写入 {} 失败", path.display()))?;
         Ok(())
     }
+
+    /// 把当前配置合进原文档，返回新文本
+    fn merge_into(&self, original: &str) -> Result<String> {
+        if original.trim().is_empty() {
+            return self.to_toml();
+        }
+        let mut doc: toml_edit::DocumentMut = match original.parse() {
+            Ok(d) => d,
+            Err(_) => return self.to_toml(),
+        };
+
+        if !matches!(doc.get("services"), Some(toml_edit::Item::ArrayOfTables(_))) {
+            doc["services"] = toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new());
+        }
+        let arr = doc["services"]
+            .as_array_of_tables_mut()
+            .expect("services 刚被规整成数组");
+
+        // 配置里没有的条目（被删除的）连注释一起移除
+        let want: std::collections::BTreeSet<&str> =
+            self.services.iter().map(|s| s.id.as_str()).collect();
+        arr.retain(|t| {
+            t.get("id")
+                .and_then(|v| v.as_str())
+                .map(|id| want.contains(id))
+                .unwrap_or(false)
+        });
+
+        for svc in &self.services {
+            let single = toml::to_string(svc).context("序列化单条服务失败")?;
+            let mut fresh: toml_edit::Table = single
+                .parse::<toml_edit::DocumentMut>()
+                .context("解析单条服务失败")?
+                .as_table()
+                .clone();
+            // `env = { K = "V" }` 而不是 `[services.env]`：后者一旦遇上空表
+            // 就会把 `services` 从数组降级成表，写完的文件自己都读不回来。
+            inline_tables(&mut fresh);
+
+            // 先把位置算出来（结束不可变借用），再动数组
+            let hit = arr
+                .iter()
+                .position(|t| t.get("id").and_then(|v| v.as_str()) == Some(svc.id.as_str()));
+            match hit {
+                Some(i) => {
+                    // 内容一样就不动：这样未修改条目的注释（含行尾）全部保留
+                    let same = arr
+                        .get(i)
+                        .map(|old| old.to_string() == fresh.to_string())
+                        .unwrap_or(false);
+                    if !same {
+                        let decor = arr.get(i).map(|t| t.decor().clone()).unwrap_or_default();
+                        let mut t = fresh;
+                        *t.decor_mut() = decor;
+                        if let Some(slot) = arr.get_mut(i) {
+                            *slot = t;
+                        }
+                    }
+                }
+                None => arr.push(fresh),
+            }
+        }
+        Ok(doc.to_string())
+    }
+}
+
+/// 把表里的子表转成内联表（`env = { K = "V" }`），空子表直接丢弃。
+fn inline_tables(t: &mut toml_edit::Table) {
+    let keys: Vec<String> = t.iter().map(|(k, _)| k.to_string()).collect();
+    for k in keys {
+        let action = match t.get(&k) {
+            Some(toml_edit::Item::Table(sub)) => {
+                if sub.is_empty() {
+                    Some(None)
+                } else {
+                    Some(Some(inline_of(sub)))
+                }
+            }
+            _ => None,
+        };
+        match action {
+            Some(None) => {
+                t.remove(&k);
+            }
+            Some(Some(v)) => {
+                t.insert(&k, toml_edit::Item::Value(v));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn inline_of(t: &toml_edit::Table) -> toml_edit::Value {
+    let mut it = toml_edit::InlineTable::new();
+    for (k, v) in t.iter() {
+        let val = match v {
+            toml_edit::Item::Value(v) => v.clone(),
+            toml_edit::Item::Table(sub) => inline_of(sub),
+            _ => continue,
+        };
+        it.insert(k, val);
+    }
+    toml_edit::Value::InlineTable(it)
 }
 
 /// 配置所在目录（日志默认落在这里）。
@@ -493,6 +626,85 @@ command = "/bin/true"
         assert!(cfg.remove("dufs"));
         assert_eq!(cfg.services.len(), 1);
         assert!(!cfg.remove("dufs"), "第二次删除应返回 false");
+    }
+
+    #[test]
+    fn env_survives_save_and_load_without_breaking_the_file() {
+        let dir = std::env::temp_dir().join(format!("us-svc-env-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("services.toml");
+
+        let mut cfg = Config::parse(SAMPLE).unwrap();
+        cfg.services[0]
+            .env
+            .insert("GREET".to_string(), "你好".to_string());
+        cfg.save(&path).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("GREET"), "非空 env 要落盘:\n{text}");
+        // 只有一条服务带 env：多出来的表头就是空表，会把 services 从数组降级成表
+        assert_eq!(
+            text.matches("[services.env]").count(),
+            1,
+            "空 env 不该写出表头，否则写完自己读不回来:\n{text}"
+        );
+
+        // 写 → 读 必须还能读回来（上一版在这里就炸了）
+        let again = Config::load(&path).unwrap();
+        assert_eq!(
+            again.services[0].env.get("GREET").map(String::as_str),
+            Some("你好")
+        );
+
+        // 再存一轮，仍然合法且不膨胀
+        again.save(&path).unwrap();
+        let third = Config::load(&path).unwrap();
+        assert_eq!(third.services[0].env.len(), 1);
+        assert_eq!(third.services.len(), again.services.len());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_keeps_comments_and_leaves_untouched_entries_alone() {
+        let dir = std::env::temp_dir().join(format!("us-svc-cmt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("services.toml");
+
+        // 手写文件的典型样子：文件级说明 + 每个条目一份注释
+        std::fs::write(
+            &path,
+            "# 我的开机服务\n# 改之前先看 README\n\n             # 数据库：别人等我\n[[services]]\nid = \"db\"\ncommand = \"/bin/true\"\n\n             # 应用：等数据库\n[[services]]\nid = \"app\"\ncommand = \"/bin/true\"\n",
+        )
+        .unwrap();
+
+        let mut cfg = Config::load(&path).unwrap();
+        let mut app = cfg.get("app").unwrap().clone();
+        app.delay_secs = 7;
+        cfg.upsert(app).unwrap();
+        cfg.save(&path).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# 我的开机服务"), "文件级注释丢了:\n{text}");
+        assert!(text.contains("# 改之前先看 README"), "文件级注释丢了:\n{text}");
+        assert!(text.contains("# 数据库：别人等我"), "未改条目注释丢了:\n{text}");
+        assert!(text.contains("# 应用：等数据库"), "被改条目的表级注释应保留:\n{text}");
+        assert!(text.contains("delay_secs = 7"), "改动没写进去:\n{text}");
+
+        // 无改动再存一次，文本必须逐字节相同（否则界面每刷一次都在改文件）
+        let before = std::fs::read_to_string(&path).unwrap();
+        Config::load(&path).unwrap().save(&path).unwrap();
+        assert_eq!(before, std::fs::read_to_string(&path).unwrap(), "重复保存应幂等");
+
+        // 删除一个条目，另一个的注释仍在
+        let mut cfg = Config::load(&path).unwrap();
+        cfg.remove("db");
+        cfg.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# 应用：等数据库"), "剩下的条目注释要留:\n{text}");
+        assert!(!text.contains("# 数据库：别人等我"), "被删条目应连注释一起走:\n{text}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

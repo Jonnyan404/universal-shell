@@ -151,6 +151,24 @@ fn default_true() -> bool {
     true
 }
 
+/// 把 `services.toml` 里的某一条装进系统调度器。
+///
+/// 重新装载会先卸载再装载 launchd 作业 / systemd 单元 / 计划任务，
+/// 也就是会**重启**该服务 —— 这正是「改了参数要生效」需要的行为。
+pub fn apply_one(dir: &Path, id: &str) -> anyhow::Result<()> {
+    let path = config_path(dir);
+    let cfg = us_service::config::Config::load(&path)?;
+    let svc = cfg
+        .get(id)
+        .ok_or_else(|| anyhow::anyhow!("没有 service `{id}`"))?;
+    let one = us_service::Config {
+        services: vec![svc.clone()],
+    };
+    let ctx = us_service::Ctx::new(&path)?;
+    let items = us_service::plan_for(&one, &ctx, us_service::Platform::current())?;
+    us_service::install(&items, &cfg)
+}
+
 pub fn save(data_dir: &Path, d: Draft) -> Result<Value> {
     let path = config_path(data_dir);
     ensure_file(&path)?;

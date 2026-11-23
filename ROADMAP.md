@@ -151,7 +151,15 @@ A（1→7）→ B1-B3 → B4/B7（B8）→ B9 → C1/C3 → C4/C2/C5 → C6 → 
     - 真相仍在 `shell.json`：切到 `native` 时 `sync_native_services()` 把它**派生成** `services.toml` 条目（id `prog-<程序id>`，带 `origin = "program:<id>"`，参数按当前字段值展开），再 `install` 落到系统；切回 `managed` 先 `uninstall` 再删派生条目。
     - 派生条目在同步时重建，所以改程序字段值后重新切换/同步即可生效；派生条目的手改会被下次同步覆盖（`origin` 已标明来源）。
     - 管理页在 `native` 下**不再**显示启停按钮（避免壳再 spawn 一个实例造成双开），改为「改为壳托管 / 打开服务页」。
-  - **已知未做**：② 服务页文案暂用本地 zh/en 表，未进 `shared/locales`；③ 界面保存会重写 TOML（注释不保留）；④ 服务页未进移动端底部 Tab；⑤ Windows 的 `system`（提权）场景 CI 未覆盖。
+  - **补齐的四项（2026-11-23）**：
+    - 服务页文案已进 `shared/locales`（`svc.*`，中英各 59 键），语言切换时重建懒创建的抽屉/编辑器，按钮文案不会停在旧语言。
+    - 写回 TOML 改为**增量修改**（`toml_edit`）：文件级注释、每个 `[[services]]` 上方的注释、未改动条目的行尾注释全部保留；只有真正改过的条目会被重写。
+      - 踩到的坑：`env` 为空时 `toml` 会写出空的 `[env]` 表头，而它嵌在 `[[services]]` 里会变成 `[services.env]`，把 `services` 从**数组降级成表** —— 写完的文件自己都读不回来。现在空 `env` 不落盘，非空统一内联成 `env = { K = "V" }`。
+    - 服务页进了移动端底部 Tab（5 个 tab：程序 / 服务 / 批量 / 模板库 / 日志）。
+    - 新增 `?view=services` 深链接；它放在 `boot()` 的 `finally` 里应用，因为启动过程中 `switchCurrent` 会把视图抢回管理页，而 boot 中途出错（模板源不可达）也必须能落到目标页。
+  - **改参数自动生效（2026-11-23）**：字段值防抖保存后，`native` 程序会在 1.2 s 静默期后调用 `apply_supervisor`：重新派生 → 内容真变了才 `install`（install 内部先卸载，等价于重启）。内容没变返回 `applied=false`，避免输入过程中反复重启。`sync_native_services` 因此改为只报告**内容真的变化**的 id。
+  - **`ProgramView` 漏字段（已修）**：上一版接口没返回 `supervisor`，导致管理页的「系统调度」提示与按钮隐藏从未生效；现在 `ProgramView` 带 `supervisor` 与完整的 `native` 规格，批量页也据此打「系统调度」标记。
+  - **已知未做**：① `us-svc ui`（独立看板）的按钮文案仍是页面内写死的中文，未接 i18n；② 改参数触发的重装会让服务**短暂中断**（重启以应用新参数），未做「先启动新的再切流量」；③ Windows 的 `system`（提权）场景已加 CI，但首跑结果尚未确认；④ 派生条目仍在每次同步时按当前字段值重建，若用户在界面上手改派生条目会被覆盖（`origin` 已标明来源）。
 - **移动端方案**：移动端采用独立「卡片流 + 二级页面」设计（方案 B），不压缩桌面布局；底部 Tab 导航 + 程序卡片流 + 独立详情页；与桌面共用同一 SPA 与 RPC/WS 层，仅 UI 结构独立（`@media (max-width:720px)` 断点）
 - **egui 端归档（2026-11-17）**：`app-egui` 从 workspace 移除（`exclude = ["app-egui"]`，目录与 git 历史保留），并从 `scripts/build-release.sh` 与全部 CI 工作流删除构建/打包步骤；`cargo-wix` 仅为 egui 打 .msi 而装，一并移除（Tauri 的 .msi 仍由 WiX v3 提供）。
   - 依据：① 功能面已被覆盖——桌面用 Tauri、无桌面用 `us-web`，egui 独占场景仅剩「托盘常驻且不起 webview」；② 双份维护成本真实——ROADMAP 中 B7/B8、C4、C5、D1、F1、F10 均为双端条目，且 egui 已落后 5 项（日志中心、模板 diff、二进制上传、局域网开关、主题切换），i18n 258/486；③ Release 资产下载量趋近于 0（egui 与 tauri 同量级），重复维护未服务到用户。

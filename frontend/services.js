@@ -2,116 +2,9 @@
 // 只依赖 api.js 暴露的 invoke；渲染、动作、日志抽屉都在本文件内自洽。
 // 服务由系统调度器负责拉起，这里关了不影响它们运行。
 
-const SVC_I18N = {
-  zh: {
-    title: "服务",
-    sub: "由系统调度器拉起，随本界面开关无关",
-    add: "＋ 新建服务",
-    refresh: "刷新",
-    auto: "自动刷新",
-    running: "运行中",
-    stopped: "未运行",
-    notinstalled: "未启用",
-    unknown: "未知",
-    start: "启动",
-    restart: "重启",
-    stop: "停止",
-    log: "日志",
-    edit: "编辑",
-    enable: "启用自启",
-    disable: "取消自启",
-    empty: "还没有服务。点「新建服务」添加一条命令，或用模板库安装程序后在这里调度。",
-    nolog: "（暂无日志）",
-    search_ph: "在日志里搜索…",
-    follow: "跟随",
-    close: "关闭",
-    save: "保存",
-    cancel: "取消",
-    del: "删除",
-    f_id: "id",
-    f_name: "名称",
-    f_command: "命令",
-    f_args: "参数（每行一个）",
-    f_env: "环境变量（KEY=VALUE）",
-    f_cwd: "工作目录",
-    f_log: "日志文件",
-    f_delay: "启动延迟（秒）",
-    f_deps: "依赖服务",
-    f_deps_hint: "逗号分隔，会等它们就绪后再启动",
-    f_wait: "等待超时（秒）",
-    f_rport: "就绪端口",
-    f_rfile: "就绪文件",
-    wait_for: "等待",
-    f_restart: "崩溃重启",
-    f_scope: "运行范围",
-    f_enabled: "启用",
-    f_apply: "保存后立即装载",
-    scope_user: "用户级",
-    scope_system: "系统级",
-    restart_never: "不重启",
-    restart_onfail: "失败时重启",
-    restart_always: "总是重启",
-    editing: "编辑服务",
-    creating: "新建服务",
-  },
-  en: {
-    title: "Services",
-    sub: "Started by the system scheduler, independent of this window",
-    add: "＋ New service",
-    refresh: "Refresh",
-    auto: "Auto refresh",
-    running: "Running",
-    stopped: "Not running",
-    notinstalled: "Not enabled",
-    unknown: "Unknown",
-    start: "Start",
-    restart: "Restart",
-    stop: "Stop",
-    log: "Logs",
-    edit: "Edit",
-    enable: "Enable",
-    disable: "Disable",
-    empty: "No services yet. Add a command with “New service”.",
-    nolog: "(no logs yet)",
-    search_ph: "Search this log…",
-    follow: "Follow",
-    close: "Close",
-    save: "Save",
-    cancel: "Cancel",
-    del: "Delete",
-    f_id: "id",
-    f_name: "Name",
-    f_command: "Command",
-    f_args: "Arguments (one per line)",
-    f_env: "Environment (KEY=VALUE)",
-    f_cwd: "Working directory",
-    f_log: "Log file",
-    f_delay: "Start delay (s)",
-    f_deps: "Depends on",
-    f_deps_hint: "Comma separated; waits until they are ready",
-    f_wait: "Wait timeout (s)",
-    f_rport: "Ready port",
-    f_rfile: "Ready file",
-    wait_for: "waits",
-    f_restart: "Restart on crash",
-    f_scope: "Scope",
-    f_enabled: "Enabled",
-    f_apply: "Apply after save",
-    scope_user: "User",
-    scope_system: "System",
-    restart_never: "Never",
-    restart_onfail: "On failure",
-    restart_always: "Always",
-    editing: "Edit service",
-    creating: "New service",
-  },
-};
-
-function svcLang() {
-  const l = (document.documentElement.lang || "").toLowerCase();
-  return l.startsWith("en") ? "en" : "zh";
-}
-const L = (k) => (SVC_I18N[svcLang()] || SVC_I18N.zh)[k] || k;
+// 文案在 shared/locales（键前缀 svc.），由 build.rs 生成到 frontend/locales。
+// 这里只做前缀补全：t() 由 main.js 提供，语言切换时重建本视图即可。
+const L = (k, vars) => t("svc." + k, vars);
 const esc = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
@@ -137,9 +30,7 @@ function svcRender() {
         </div>
         <span class="spacer"></span>
         <div class="pills">
-          <span class="pill">${s.length} ${esc(L("title"))}</span>
-          <span class="pill pill-ok">${running} ${esc(L("running"))}</span>
-          <span class="pill">${enabled} ${esc(L("notinstalled"))}−</span>
+          <span class="pill">${esc(L("summary", { total: s.length, running }))}</span>
         </div>
         <label class="svc-toggle"><input type="checkbox" id="svc-auto" ${svcState.auto ? "checked" : ""}/>${esc(L("auto"))}</label>
         <button id="svc-new">${esc(L("add"))}</button>
@@ -165,9 +56,9 @@ function svcCard(x) {
   const installed = x.state !== "not_installed";
   const canRun = installed && x.enabled;
   const badges = [
-    `<span class="svc-badge">${esc(x.scope === "system" ? L("scope_system") : L("scope_user"))}</span>`,
+    `<span class="svc-badge">${esc(x.scope === "system" ? L("scope.system") : L("scope.user"))}</span>`,
     `<span class="svc-badge">${esc(
-      x.restart === "always" ? L("restart_always") : x.restart === "on_failure" ? L("restart_onfail") : L("restart_never")
+      x.restart === "always" ? L("restart.always") : x.restart === "on_failure" ? L("restart.on_failure") : L("restart.never")
     )}</span>`,
     x.delay_secs ? `<span class="svc-badge">${x.delay_secs}s</span>` : "",
     (x.depends_on || []).length
@@ -175,14 +66,18 @@ function svcCard(x) {
       : "",
     x.ready_port ? `<span class="svc-badge">:${x.ready_port}</span>` : "",
     x.enabled ? "" : `<span class="svc-badge">off</span>`,
-    x.origin ? `<span class="svc-badge svc-badge-origin">来自程序 ${esc(String(x.origin).replace("program:", ""))}</span>` : "",
+    x.origin
+      ? `<span class="svc-badge svc-badge-origin">${esc(
+          L("origin", { id: String(x.origin).replace("program:", "") })
+        )}</span>`
+      : "",
   ].join("");
   return `<div class="svc-card ${x.enabled ? "" : "svc-off"}">
     <div class="svc-row">
       <span class="svc-dot svc-dot-${x.state}"></span>
       <span class="svc-name">${esc(x.name)}</span>
       <span class="svc-id">${esc(x.id)}</span>
-      <span class="pill ${pillCls}">${esc(x.state_label)}</span>
+      <span class="pill ${pillCls}">${esc(L("state." + x.state))}</span>
     </div>
     <div class="svc-cmd" title="${esc(cmd)}">${esc(x.command)} <span>${esc((x.args || []).join(" "))}</span></div>
     <div class="svc-badges">${badges}</div>
@@ -307,38 +202,38 @@ function svcEditor() {
       <div class="modal-head"><span id="svc-e-title"></span><span class="spacer"></span>
         <button class="modal-close" id="svc-e-close">✕</button></div>
       <div class="edit-scroll">
-        <label class="edit-label">${esc(L("f_id"))}</label><input id="svc-e-id" type="text" placeholder="dufs"/>
-        <label class="edit-label">${esc(L("f_name"))}</label><input id="svc-e-name" type="text"/>
-        <label class="edit-label">${esc(L("f_command"))}</label><input id="svc-e-command" type="text" placeholder="/usr/local/bin/dufs"/>
-        <label class="edit-label">${esc(L("f_args"))}</label><textarea id="svc-e-args" rows="3" class="edit-textarea"></textarea>
-        <label class="edit-label">${esc(L("f_env"))}</label><textarea id="svc-e-env" rows="2" class="edit-textarea" placeholder="RUST_LOG=info"></textarea>
-        <label class="edit-label">${esc(L("f_cwd"))}</label><input id="svc-e-cwd" type="text"/>
-        <label class="edit-label">${esc(L("f_log"))}</label><input id="svc-e-log" type="text"/>
+        <label class="edit-label">${esc(L("f.id"))}</label><input id="svc-e-id" type="text" placeholder="dufs"/>
+        <label class="edit-label">${esc(L("f.name"))}</label><input id="svc-e-name" type="text"/>
+        <label class="edit-label">${esc(L("f.command"))}</label><input id="svc-e-command" type="text" placeholder="/usr/local/bin/dufs"/>
+        <label class="edit-label">${esc(L("f.args"))}</label><textarea id="svc-e-args" rows="3" class="edit-textarea"></textarea>
+        <label class="edit-label">${esc(L("f.env"))}</label><textarea id="svc-e-env" rows="2" class="edit-textarea" placeholder="RUST_LOG=info"></textarea>
+        <label class="edit-label">${esc(L("f.cwd"))}</label><input id="svc-e-cwd" type="text"/>
+        <label class="edit-label">${esc(L("f.log"))}</label><input id="svc-e-log" type="text"/>
         <div class="svc-two">
-          <div><label class="edit-label">${esc(L("f_delay"))}</label><input id="svc-e-delay" type="number" min="0" value="0"/></div>
-          <div><label class="edit-label">${esc(L("f_restart"))}</label>
+          <div><label class="edit-label">${esc(L("f.delay"))}</label><input id="svc-e-delay" type="number" min="0" value="0"/></div>
+          <div><label class="edit-label">${esc(L("f.restart"))}</label>
             <select id="svc-e-restart">
-              <option value="never">${esc(L("restart_never"))}</option>
-              <option value="on_failure">${esc(L("restart_onfail"))}</option>
-              <option value="always">${esc(L("restart_always"))}</option>
+              <option value="never">${esc(L("restart.never"))}</option>
+              <option value="on_failure">${esc(L("restart.on_failure"))}</option>
+              <option value="always">${esc(L("restart.always"))}</option>
             </select></div>
-          <div><label class="edit-label">${esc(L("f_scope"))}</label>
+          <div><label class="edit-label">${esc(L("f.scope"))}</label>
             <select id="svc-e-scope">
-              <option value="user">${esc(L("scope_user"))}</option>
-              <option value="system">${esc(L("scope_system"))}</option>
+              <option value="user">${esc(L("scope.user"))}</option>
+              <option value="system">${esc(L("scope.system"))}</option>
             </select></div>
         </div>
-        <label class="edit-label">${esc(L("f_deps"))}</label>
+        <label class="edit-label">${esc(L("f.deps"))}</label>
         <input id="svc-e-deps" type="text" placeholder="db, cache"/>
-        <div class="svc-hint">${esc(L("f_deps_hint"))}</div>
+        <div class="svc-hint">${esc(L("f.deps_hint"))}</div>
         <div class="svc-two">
-          <div><label class="edit-label">${esc(L("f_wait"))}</label><input id="svc-e-wait" type="number" min="0" value="60"/></div>
-          <div><label class="edit-label">${esc(L("f_rport"))}</label><input id="svc-e-rport" type="text" placeholder="5000"/></div>
-          <div><label class="edit-label">${esc(L("f_rfile"))}</label><input id="svc-e-rfile" type="text"/></div>
+          <div><label class="edit-label">${esc(L("f.wait"))}</label><input id="svc-e-wait" type="number" min="0" value="60"/></div>
+          <div><label class="edit-label">${esc(L("f.rport"))}</label><input id="svc-e-rport" type="text" placeholder="5000"/></div>
+          <div><label class="edit-label">${esc(L("f.rfile"))}</label><input id="svc-e-rfile" type="text"/></div>
         </div>
         <div class="svc-checks">
-          <label><input type="checkbox" id="svc-e-enabled" checked/>${esc(L("f_enabled"))}</label>
-          <label><input type="checkbox" id="svc-e-apply" checked/>${esc(L("f_apply"))}</label>
+          <label><input type="checkbox" id="svc-e-enabled" checked/>${esc(L("f.enabled"))}</label>
+          <label><input type="checkbox" id="svc-e-apply" checked/>${esc(L("f.apply"))}</label>
         </div>
         <div class="edit-footer">
           <button id="svc-e-del" class="op-danger" hidden>${esc(L("del"))}</button>
@@ -427,7 +322,7 @@ async function svcSave() {
 async function svcDelete() {
   const editing = svcState.editing;
   if (!editing) return;
-  if (!confirm(`${L("del")} ${editing.id}?`)) return;
+  if (!confirm(L("confirm_del", { id: editing.id }))) return;
   try {
     const r = await invoke("services_remove", { id: editing.id, uninstall: true });
     if (window.showNotice) showNotice(r.message || "removed");
@@ -441,6 +336,14 @@ async function svcDelete() {
 // ---------- 生命周期 ----------
 
 window.usServices = {
+  /// 语言切换后重建懒创建的节点，否则里面的按钮文案会停在旧语言
+  onLangChange() {
+    document.querySelector("#svc-drawer")?.remove();
+    document.querySelector("#svc-editor")?.remove();
+    svcState.openId = null;
+    svcState.editing = null;
+    if (!svcRoot()?.hidden) svcRender();
+  },
   onShow() {
     svcLoad();
     clearInterval(svcState.timer);

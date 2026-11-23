@@ -488,7 +488,64 @@ log.runner.stopped: '已停止 %{id}'
 log.check_version_fail: '检查「%{name}」最新版本失败: %{err}'
 
 # 程序 ↔ 服务（系统调度）
-svc.native_notice: 此程序由系统调度接管：开机自启，壳退出也不停。
+svc.native_notice: 此程序由系统调度接管：开机自启，壳退出也不停。输出日志请在「服务」页查看。
 svc.back_to_managed: 改为壳托管
 svc.open_board: 打开服务页
 svc.make_native: 开机自启
+
+# 服务看板（主界面「服务」页）
+svc.title: 服务
+svc.sub: 由系统调度器拉起，与本界面开关无关
+svc.add: ＋ 新建服务
+svc.refresh: 刷新
+svc.auto: 自动刷新
+svc.state.running: 运行中
+svc.state.stopped: 未运行
+svc.state.not_installed: 未启用
+svc.state.unknown: 未知
+svc.start: 启动
+svc.restart: 重启
+svc.stop: 停止
+svc.log: 日志
+svc.edit: 编辑
+svc.enable: 启用自启
+svc.disable: 取消自启
+svc.empty: 还没有服务。点「新建服务」添加一条命令，或用模板库安装程序后在这里调度。
+svc.nolog: （暂无日志）
+svc.search_ph: 在日志里搜索…
+svc.follow: 跟随
+svc.close: 关闭
+svc.save: 保存
+svc.cancel: 取消
+svc.del: 删除
+svc.confirm_del: 删除 %{id}？会同时从系统卸载。
+svc.f.id: id
+svc.f.name: 名称
+svc.f.command: 命令
+svc.f.args: 参数（每行一个）
+svc.f.env: 环境变量（KEY=VALUE）
+svc.f.cwd: 工作目录
+svc.f.log: 日志文件（留空用默认）
+svc.f.delay: 启动延迟（秒）
+svc.f.deps: 依赖服务
+svc.f.deps_hint: 逗号分隔，会等它们就绪后再启动
+svc.f.wait: 等待超时（秒）
+svc.f.rport: 就绪端口
+svc.f.rfile: 就绪文件
+svc.f.restart: 崩溃重启
+svc.f.scope: 运行范围
+svc.f.enabled: 启用
+svc.f.apply: 保存后立即装载
+svc.wait_for: 等待
+svc.origin: 来自程序 %{id}
+svc.scope.user: 用户级
+svc.scope.system: 系统级
+svc.restart.never: 不重启
+svc.restart.on_failure: 失败时重启
+svc.restart.always: 总是重启
+svc.creating: 新建服务
+svc.editing: 编辑服务
+svc.applied: 已按新参数重新装载
+svc.apply_failed: 已保存，但重新装载失败：%{err}
+svc.summary: 共 %{total} 条，%{running} 条运行中
+svc.native_badge: 系统调度

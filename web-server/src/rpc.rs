@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use shared::config::{Field, Program};
+use shared::config::{Field, Program, Supervisor};
 use shared::ShellManager;
 
 use rust_i18n::t;
@@ -113,6 +113,20 @@ struct ProgramView {
     http_urls: Vec<String>,
     channel: String,
     version_pin: Option<String>,
+    /// "managed" | "native"，界面据此决定显示启停还是「系统调度」提示
+    supervisor: String,
+    native: NativeView,
+}
+
+#[derive(Serialize, Clone)]
+struct NativeView {
+    delay_secs: u64,
+    restart: String,
+    scope: String,
+    depends_on: Vec<String>,
+    ready_port: Option<u16>,
+    ready_file: String,
+    wait_timeout_secs: u64,
 }
 
 #[derive(Serialize, Clone)]
@@ -128,12 +142,63 @@ struct StatusView {
     bin_path: String,
 }
 
+/// 把 `native` 程序的启停交给系统调度器。
+///
+/// 壳自己 spawn 会和调度器抢同一个端口/文件锁（双开），所以这里必须绕开 Runner。
+fn native_dispatch(
+    mgr: &mut shared::ShellManager,
+    p: &Program,
+    action: &str,
+) -> Result<(), String> {
+    let dir = mgr.data_dir.clone();
+    let id = format!("prog-{}", p.id);
+    match action {
+        // 启动/重启：重新派生 + 装一次（install 内部会先卸载，等价于重启）
+        _ if action == "apply" => {
+            mgr.sync_native_services().map_err(|e| format!("{e:#}"))?;
+            crate::services::apply_one(&dir, &id).map_err(|e| format!("{e:#}"))
+        }
+        "stop" => {
+            let path = crate::services::config_path(&dir);
+            let cfg = us_service::config::Config::load(&path).map_err(|e| format!("{e:#}"))?;
+            let svc = cfg
+                .get(&id)
+                .ok_or_else(|| format!("系统里没有 {id}：先在该程序上启用「开机自启」"))?;
+            us_service::stop(svc).map_err(|e| format!("{e:#}"))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// 程序的状态。`native` 程序没有壳内的子进程，只能问系统调度器。
+fn local_status(
+    mgr: &mut shared::ShellManager,
+    p: &shared::config::Program,
+) -> shared::ProgramStatus {
+    let mut s = mgr.status_local(p);
+    if p.supervisor != Supervisor::Native {
+        return s;
+    }
+    let path = mgr.services_config_path();
+    let id = format!("prog-{}", p.id);
+    s.running = match us_service::config::Config::load(&path) {
+        Ok(cfg) => cfg
+            .get(&id)
+            .map(|svc| us_service::state(svc, &path) == us_service::ServiceState::Running)
+            .unwrap_or(false),
+        Err(_) => false,
+    };
+    s
+}
+
 #[derive(Serialize, Clone)]
 struct ProgramStatusView {
     id: String,
     name: String,
     repo: String,
     hidden: bool,
+    /// 批量页要知道这条是壳托管还是系统调度（按钮语义不同）
+    supervisor: String,
     status: StatusView,
 }
 
@@ -349,6 +414,16 @@ fn to_view(p: &Program) -> ProgramView {
         http_urls,
         channel: p.channel.clone(),
         version_pin: p.version_pin.clone(),
+        supervisor: p.supervisor.as_str().to_string(),
+        native: NativeView {
+            delay_secs: p.native.delay_secs,
+            restart: p.native.restart_or_default().to_string(),
+            scope: p.native.scope_or_default().to_string(),
+            depends_on: p.native.depends_on.clone(),
+            ready_port: p.native.ready_port,
+            ready_file: p.native.ready_file.clone().unwrap_or_default(),
+            wait_timeout_secs: p.native.wait_timeout_secs,
+        },
     }
 }
 
@@ -799,29 +874,9 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             // 切成 native：同步完立刻装载，否则只是写了配置、开机并不会启动
             let mut apply_note = String::new();
             if native {
-                if let Ok(cfg) = us_service::config::Config::load(&services_path) {
-                    if let Some(svc) = cfg.get(&derived_id) {
-                        let one = us_service::Config {
-                            services: vec![svc.clone()],
-                        };
-                        match us_service::Ctx::new(&services_path) {
-                            Ok(ctx) => {
-                                match us_service::plan_for(
-                                    &one,
-                                    &ctx,
-                                    us_service::Platform::current(),
-                                ) {
-                                    Ok(items) => {
-                                        if let Err(e) = us_service::install(&items, &cfg) {
-                                            apply_note = format!("（已保存，但装载失败：{e:#}）");
-                                        }
-                                    }
-                                    Err(e) => apply_note = format!("（生成配置失败：{e:#}）"),
-                                }
-                            }
-                            Err(e) => apply_note = format!("（{e:#}）"),
-                        }
-                    }
+                let dir = mgr.data_dir.clone();
+                if let Err(e) = crate::services::apply_one(&dir, &derived_id) {
+                    apply_note = format!("（已保存，但装载失败：{e:#}）");
                 }
             }
             Ok(serde_json::json!({
@@ -834,6 +889,22 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                     format!("{} 已切回壳托管", p.name)
                 },
             }))
+        }
+        // 字段值自动保存之后调用：重新派生并（真变了才）重装系统服务。
+        // 内容不变就返回 applied=false，避免输入过程中反复重启服务。
+        "apply_supervisor" => {
+            let program_id = arg_str(args, "programId");
+            let dir = { state.manager.lock().unwrap().data_dir.clone() };
+            let changed = {
+                let mut mgr = state.manager.lock().unwrap();
+                mgr.sync_native_services().map_err(|e| format!("{e:#}"))?
+            };
+            let derived = format!("prog-{program_id}");
+            if !changed.iter().any(|id| id == &derived) {
+                return Ok(json!({ "applied": false, "reason": "unchanged" }));
+            }
+            crate::services::apply_one(&dir, &derived).map_err(|e| format!("{e:#}"))?;
+            Ok(json!({ "applied": true, "id": derived }))
         }
         "services_list" => {
             let dir = { state.manager.lock().unwrap().data_dir.clone() };
@@ -898,8 +969,8 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 return Err(program_not_found(&program_id));
             };
             let bin = mgr.bin_path(&p);
-            let s = mgr.status_local(&p);
-            let auto = mgr.program_autostart(&p.id);
+            let s = local_status(&mut mgr, &p);
+            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
             let vcheck = mgr.load_version_check();
             Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
         }
@@ -911,13 +982,14 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 .into_iter()
                 .map(|p| {
                     let bin = mgr.bin_path(&p);
-                    let s = mgr.status_local(&p);
-                    let auto = mgr.program_autostart(&p.id);
+                    let s = local_status(&mut mgr, &p);
+                    let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
                     ProgramStatusView {
                         id: p.id.clone(),
                         name: p.name.clone(),
                         repo: p.repo.clone(),
                         hidden: p.hidden,
+                        supervisor: p.supervisor.as_str().to_string(),
                         status: StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck),
                     }
                 })
@@ -937,11 +1009,15 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             if let Err(e) = mgr.apply_key_autostart(&p, &values) {
                 mgr.log_op(t!("log.autostart.set_fail", err = format!("{e:#}")).as_ref());
             }
-            mgr.start(&p, &values).map_err(|e| format!("{e:#}"))?;
+            if p.supervisor == Supervisor::Native {
+                native_dispatch(&mut mgr, &p, "apply")?;
+            } else {
+                mgr.start(&p, &values).map_err(|e| format!("{e:#}"))?;
+            }
             mgr.log_op(t!("op.start", name = &p.name).as_ref());
             let bin = mgr.bin_path(&p);
-            let s = mgr.status_local(&p);
-            let auto = mgr.program_autostart(&p.id);
+            let s = local_status(&mut mgr, &p);
+            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
             let vcheck = mgr.load_version_check();
             Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
         }
@@ -951,12 +1027,17 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             let Some(p) = mgr.all_programs().into_iter().find(|p| p.id == program_id) else {
                 return Err(program_not_found(&program_id));
             };
-            mgr.stop(&program_id).map_err(|e| format!("{e:#}"))?;
-            mgr.clear_log(&program_id);
+            if p.supervisor == Supervisor::Native {
+                // 日志属于服务本身，stop 不该把历史日志清掉
+                native_dispatch(&mut mgr, &p, "stop")?;
+            } else {
+                mgr.stop(&program_id).map_err(|e| format!("{e:#}"))?;
+                mgr.clear_log(&program_id);
+            }
             mgr.log_op(t!("op.stop", name = &p.name).as_ref());
             let bin = mgr.bin_path(&p);
-            let s = mgr.status_local(&p);
-            let auto = mgr.program_autostart(&p.id);
+            let s = local_status(&mut mgr, &p);
+            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
             let vcheck = mgr.load_version_check();
             Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
         }
@@ -967,16 +1048,20 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 return Err(program_not_found(&program_id));
             };
             let values = arg_values(args);
-            mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
             mgr.save_field_values(&p, &values);
             if let Err(e) = mgr.apply_key_autostart(&p, &values) {
                 mgr.log_op(t!("log.autostart.set_fail", err = format!("{e:#}")).as_ref());
             }
-            mgr.start(&p, &values).map_err(|e| format!("{e:#}"))?;
+            if p.supervisor == Supervisor::Native {
+                native_dispatch(&mut mgr, &p, "apply")?;
+            } else {
+                mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
+                mgr.start(&p, &values).map_err(|e| format!("{e:#}"))?;
+            }
             mgr.log_op(t!("op.restart", name = &p.name).as_ref());
             let bin = mgr.bin_path(&p);
-            let s = mgr.status_local(&p);
-            let auto = mgr.program_autostart(&p.id);
+            let s = local_status(&mut mgr, &p);
+            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
             let vcheck = mgr.load_version_check();
             Ok(serde_json::to_value(StatusView::from_local(&s, &bin, auto, &p.repo, &vcheck)).unwrap_or(json!({})))
         }
@@ -1484,8 +1569,8 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                         .into_iter()
                         .map(|p| {
                             let bin = mgr.bin_path(&p);
-                            let s = mgr.status_local(&p);
-                            let auto = mgr.program_autostart(&p.id);
+                            let s = local_status(&mut mgr, &p);
+                            let auto = p.supervisor == Supervisor::Native || mgr.program_autostart(&p.id);
                             (p, bin, s, auto)
                         })
                         .collect::<Vec<_>>(),
@@ -1556,6 +1641,7 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                     name: p.name.clone(),
                     repo: p.repo.clone(),
                     hidden: p.hidden,
+                    supervisor: p.supervisor.as_str().to_string(),
                     status: StatusView::from_status(&s, &bin, auto),
                 })
                 .collect();

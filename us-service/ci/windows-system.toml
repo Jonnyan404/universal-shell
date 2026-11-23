@@ -1,0 +1,8 @@
+# 仅用于 CI：验证 scope = "system" 在 Windows 上能否被注册。
+# 与 windows.toml 的区别：登录触发器换成开机触发器、RunLevel 升到 HighestAvailable。
+[[services]]
+id = "ci-sys"
+name = "CI system scope"
+command = "cmd.exe"
+args = ["/C", "echo hello-from-ci-system"]
+scope = "system"

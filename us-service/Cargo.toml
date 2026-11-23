@@ -26,6 +26,8 @@ axum = { version = "0.7", optional = true }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread", "net", "time", "macros"] }
 time = { workspace = true }
 toml = "0.8"
+# 写回配置时保留用户的注释与排列（纯序列化会全部丢掉）
+toml_edit = "0.22"
 anyhow = "1.0"
 
 # 信号转发只在 unix 有意义（Windows 由计划任务 /End 结束整棵进程树）
