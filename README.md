@@ -1,13 +1,15 @@
 # universal-shell
 
-A configuration-driven manager that downloads, configures, and runs third-party CLI programs, with a **Tauri** desktop GUI and a headless web manager sharing one core library (`shared`).
+A configuration-driven manager for third-party CLI programs **and local services**: download, configure, run — either app-managed or handed to the OS scheduler. A **Tauri** desktop GUI and a headless web manager share one core library (`shared`).
 
 **English** · [中文](#中文文档)
 
 - Downloads/updates program binaries from GitHub into its own data dir (never overwrites itself), verifies SHA256, spawns/stops processes with templated args.
+- **One workbench**: programs and services in a single list. Each program is either **app-managed** (lives and dies with the app) or handed to the **OS scheduler** (starts at login, restarts on crash, ordered by declared dependencies).
 - **Config-driven UI**: the `fields` in `shell.json` decide which widgets render (string / file / directory / boolean).
-- Multiple programs in tabs, each with its own data dir.
+- Multiple programs, each with its own data dir.
 - Tray resident: closing the window hides to tray; tray can reopen or quit.
+- **Same UI everywhere**: the desktop window and any browser load the same single-page app — the tray is the only desktop-only piece.
 
 ---
 
@@ -22,7 +24,7 @@ A configuration-driven manager that downloads, configures, and runs third-party 
 | Rendering | System WebView | Browser only |
 | File picker | tauri dialog plugin | manual / upload via web |
 
-Both share the same config, data directory and template library — safe to switch between them anytime.
+Both serve the **same SPA**: the Tauri window is a native shell (window + tray) around it, so anything you can do in the browser you can do in the app, and vice versa. They share one config, data directory and template library — switch between them anytime.
 
 > The former **egui** build (`app-egui`) is archived: its source stays in the repo for reference but it is
 > no longer built, packaged or shipped. See [ROADMAP](ROADMAP.md#关键决策记录) for the reasoning.
@@ -53,7 +55,26 @@ That's it. Picked templates become instances you can **Start / Stop** right away
 
 ### 3. Use
 
-Set the fields if needed, enable autostart if you want, and press **Start**. The program runs in the background and shows under a tray icon.
+Set the fields if needed, then press **Start**. By default the program is app-managed: it runs in the background and stops when you quit the app. To make it survive the app and start at login, see the next section.
+
+### 4. Two ways to keep a program running
+
+| | App-managed | OS scheduler |
+|---|---|---|
+| Who starts it | this app | launchd / systemd / Task Scheduler |
+| When the app quits | the program stops | it keeps running |
+| At login | only if the app itself autostarts | yes — registered as a startup item |
+| After a crash | no restart | restarts per your setting |
+| Good for | tools you want to watch | services that must always be up |
+
+Switch under **Schedule** in the detail pane. Once handed over, the start/stop buttons
+disappear (the app would otherwise run a second copy) and the status bar marks it with `⏻`.
+
+**Dependencies**: `depends_on = ["db"]` waits until the dependency is ready — its port is
+reachable, a readiness file exists, or (when neither is declared) the process is running.
+A timeout logs a warning and continues, so one broken dependency cannot stall everything else.
+
+Deleting a program unregisters its startup item as well, so nothing is left running behind your back.
 
 ## Config (`shell.json`)
 
@@ -89,14 +110,28 @@ Field type is set by `fields[].kind`; `args` uses `{key}` to reference field val
 
 Field kinds: `string` / `file` / `directory` / `boolean`. Asset `filename` supports `{name}` `{version}` `{arch}` `{ext}`; `args` supports any `{fieldKey}`. Mark a field `required: true` to block start until filled (its label gets a `*`). Program autostart is shell-managed state (the shell's autostart toggle/`program-autostart.json`), not a template field.
 
+To hand a program's lifetime to the OS scheduler instead of the app:
+
+```jsonc
+"supervisor": "native",   // default "managed"
+"native": { "delay_secs": 10, "restart": "on_failure", "scope": "user", "depends_on": ["db"] }
+```
+
+`native` entries are derived into `services.toml` on every sync; that file is the projection, `shell.json` stays the source of truth.
+
 ## Data directory
 
-Default: `~/Library/Application Support/universal-shell/` (Windows: `%APPDATA%/universal-shell/`). Each managed program:
+Default: `~/Library/Application Support/universal-shell/` (macOS), `~/.local/share/universal-shell/` (Linux, honours `$XDG_DATA_HOME`), `%APPDATA%/universal-shell/` (Windows). Each managed program:
 
 - `<data>/<binary>` — the executable
 - `<data>/<id>.version` — local version
 - `<data>/<id>.values.json` — last form values
-- `<data>/logs/<id>.{out,err}.log` — run logs
+- `<data>/logs/<id>.{out,err}.log` — logs captured by the app
+
+Shared files:
+
+- `<data>/services.toml` — service declarations: hand-written ones plus those derived from programs (`origin = "program:<id>"`)
+- `<data>/logs/<id>.log` — output of scheduler-run services (stdout+stderr, exit codes), written by the wrapper
 
 ## Remote template library
 
@@ -123,9 +158,18 @@ cargo run -p shared --example generate_registry -- ../universal-shell-templates/
 cargo run -p shared --example sign_registry -- ../universal-shell-templates/registry/manifests.json
 cargo run -p shared --example registry_demo -- ../universal-shell-templates/registry
 
+# Inspect services without any UI (built from source; not shipped)
+cargo run -p us-service --bin us-svc -- list   services.toml
+cargo run -p us-service --bin us-svc -- order  services.toml   # dependency order
+cargo run -p us-service --bin us-svc -- status services.toml
+
 # Package (outputs to dist/, includes sha256.txt)
 ./scripts/build-release.sh 0.1.0
 ```
+
+Release builds do **not** include a separate `us-svc` binary: `us-service` is a library the app
+already links, and the wrapper role is played by whichever executable the scheduler is pointed at
+(`us-web run --config … --id …`, or the desktop binary's `run`).
 
 ### Archived egui build
 
@@ -147,6 +191,7 @@ from `app-egui/Cargo.toml` (restore `workspace = true` inheritance), remove `exc
 
 - **Trust model**: remote templates download & execute third-party binaries. Defaults to `bind=127.0.0.1` + high port; templates record `template_source`/`imported_at`.
 - **Download verification**: template `check_sha256` pin wins; else GitHub Releases `digest` (sha256) is verified byte-by-byte; on failure the file is deleted.
+- **Startup items**: handing a program to the scheduler writes a launchd plist / systemd unit / Task Scheduler XML. Deleting the program (or switching back to app-managed) unregisters it.
 - No telemetry; config & logs stay local.
 
 ## License
@@ -159,14 +204,16 @@ MIT — see [LICENSE](LICENSE).
 
 # universal-shell（中文）
 
-配置驱动的程序管理壳：在图形界面里下载、配置、启动第三方命令行程序，**Tauri** 桌面界面与无窗口 Web 管理服务共享同一个核心库 (`shared`)。
+配置驱动的管理壳，面向第三方命令行程序**与本地服务**：下载、配置、运行——可以交给应用托管，也可以交给系统调度。**Tauri** 桌面界面与无窗口 Web 管理服务共享同一个核心库 (`shared`)。
 
 [English](#universal-shell) · 中文文档
 
 - 从 GitHub 自动下载/更新受管程序二进制到独立数据目录（天然防覆盖），SHA256 校验、参数模板替换、启动/停止子进程。
+- **一个工作台**：程序与服务同列。每个程序的运行方式二选一——**壳托管**（随应用启停），或交给**系统调度**（开机自启、崩溃重启、按声明的依赖顺序启动）。
 - **配置驱动界面**：`shell.json` 里的 `fields` 决定渲染什么控件（string / file / directory / boolean）。
-- 多程序多 Tab，每个程序独立数据目录。
+- 多程序并存，每个程序独立数据目录。
 - 托盘常驻：关窗即隐藏到托盘，托盘可唤出/退出。
+- **界面只有一份**：桌面窗口与任意浏览器加载的是同一个单页应用，只有托盘是桌面端独有。
 
 ---
 
@@ -181,7 +228,7 @@ MIT — see [LICENSE](LICENSE).
 | 渲染 | 系统 WebView | 仅浏览器 |
 | 文件选择 | tauri dialog 插件 | 手填 / 网页上传 |
 
-两者共用同一份配置、数据目录和模板库，可随时切换。
+两者跑的是**同一份单页应用**：Tauri 窗口只是它外面的一层原生壳（窗口 + 托盘），浏览器里能做的事桌面端都能做，反之亦然。配置、数据目录与模板库共用，可随时切换。
 
 > 原 **egui** 版（`app-egui`）已归档：源码留在仓库里备查，但不再构建、打包或分发。
 > 原因见 [ROADMAP 决策记录](ROADMAP.md#关键决策记录)。
@@ -212,7 +259,24 @@ MIT — see [LICENSE](LICENSE).
 
 ### 3. 使用
 
-需要时填好字段、按需勾选开机启动，点 **启动**。程序在后台运行，并出现在托盘图标下。
+需要时填好字段，点 **启动**。默认是壳托管：程序在后台跑，应用一退它就停。想让它活过应用、开机自动起来，见下一节。
+
+### 4. 两种运行方式
+
+| | 壳托管 | 系统调度 |
+|---|---|---|
+| 谁拉起 | 本应用 | launchd / systemd / 计划任务 |
+| 应用退出 | 程序一起停 | 继续运行 |
+| 登录时 | 只有应用本身自启才会 | 会，已注册为系统启动项 |
+| 崩溃后 | 不会重启 | 按你的设置重启 |
+| 适合 | 你想盯着看的工具 | 必须一直开着的服务 |
+
+在详情页的「**调度**」里切换。交出去之后启停按钮会消失（否则应用会再跑一份），状态栏会用 `⏻` 标出。
+
+**依赖顺序**：`depends_on = ["db"]` 会等到依赖「就绪」——端口可连、就绪文件出现，或（两者都没声明时）进程在跑。
+等满超时只记警告并继续，避免一个坏依赖把整条启动链卡死。
+
+删除程序时，它的系统启动项会一并注销，不会在后台留下一个看不见的服务。
 
 ## 配置格式 (`shell.json`)
 
@@ -248,6 +312,15 @@ MIT — see [LICENSE](LICENSE).
 
 `fields[].kind` 支持：`string` / `file` / `directory` / `boolean`。资产 `filename` 支持 `{name}` `{version}` `{arch}` `{ext}`；`args` 支持任意 `{fieldKey}`。字段标 `"required": true` 后，值为空时无法启动（标签显示 `*`）。程序自启动是壳统一管理的状态（自启开关 / `program-autostart.json`），不是模板字段。
 
+把程序的生命周期交给系统调度：
+
+```jsonc
+"supervisor": "native",   // 默认 "managed"
+"native": { "delay_secs": 10, "restart": "on_failure", "scope": "user", "depends_on": ["db"] }
+```
+
+`native` 条目会在每次同步时派生进 `services.toml`；那是投影，`shell.json` 始终是唯一事实来源。
+
 ## 数据目录
 
 默认 `~/Library/Application Support/universal-shell/`（macOS）、`~/.local/share/universal-shell/`（Linux，遵循 `$XDG_DATA_HOME`）、`%APPDATA%/universal-shell/`（Windows）。每个受管程序：
@@ -255,7 +328,12 @@ MIT — see [LICENSE](LICENSE).
 - `<data>/<binary>` — 可执行文件
 - `<data>/<id>.version` — 本地版本号
 - `<data>/<id>.values.json` — 上次表单值
-- `<data>/logs/<id>.{out,err}.log` — 运行日志
+- `<data>/logs/<id>.{out,err}.log` — 应用捕获的日志
+
+共用文件：
+
+- `<data>/services.toml` — 服务声明：手写服务，以及从程序派生的条目（`origin = "program:<id>"`）
+- `<data>/logs/<id>.log` — 由系统调度运行的服务输出（stdout+stderr、退出码），由包装器写入
 
 ## 远程模板库
 
@@ -282,14 +360,23 @@ cargo run -p shared --example generate_registry -- ../universal-shell-templates/
 cargo run -p shared --example sign_registry -- ../universal-shell-templates/registry/manifests.json
 cargo run -p shared --example registry_demo -- ../universal-shell-templates/registry
 
+# 不启界面地查看服务（本机编译，发布包不带它）
+cargo run -p us-service --bin us-svc -- list   services.toml
+cargo run -p us-service --bin us-svc -- order  services.toml   # 依赖顺序
+cargo run -p us-service --bin us-svc -- status services.toml
+
 # 打包（输出到 dist/，含 sha256.txt）
 ./scripts/build-release.sh 0.1.0
 ```
+
+发布产物里**没有**独立的 `us-svc`：`us-service` 是被应用链接的库，包装器由调度器指向的那个可执行文件承担
+（`us-web run --config … --id …`，或桌面端的 `run`）。
 
 ## 安全说明
 
 - **信任模型**：远程模板会引导下载并执行第三方二进制。默认 `bind=127.0.0.1` + 高位端口；模板记录 `template_source`/`imported_at`。
 - **下载校验**：优先模板 `check_sha256`，否则用 GitHub Releases `digest`（sha256）逐字节校验，失败即删除并报错。
+- **系统启动项**：把程序交给调度器会写入 launchd plist / systemd unit / 计划任务 XML；删除程序（或切回壳托管）会一并注销。
 - 不收集任何遥测，配置与日志只写本地。
 
 ## 许可
