@@ -164,7 +164,11 @@ scope = "{scope}"
     fn log_goes_to_file_and_wantedby_matches_scope() {
         let (user, ctx) = build("never", "user");
         let u = unit(&user, &ctx);
-        assert!(u.contains("StandardOutput=append:/etc/ushell/logs/svc.log"));
+        let log = user.log_path(&ctx.config);
+        assert!(
+            u.contains(&format!("StandardOutput=append:{}", log.display())),
+            "日志路径应出现在 StandardOutput 里: {log:?}\n{u}"
+        );
         assert!(u.contains("WantedBy=default.target"));
 
         let (system, _) = build("never", "system");
