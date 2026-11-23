@@ -1,0 +1,7 @@
+# 仅用于 CI：在 windows-latest 上真实注册/查询/运行/删除一个计划任务。
+# 命令本身无害（echo），重点是验证 XML 编码、UserId 作用域与包装器日志。
+[[services]]
+id = "ci-demo"
+name = "CI demo"
+command = "cmd.exe"
+args = ["/C", "echo hello-from-ci"]

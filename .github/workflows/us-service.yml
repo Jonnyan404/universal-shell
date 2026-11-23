@@ -1,0 +1,91 @@
+name: us-service CI
+
+# 只跑本 crate：它是无 UI 依赖的独立库 + CLI，和主应用的构建互不影响。
+# 其中 windows-schtasks 这一步是唯一能在真机上验证「计划任务能不能装」的地方。
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'us-service/**'
+      - '.github/workflows/us-service.yml'
+  pull_request:
+    paths:
+      - 'us-service/**'
+      - '.github/workflows/us-service.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+      - name: cargo test
+        run: cargo test -p us-service
+
+  windows-schtasks:
+    name: Windows scheduled task round-trip
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Generate the task XML
+        run: cargo run -q -p us-service -- gen us-service/ci/windows.toml --platform schtasks --out ci
+        shell: bash
+
+      # 一次把三件事验掉：
+      #   1. UTF-16LE + BOM（schtasks 只稳定接受这个）
+      #   2. 非提升终端能注册（登录触发器带 UserId，而不是「任意用户」）
+      #   3. 包装器真的跑起来并把 stdout 落到日志
+      - name: Register, run, query, collect log, delete
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $xml = 'ci/ci-demo.xml'
+          if (-not (Test-Path $xml)) { throw "missing $xml" }
+
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $xml))
+          if ($bytes[0] -ne 0xFF -or $bytes[1] -ne 0xFE) {
+            throw 'task XML is not UTF-16LE with BOM'
+          }
+          Write-Host 'BOM OK'
+
+          schtasks /Create /TN "ushell\ci-demo" /XML $xml /F
+          if ($LASTEXITCODE -ne 0) { throw "schtasks /Create failed ($LASTEXITCODE)" }
+
+          schtasks /Query /TN "ushell\ci-demo" /FO LIST
+          if ($LASTEXITCODE -ne 0) { throw "schtasks /Query failed ($LASTEXITCODE)" }
+
+          schtasks /Run /TN "ushell\ci-demo"
+          if ($LASTEXITCODE -ne 0) { throw "schtasks /Run failed ($LASTEXITCODE)" }
+
+          $log = 'us-service/ci/logs/ci-demo.log'
+          $deadline = (Get-Date).AddSeconds(30)
+          while ((Get-Date) -lt $deadline) {
+            if ((Test-Path $log) -and (Select-String -Path $log -Pattern 'hello-from-ci' -Quiet)) { break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not (Test-Path $log)) { throw "no log written at $log" }
+          Get-Content $log
+          if (-not (Select-String -Path $log -Pattern 'hello-from-ci' -Quiet)) {
+            throw 'service output never reached the log'
+          }
+          Write-Host 'wrapper log OK'
+
+          schtasks /Delete /TN "ushell\ci-demo" /F
+          if ($LASTEXITCODE -ne 0) { throw "schtasks /Delete failed ($LASTEXITCODE)" }
