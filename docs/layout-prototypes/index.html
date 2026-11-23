@@ -68,8 +68,15 @@ td.c,th.c{text-align:center}
 td b{color:#0f172a}
 .dotv{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;vertical-align:1px}
 
-.rec{background:linear-gradient(180deg,#fff,#f7fbff);border:1px solid rgba(79,140,255,.35);border-radius:14px;padding:18px 20px}
-.rec h3{margin:0 0 6px;font-size:15px}
+.pick{margin-top:18px;display:flex;align-items:center;gap:16px;background:#0f172a;color:#e2e8f0;border-radius:14px;padding:14px 18px;flex-wrap:wrap}
+.pick .pk{font-size:10px;letter-spacing:.6px;color:#8fb6ff;font-weight:700}
+.pick h3{margin:2px 0 3px;font-size:15px;color:#fff}
+.pick p{margin:0;font-size:12px;color:#94a3b8;line-height:1.6}
+.pick .spacer{flex:1}
+.pick .open{background:#4f8cff;box-shadow:none}
+.pick .ghost{display:inline-flex;align-items:center;height:30px;padding:0 11px;border-radius:8px;border:1px solid rgba(148,163,184,.4);color:#e2e8f0;font-size:12px}
+.pick .ghost:hover{background:rgba(148,163,184,.15)}
+.rec{background:linear-gradient(180deg,#fff,#f7fbff);border:1px solid rgba(79,140,255,.35);border-radius:14px;padding:18px 20px}.rec h3{margin:0 0 6px;font-size:15px}
 .rec p{margin:0 0 10px;font-size:12.5px;color:#475569;line-height:1.75}
 .rec ol{margin:0;padding-left:18px;font-size:12.5px;color:#475569;line-height:1.9}
 .rec b{color:#0f172a}
@@ -91,9 +98,20 @@ kbd{font-family:inherit;font-size:10.5px;border:1px solid var(--border);border-r
       <div class="sub">面向「大批量程序管理」的五套布局原型 · 同一份数据、同一套设计语言、可切换 24 / 48 / 120 规模</div>
     </div>
     <div class="hero-meta">
-      5 套原型 · 全部可交互<br>
-      数据字段对齐 <code style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px">workspace_list</code>
+      5 套对比原型 + 1 套落地形态<br>
+      全部可交互 · 可切 24 / 48 / 120
     </div>
+  </div>
+
+  <div class="pick">
+    <div>
+      <div class="pk">已选定</div>
+      <h3>B + D 融合为程序主界面 · A 用于模板库 · 移动端沿用列表 + 二级页</h3>
+      <p>表格是列表，检查器是详情——两者拼成一屏，不需要视图切换器；模板库是「一次性挑选」，卡片识别效率更高。</p>
+    </div>
+    <span class="spacer"></span>
+    <a class="open" href="06-merged-bd.html">打开融合原型 →</a>
+    <a class="ghost" href="DECISION.md">决策与断点表</a>
   </div>
 
   <div class="section">
@@ -361,16 +379,16 @@ kbd{font-family:inherit;font-size:10.5px;border:1px solid var(--border);border-r
   <div class="section">
     <h2>我的建议</h2>
     <div class="rec">
-      <h3>不要只选一个——用「E 总览 + B 管理 + D 检查器」组合</h3>
-      <p>这五套不是互斥的单选题，而是同一份数据的不同投影。真正撑住大批量的关键，是<strong>让「发现」和「处置」走不同的界面</strong>：</p>
+      <h3>你的选择成立，只需要补一条约束：不要做视图切换器</h3>
+      <p>B 和 D 拼成一屏之后，程序界面就不需要「表格 / 卡片 / 看板」之间来回切了——<strong>切换器一旦存在，每个视图都会被要求功能齐全，维护成本翻倍</strong>。按这个约束，落地结构是：</p>
       <ol>
-        <li><b>首页用 E（健康矩阵）</b>：程序再多也能一屏看完，红色方块 + 关注队列负责「告诉你哪里出事了」，这一步不需要任何导航。</li>
-        <li><b>主管理视图用 B（数据表）</b>：真正要改配置、批量启停、按端口/版本比对时，表格的列对齐和 Shift 连选无可替代。</li>
-        <li><b>详情复用 D 的检查器</b>：从表格或矩阵点进去，右侧（或抽屉）直接给概览/配置/调度/日志/更新五个 Tab，避免来回跳页。</li>
-        <li><b>A 保留为「分类浏览」模式</b>：对刚导入、还不熟悉 id 的程序，卡片比表格更容易认。</li>
-        <li><b>C 只用于异常处置</b>：把它做成「异常」筛选下的临时泳道视图，不要作为主界面——它的横向空间成本太高。</li>
+        <li><b>程序主界面 = B 的表格 + D 的检查器</b>：列表负责扫读与批量，右栏负责单点深挖，密度用「紧凑/标准」两档解决，而不是换视图。</li>
+        <li><b>模板库 = A 的分组卡片</b>：模板是「浏览 → 识别 → 导入一次」，卡片承载图标与说明更合适，且不需要批量启停。</li>
+        <li><b>移动端 = 同一份数据换壳</b>：表格降级为两行列表，检查器降级为全屏二级页，动作函数完全复用（详见 <a href="DECISION.md" style="color:#1d4ed8;border-bottom:1px solid rgba(79,140,255,.4)">DECISION.md</a> 的断点表）。</li>
+        <li><b>E（健康矩阵）暂缓</b>：它解决的是「一屏看全局」，等主界面稳定后作为「总览」Tab 增量加，不改变现有结构。</li>
+        <li><b>C（看板）不做</b>：与表格的状态列信息重复，却要多维护拖拽与状态机约束。</li>
       </ol>
-      <div class="callout">落地顺序建议：先做 B（收益最直接、改动集中在列表区）→ 再抽 D 的检查器 → 最后加 E 作为首页。三者的数据层完全一致，都读 <code style="font-family:ui-monospace,Menlo,monospace;font-size:11px">workspace_list</code>，不需要改 shared。</div>
+      <div class="callout">落地顺序：① 列表改表格 → ② 侧栏收窄为图标栏 + 分类 chips → ③ 现有详情区块搬进右栏 Tab → ④ 批量条就地化 → ⑤ 模板库改分组卡片 → ⑥ 移动端两行列表 + 全屏详情。前两步就能看到主区变宽、48 个程序可排序可连选。</div>
     </div>
   </div>
 
