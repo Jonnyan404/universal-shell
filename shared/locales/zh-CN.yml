@@ -593,3 +593,18 @@ wb.new_program: 新建程序
 wb.new_program_hint: 手动填写参数
 wb.new_service_item: 新建服务
 wb.new_service_hint: 写一条命令
+
+# 表格视图列名（B+D 融合布局）
+wb.col_state: 状态
+wb.col_name: 名称
+wb.col_cat: 分类
+wb.col_ver: 版本
+wb.col_port: 端口
+wb.col_sup: 托管
+wb.col_auto: 自启
+wb.col_desc: 描述
+wb.density_dense: 紧凑
+wb.density_comfy: 宽松
+lib.uncategorized: 未分类
+ui.theme: 主题
+toast.exported: 已导出

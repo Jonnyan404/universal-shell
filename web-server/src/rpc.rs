@@ -993,11 +993,19 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                             && shared::version::is_newer(v, &st.local_version)
                     })
                     .unwrap_or(false);
+                // 表格视图需要「分类 / 端口 / 自启」三列：分类来自模板快照，
+                // 端口取自字段值（模板约定 key=port），自启由壳统一托管。
+                let fv = mgr.load_field_values(&p);
+                let port = fv.get("port").and_then(|v| v.trim().parse::<u16>().ok());
+                let autostart = mgr.program_autostart(&p.id);
                 items.push(json!({
                     "id": p.id,
                     "kind": "program",
                     "name": p.name,
                     "description": p.description,
+                    "category": p.category,
+                    "port": port,
+                    "autostart": autostart,
                     "state": if !st.installed { "not_installed" } else if st.running { "running" } else { "stopped" },
                     "supervisor": p.supervisor.as_str(),
                     "installed": st.installed,
@@ -1034,6 +1042,9 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                         "kind": "service",
                         "name": if svc.name.is_empty() { svc.id.clone() } else { svc.name.clone() },
                         "description": svc.description,
+                        "category": Value::Null,
+                        "port": svc.ready_port,
+                        "autostart": svc.enabled,
                         "state": match st {
                             us_service::ServiceState::Running => "running",
                             us_service::ServiceState::Stopped => "stopped",

@@ -959,3 +959,280 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
 .wb-newmenu-sub { font-size: 10.5px; color: var(--sidebar-sub); }
 .wb-newmenu button:hover { background: var(--sidebar-active); color: var(--sidebar-head); }
 .wb-newmenu button:hover .wb-newmenu-sub { color: var(--sidebar-head); opacity: .75; }
+
+/* ==================================================================
+   布局重构：图标窄栏 + 表格列表 + 检查器（B+D 融合）
+   设计依据见 docs/layout-prototypes/DECISION.md
+   ================================================================== */
+
+/* ---------- 图标窄栏 ---------- */
+.iconrail {
+  width: 52px; min-width: 52px; height: 100%;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 10px 0; background: var(--sidebar-bg); border-right: 1px solid var(--sidebar-edge);
+}
+.ir-logo {
+  width: 30px; height: 30px; border-radius: 9px; margin-bottom: 6px;
+  display: grid; place-items: center; font-size: 10.5px; font-weight: 800; letter-spacing: -.3px;
+  color: #fff; background: linear-gradient(140deg, #4f8cff, #2f6fe4);
+  box-shadow: 0 3px 10px -3px rgba(79, 140, 255, .7);
+}
+.ir-btn {
+  width: 34px; height: 34px; padding: 0; border: 0; border-radius: 9px;
+  display: grid; place-items: center; cursor: pointer;
+  background: transparent; color: var(--sidebar-fg); font-size: 14px;
+}
+.ir-btn:hover { background: var(--sidebar-hover); color: var(--sidebar-name); }
+.ir-btn.on { background: var(--sidebar-active); color: var(--accent); }
+.ir-btn svg { width: 16px; height: 16px; }
+.ir-btn.ir-text { font-size: 11px; font-weight: 700; }
+.iconrail .spacer { flex: 1; }
+
+/* ---------- 工具条 ---------- */
+.wb-toolbar {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.wb-title { display: flex; align-items: baseline; gap: 7px; font-size: 14px; font-weight: 700; }
+.wb-count { font-size: 11px; font-weight: 400; color: var(--muted); }
+.wb-toolbar .wb-search {
+  width: 220px; height: 29px; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text); padding: 0 10px; font-size: 12px;
+}
+.wb-toolbar .wb-search:focus { background: var(--panel); border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79, 140, 255, .12); }
+.wb-toolbar .wb-chips { margin-top: 0; flex-wrap: nowrap; }
+.wb-toolbar .wb-chip {
+  background: var(--panel); border-color: var(--border); color: var(--muted);
+  font-size: 11.5px; padding: 3px 9px;
+}
+.wb-toolbar .wb-chip.on { background: var(--sidebar-active); border-color: var(--sidebar-active-border); color: var(--text); font-weight: 600; }
+.wb-toolbar .spacer { flex: 1; }
+.wb-check-all { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.wb-check-all input { width: 14px; height: 14px; accent-color: var(--accent); margin: 0; }
+.wb-allcount { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 28px; }
+.wb-tool {
+  font: inherit; font-size: 11.5px; height: 28px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer;
+}
+.wb-tool:hover { border-color: var(--accent); color: var(--text); }
+.wb-new {
+  font: inherit; font-size: 12px; height: 29px; padding: 0 12px; border-radius: 8px;
+  border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; font-weight: 600;
+}
+.wb-new:hover { filter: brightness(1.05); }
+.wb-new-wrap { position: relative; }
+.wb-newmenu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30; min-width: 168px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 6px;
+  box-shadow: 0 16px 40px -12px rgba(15, 23, 42, .35);
+}
+.wb-newmenu button { color: var(--text); }
+.wb-newmenu button:hover { background: var(--sidebar-active); color: var(--text); }
+
+/* ---------- 表格 ---------- */
+.wb-split { flex: 1 1 0; min-height: 0; display: flex; position: relative; }
+.wb-tablewrap { flex: 1 1 0; min-width: 0; overflow: auto; background: var(--panel); position: relative; }
+.wb-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+.wb-table thead th {
+  position: sticky; top: 0; z-index: 5; text-align: left; white-space: nowrap;
+  padding: 7px 10px; font-size: 11px; font-weight: 600; letter-spacing: .3px;
+  color: var(--muted); background: var(--panel-2); border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+.wb-table thead th.sortable { cursor: pointer; }
+.wb-table thead th.sortable:hover { color: var(--text); }
+.wb-arrow { font-size: 9px; color: var(--muted); opacity: .55; margin-left: 3px; }
+.wb-table thead th.sorted .wb-arrow { color: var(--accent); opacity: 1; }
+.wb-table tbody td {
+  padding: 6px 10px; border-bottom: 1px solid rgba(148, 163, 184, .16);
+  white-space: nowrap; vertical-align: middle; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis;
+}
+.wb-row { cursor: pointer; }
+.wb-row:hover { background: var(--panel-2); }
+.wb-row.on { background: var(--sidebar-active); box-shadow: inset 3px 0 0 var(--accent); }
+.wb-row.picked { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.wb-cb { width: 34px; padding-left: 12px !important; }
+.wb-cb input { width: 14px; height: 14px; accent-color: var(--accent); margin: 0; }
+.wb-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wb-ava {
+  width: 22px; height: 22px; border-radius: 6px; flex: 0 0 auto;
+  display: grid; place-items: center; color: #fff; font-size: 10.5px; font-weight: 800;
+}
+.wb-nmwrap { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.wb-nmwrap b { font-weight: 600; color: var(--text); line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wb-nmwrap i { font-style: normal; font-size: 10.5px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.wb-pill {
+  display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 99px;
+  font-size: 10.5px; font-weight: 600;
+}
+.wb-pill i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; display: block; }
+.wb-pill.running { color: color-mix(in srgb, var(--ok) 68%, var(--text)); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.wb-pill.stopped { color: var(--muted); background: var(--panel-2); }
+.wb-pill.error { color: color-mix(in srgb, var(--danger) 70%, var(--text)); background: color-mix(in srgb, var(--danger) 13%, transparent); }
+.wb-pill.missing { color: var(--muted); border: 1px dashed var(--border); }
+.wb-cat { font-size: 11.5px; color: var(--muted); }
+.wb-ver { font-size: 11.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.wb-upd { margin-left: 5px; padding: 0 5px; border-radius: 5px; font-size: 10px; font-weight: 700; color: color-mix(in srgb, var(--accent) 70%, var(--text)); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.wb-port { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; color: var(--muted); }
+.wb-sup { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--border); color: var(--muted); }
+.wb-sup.sys { color: color-mix(in srgb, #d97706 70%, var(--text)); border-color: color-mix(in srgb, #d97706 32%, transparent); background: color-mix(in srgb, #d97706 10%, transparent); }
+.wb-sw {
+  position: relative; display: inline-block; width: 26px; height: 15px; border-radius: 99px;
+  background: color-mix(in srgb, var(--muted) 42%, transparent); cursor: pointer; transition: background .15s;
+}
+.wb-sw::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px;
+  border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(15, 23, 42, .25);
+}
+.wb-sw.on { background: var(--accent); }
+.wb-sw.on::after { left: 13px; }
+.wb-desc { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; color: var(--muted); }
+.wb-empty { padding: 56px 20px; text-align: center; color: var(--muted); font-size: 12.5px; }
+.wb-fill { width: auto; padding: 0 !important; }
+.wb-empty[hidden] { display: none; }
+
+/* 紧凑行高 */
+.wb-table.dense { font-size: 12px; }
+.wb-table.dense tbody td { padding: 2px 10px; }
+.wb-table.dense .wb-ava { width: 18px; height: 18px; border-radius: 5px; font-size: 9px; }
+.wb-table.dense .wb-nmwrap i { display: none; }
+.wb-table.dense .wb-pill { padding: 0 6px; }
+
+/* ---------- 检查器 ---------- */
+.wb-inspector {
+  width: 400px; min-width: 400px; display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); border-left: 1px solid var(--border);
+}
+.wb-inspector .statusbar { padding: 9px 12px; gap: 4px 10px; }
+.wb-inspector .statusbar .room-title { font-size: 13.5px; }
+.wb-inspector .statusbar .room-sub { font-size: 11px; }
+.wb-inspector .wb-tabs { padding: 0 6px; }
+.wb-inspector .wb-tab { padding: 8px 10px; font-size: 12px; }
+.wb-inspector .wb-pane,
+.wb-inspector .manage-body { padding: 12px; }
+.wb-inspector .manage-log { --ml-height: 190px; }
+.wb-insp-close {
+  display: none; width: 24px; height: 24px; padding: 0; flex: 0 0 auto;
+  border: 1px solid var(--border); border-radius: 6px; background: transparent;
+  color: var(--muted); cursor: pointer; font-size: 11px;
+}
+.wb-insp-close:hover { color: var(--text); border-color: var(--accent); }
+
+/* ---------- 断点：1280 收窄，1100 变抽屉 ---------- */
+@media (max-width: 1280px) {
+  .wb-inspector { width: 360px; min-width: 360px; }
+  .wb-table thead th:nth-child(9), .wb-table tbody td:nth-child(9) { display: none; } /* 描述 */
+}
+@media (max-width: 1180px) {
+  .wb-table thead th:nth-child(4), .wb-table tbody td:nth-child(4) { display: none; } /* 分类 */
+}
+@media (max-width: 1100px) {
+  .wb-split { position: relative; }
+  .wb-inspector {
+    position: absolute; top: 0; right: 0; bottom: 0; z-index: 40;
+    width: min(420px, 92vw); min-width: 0;
+    box-shadow: -14px 0 34px -12px rgba(15, 23, 42, .3);
+    transform: translateX(102%); transition: transform .18s ease;
+  }
+  body.wb-insp-open .wb-inspector { transform: none; }
+  .wb-insp-close { display: inline-grid; place-items: center; }
+}
+
+/* ---------- 移动端：两行列表 ---------- */
+.mob-tools { flex: 0 0 auto; padding: 0 12px 8px; background: var(--panel); }
+.mob-search {
+  width: 100%; height: 38px; padding: 0 12px; font-size: 14px;
+  border-radius: 10px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); box-sizing: border-box;
+}
+.mob-search:focus { outline: none; border-color: var(--accent); }
+.mob-chips {
+  flex: 0 0 auto; display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 8px;
+  background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.mob-chip {
+  flex: 0 0 auto; height: 30px; padding: 0 12px; border-radius: 99px;
+  border: 1px solid var(--border); background: transparent; color: var(--muted);
+  font: inherit; font-size: 12.5px; cursor: pointer; touch-action: manipulation;
+}
+.mob-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.mob-group {
+  display: flex; align-items: center; gap: 6px; padding: 10px 4px 6px;
+  font-size: 11px; font-weight: 700; letter-spacing: .4px; color: var(--muted);
+}
+.mob-group span { font-weight: 400; }
+.mob-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 8px;
+  border-radius: 12px; background: var(--panel); margin-bottom: 2px;
+  cursor: pointer; touch-action: manipulation;
+}
+.mob-row:active { background: var(--panel-2); }
+.mob-row-ava {
+  width: 34px; height: 34px; flex: 0 0 auto; border-radius: 10px;
+  display: grid; place-items: center; color: #fff; font-size: 13px; font-weight: 800;
+}
+.mob-row-body { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mob-row-body b { font-size: 14.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mob-row-body i { font-style: normal; font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mob-row-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--muted); }
+.mob-row-dot.running { background: var(--ok); }
+.mob-row-dot.error { background: var(--danger); }
+.mob-row-dot.not_installed { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); opacity: .6; }
+.mob-row-chev { color: var(--muted); opacity: .8; font-size: 16px; line-height: 1; }
+.mob-empty { padding: 40px 10px; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* ---------- 模板库：分类分组卡片 ---------- */
+.lib-groups { display: flex; flex-direction: column; gap: 14px; }
+.lib-group { display: flex; flex-direction: column; gap: 8px; }
+.lib-group-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 4px 2px; border: 0; background: transparent; cursor: pointer;
+  font: inherit; color: var(--text); text-align: left;
+}
+.lib-group-head b { font-size: 12.5px; letter-spacing: .2px; }
+.lib-group-chev { font-size: 9px; color: var(--muted); width: 12px; }
+.lib-group-count {
+  font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums;
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 99px; padding: 0 6px;
+}
+.lib-group-head:hover b { color: var(--accent); }
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.lib-grid .lib-card { margin-bottom: 0; height: 100%; overflow: hidden; }
+/* 卡片变窄后原来那套「一行铺开」的头部会挤爆：名字不许缩、按钮被裁掉。
+   栅格里改成允许换行，名字可收缩，导入按钮独占行尾。 */
+.lib-grid .lib-top { flex-wrap: wrap; }
+.lib-grid .lib-name { flex: 1 1 auto; min-width: 0; }
+.lib-grid .lib-top button { margin-left: auto; }
+/* 描述统一截 3 行，避免同组卡片高度参差 */
+.lib-grid .lib-desc {
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+
+/* 移动端二级页：表格让位，检查器铺满 */
+@media (max-width: 720px) {
+  body.mob-detail .wb-split { flex-direction: column; }
+  body.mob-detail .wb-toolbar,
+  body.mob-detail #wb-bulk,
+  body.mob-detail .wb-tablewrap { display: none !important; }
+  body.mob-detail .wb-inspector {
+    position: static; transform: none; width: auto; min-width: 0;
+    flex: 1 1 0; border-left: 0; box-shadow: none;
+  }
+  body.mob-detail .wb-insp-close { display: none; }
+  body.mob-detail .wb-inspector .manage-body { padding: 12px; }
+  /* 详情页顶部那条状态栏全局是 display:none 的（移动端另有标题栏），
+     但它同时装着「未安装 / 下载」这类动作。这里只把标题和描述藏掉，
+     保留状态标签和下载按钮，否则手机端没法安装程序。 */
+  body.mob-detail .wb-inspector .statusbar {
+    display: flex !important; align-items: center; gap: 8px;
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+  }
+  body.mob-detail .wb-inspector .statusbar .room-title,
+  body.mob-detail .wb-inspector .statusbar .room-sub,
+  body.mob-detail .wb-inspector .statusbar #prog-desc { display: none; }
+  .mob-cards { padding: 4px 12px 12px; }
+}
+
+

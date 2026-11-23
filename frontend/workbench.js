@@ -20,6 +20,9 @@
     tab: "cfg",
     logTimer: null,
     pollTimer: null,
+    sortKey: "",
+    sortDir: 1,
+    dense: false,
   };
 
   const stateText = (s) => t("svc.state." + s);
@@ -42,84 +45,132 @@
     return `<span class="wb-tag sys">${esc(t("wb.sup_native"))}</span>`;
   }
 
-  // ---------- 列表 ----------
+  // ---------- 列表（表格） ----------
+
+  // 列定义：k 同时是排序键。名称列给百分比、其余给像素，行尾再加一个空的
+  // 「填充列」吃掉剩余宽度——否则 table-layout:fixed 会把多出来的空间全塞给名称列，
+  // 窄屏（检查器收成抽屉）时名称列会撑到 600px 以上，右边空一大块。
+  const COLS = [
+    { k: "state", label: "wb.col_state", w: "88px" },
+    { k: "name", label: "wb.col_name", w: "280px" },
+    { k: "category", label: "wb.col_cat", w: "92px" },
+    { k: "version", label: "wb.col_ver", w: "108px" },
+    { k: "port", label: "wb.col_port", w: "64px" },
+    { k: "supervisor", label: "wb.col_sup", w: "78px" },
+    { k: "autostart", label: "wb.col_auto", w: "46px" },
+    { k: "description", label: "wb.col_desc", w: "180px" },
+  ];
+
+  // 按 id 派生稳定色：刷新后颜色不跳，和图标首字母一起构成记忆点。
+  const HUES = ["#4f8cff", "#8b5cf6", "#0ea5e9", "#f59e0b", "#10b981", "#ec4899", "#ef4444", "#6366f1", "#14b8a6", "#a855f7"];
+  function hueOf(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    return HUES[h % HUES.length];
+  }
+
+  function sortRows(rows) {
+    if (!st.sortKey) return rows;
+    const k = st.sortKey;
+    const rank = { running: 0, error: 1, stopped: 2, not_installed: 3, unknown: 4 };
+    return rows.slice().sort((a, b) => {
+      let x = a[k];
+      let y = b[k];
+      if (k === "state") {
+        x = rank[x] ?? 9;
+        y = rank[y] ?? 9;
+      }
+      if (typeof x === "number" && typeof y === "number") return (x - y) * st.sortDir;
+      return String(x == null ? "" : x).localeCompare(String(y == null ? "" : y), "zh") * st.sortDir;
+    });
+  }
+
+  function statePill(it) {
+    const cls =
+      it.state === "running" ? "running" : it.state === "error" ? "error" : it.state === "not_installed" ? "missing" : "stopped";
+    return `<span class="wb-pill ${cls}"><i></i>${esc(stateText(it.state))}</span>`;
+  }
+
+  function rowHTML(it) {
+    const sel = st.selected && st.selected.id === it.id;
+    const picked = st.checked.has(it.id);
+    const upd = it.has_update && it.latest_version;
+    const sup =
+      it.kind === "service" ? t("wb.manual_service") : it.supervisor === "native" ? t("wb.sup_native") : t("wb.sup_managed");
+    const cat = it.category || (it.kind === "service" ? t("wb.manual_service") : "—");
+    const ver = it.version && it.version !== "-" ? "v" + it.version : "—";
+    return (
+      `<tr class="wb-row${sel ? " on" : ""}${picked ? " picked" : ""}" data-id="${esc(it.id)}">` +
+      `<td class="wb-cb"><input type="checkbox" data-check="${esc(it.id)}"${picked ? " checked" : ""}></td>` +
+      `<td>${statePill(it)}</td>` +
+      `<td><div class="wb-name"><span class="wb-ava" style="background:${hueOf(it.id)}">${esc((it.name || "?").slice(0, 1).toUpperCase())}</span>` +
+      `<span class="wb-nmwrap"><b>${esc(it.name)}</b><i>${esc(it.id)}</i></span></div></td>` +
+      `<td><span class="wb-cat">${esc(cat)}</span></td>` +
+      `<td><span class="wb-ver">${esc(ver)}</span>${upd ? `<span class="wb-upd">↑ ${esc(it.latest_version)}</span>` : ""}</td>` +
+      `<td><span class="wb-port">${it.port ? ":" + it.port : "—"}</span></td>` +
+      `<td><span class="wb-sup${it.supervisor === "native" ? " sys" : ""}">${esc(sup)}</span></td>` +
+      `<td>${
+        it.kind === "service"
+          ? `<span class="wb-port" title="${esc(t("wb.manual_service"))}">—</span>`
+          : `<span class="wb-sw${it.autostart ? " on" : ""}" data-auto="${esc(it.id)}" role="switch" aria-checked="${it.autostart ? "true" : "false"}"></span>`
+      }</td>` +
+      `<td><span class="wb-desc" title="${esc(it.description || "")}">${esc(it.description || "—")}</span></td>` +
+      `<td class="wb-fill"></td>` +
+      `</tr>`
+    );
+  }
+
+  function renderHead() {
+    const head = document.getElementById("wb-head");
+    if (!head) return;
+    head.innerHTML =
+      `<th class="wb-cb"></th>` +
+      COLS.map((c) => {
+        const sortable = c.k !== "autostart" && c.k !== "description";
+        const sorted = st.sortKey === c.k;
+        return (
+          `<th${c.w ? ` style="width:${c.w}"` : ""} class="${sortable ? "sortable" : ""}${sorted ? " sorted" : ""}"` +
+          `${sortable ? ` data-sort="${c.k}"` : ""}>${esc(t(c.label))}` +
+          `${sortable ? `<span class="wb-arrow">${sorted ? (st.sortDir > 0 ? "▲" : "▼") : "↕"}</span>` : ""}</th>`
+        );
+      }).join("") +
+      `<th class="wb-fill"></th>`;
+  }
+
+  function applyDensity() {
+    const tbl = document.getElementById("wb-table");
+    if (tbl) tbl.classList.toggle("dense", !!st.dense);
+    const den = document.getElementById("wb-density");
+    if (den) den.textContent = st.dense ? t("wb.density_comfy") : t("wb.density_dense");
+    try {
+      localStorage.setItem("us.wb.dense", st.dense ? "1" : "0");
+    } catch (e) {}
+  }
 
   function renderList(preferId) {
-    const root = $("#program-tabs");
-    if (!root) return;
-    const rows = visible();
-    root.innerHTML = "";
-    for (const it of rows) {
-      const el = document.createElement("div");
-      el.className = "prog-item" + (st.selected && st.selected.id === it.id ? " active" : "");
+    const body = document.getElementById("wb-body");
+    if (!body) return;
+    renderHead();
+    // 语言包是异步加载的：bindTable 首次跑时 dict 还是空的，
+    // 所以把密度按钮的文案刷新挂在每次 renderList 上（切语言也会走到这里）。
+    applyDensity();
+    const rows = sortRows(visible());
+    body.innerHTML = rows.map(rowHTML).join("");
 
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.className = "wb-check";
-      cb.checked = st.checked.has(it.id);
-      cb.onclick = (e) => {
-        e.stopPropagation();
-        if (cb.checked) st.checked.add(it.id);
-        else st.checked.delete(it.id);
-        renderBulk();
-      };
-
-      const dot = document.createElement("span");
-      dot.className = "status-dot" + (it.state === "running" ? " on" : "");
-
-      const info = document.createElement("span");
-      info.className = "info";
-      const name = document.createElement("span");
-      name.className = "name";
-      const nm = document.createElement("span");
-      nm.className = "nm";
-      nm.textContent = it.name;
-      name.append(nm);
-      if (it.has_update) {
-        const tg = document.createElement("span");
-        tg.className = "wb-tag upd";
-        tg.textContent = "↑";
-        name.appendChild(tg);
-      }
-      const sub = document.createElement("span");
-      sub.className = "sub";
-      // 调度归属放副标题：窄侧栏里名称才不会被挤掉
-      sub.textContent =
-        (it.state === "running" ? "● " : "○ ") +
-        stateText(it.state) +
-        " · " +
-        (it.supervisor === "managed" ? t("wb.sup_managed") : t("wb.sup_native"));
-      info.append(name, sub);
-
-      el.append(cb, dot, info);
-      el.onclick = () => select(it.id);
-
-      if (it.kind === "program" && typeof ctxMenuAt === "function") {
-        const prog = () => programs.find((p) => p.id === it.id);
-        el.oncontextmenu = (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const p = prog();
-          if (p) ctxMenuAt(e.clientX, e.clientY, progItemMenu(p));
-        };
-        if (typeof attachCtxLongPress === "function") {
-          attachCtxLongPress(el, (x, y) => {
-            const p = prog();
-            if (p) ctxMenuAt(x, y, progItemMenu(p));
-          });
-        }
-      }
-      root.appendChild(el);
-    }
-    if (!rows.length) {
-      const empty = document.createElement("div");
-      empty.className = "wb-empty";
+    const empty = document.getElementById("wb-empty");
+    if (empty) {
+      empty.hidden = rows.length > 0;
       empty.textContent = t("wb.empty");
-      root.appendChild(empty);
     }
-
+    const cnt = document.getElementById("wb-count");
+    if (cnt) {
+      const running = st.items.filter((i) => i.state === "running").length;
+      // 过滤时先给「命中数 / 总数」，否则筛选后数字不变，看不出筛掉了多少
+      const head = rows.length === st.items.length ? String(st.items.length) : rows.length + " / " + st.items.length;
+      cnt.textContent = head + " · " + t("wb.running") + " " + running;
+    }
     if (preferId) {
-      const target = root.querySelector('.prog-item[data-id="' + CSS.escape(preferId) + '"]');
+      const target = body.querySelector(`tr[data-id="${CSS.escape(preferId)}"]`);
       if (target) target.scrollIntoView({ block: "nearest" });
     }
     renderBulk();
@@ -222,13 +273,16 @@
 
   // ---------- 选中与详情 ----------
 
-  async function select(id) {
+  // openDrawer 只有「用户主动点行」才传 true：首屏自动选中第一条时不该把抽屉弹出来。
+  async function select(id, openDrawer) {
     const it = st.items.find((x) => x.id === id);
     if (!it) return;
     st.selected = it;
     if (it.kind === "service" && st.tab === "upd") st.tab = "cfg";
     renderList();
     showTab(st.tab);
+    // 窄屏（<1100）检查器变成抽屉：点行才滑出，桌面端常驻不需要这个 class。
+    if (openDrawer && window.matchMedia("(max-width: 1100px)").matches) document.body.classList.add("wb-insp-open");
 
     if (it.kind === "program") {
       showProgramChrome();
@@ -681,43 +735,148 @@
 
   // ---------- 移动端 ----------
 
+  // 两行列表 + 分类小标题：和桌面表格同源（同一份 visible()/sortRows()），
+  // 只是把列换成「名称 / 端口·版本」两行，状态收成一个圆点。
   function renderMobCards() {
     const root = document.getElementById("mob-cards");
     if (!root) return;
-    root.innerHTML = "";
-    const rows = visible();
+    const rows = sortRows(visible());
     if (!rows.length) {
-      const empty = document.createElement("div");
-      empty.className = "mob-card mob-empty";
-      empty.textContent = t("ui.empty");
-      root.appendChild(empty);
+      root.innerHTML = `<div class="mob-empty">${esc(t("ui.empty"))}</div>`;
       return;
     }
+    const groups = new Map();
     for (const it of rows) {
-      const card = document.createElement("div");
-      card.className = "mob-card";
-      const ico = document.createElement("span");
-      ico.className = "mob-card-ico";
-      ico.textContent = (it.name || "?").slice(0, 1).toUpperCase();
-      const body = document.createElement("span");
-      body.className = "mob-card-body";
-      const nm = document.createElement("span");
-      nm.className = "mob-card-name";
-      nm.textContent = it.name;
-      const sub = document.createElement("span");
-      sub.className = "mob-card-sub";
-      sub.textContent =
-        (it.state === "running" ? "● " : "○ ") + stateText(it.state) + (it.has_update ? " · ↑ " + it.latest_version : "");
-      body.append(nm, sub);
-      const dot = document.createElement("span");
-      dot.className = "mob-card-dot" + (it.state === "running" ? " on" : "");
-      card.append(dot, ico, body);
-      card.onclick = () => select(it.id);
-      root.appendChild(card);
+      const key = it.category || (it.kind === "service" ? t("wb.manual_service") : t("ui.program"));
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(it);
     }
+    let html = "";
+    for (const [cat, list] of groups) {
+      html += `<div class="mob-group">${esc(cat)}<span>${list.length}</span></div>`;
+      html += list
+        .map((it) => {
+          const sub = [
+            it.port ? ":" + it.port : "",
+            it.version && it.version !== "-" ? "v" + it.version : "",
+            it.has_update && it.latest_version ? "↑ " + it.latest_version : "",
+          ]
+            .filter(Boolean)
+            .join(" · ");
+          return (
+            `<div class="mob-row" data-id="${esc(it.id)}">` +
+            `<span class="mob-row-ava" style="background:${hueOf(it.id)}">${esc((it.name || "?").slice(0, 1).toUpperCase())}</span>` +
+            `<span class="mob-row-body"><b>${esc(it.name)}</b><i>${esc(sub || it.id)}</i></span>` +
+            `<span class="mob-row-dot ${it.state}"></span>` +
+            `<span class="mob-row-chev">›</span>` +
+            `</div>`
+          );
+        })
+        .join("");
+    }
+    root.innerHTML = html;
   }
 
   // ---------- 绑定 ----------
+
+  // 表格交互只绑一次，行内容重绘不影响事件。
+  function bindTable() {
+    const table = document.getElementById("wb-table");
+    if (!table) return;
+    table.addEventListener("click", (e) => {
+      const th = e.target.closest("th[data-sort]");
+      if (th) {
+        const k = th.dataset.sort;
+        st.sortDir = st.sortKey === k ? -st.sortDir : 1;
+        st.sortKey = k;
+        renderList();
+        return;
+      }
+      const sw = e.target.closest("[data-auto]");
+      if (sw) {
+        e.stopPropagation();
+        const it = st.items.find((x) => x.id === sw.dataset.auto);
+        if (!it) return;
+        const next = !it.autostart;
+        it.autostart = next; // 乐观更新，失败再拉回真实值
+        renderList();
+        invoke("set_autostart", { programId: it.id, enabled: next })
+          .then(() => load())
+          .catch((err) => {
+            showNotice(String(err), true);
+            load();
+          });
+        return;
+      }
+      if (e.target.closest("input[data-check]")) return;
+      const tr = e.target.closest("tr[data-id]");
+      if (tr) select(tr.dataset.id, true);
+    });
+    table.addEventListener("change", (e) => {
+      const cb = e.target.closest("input[data-check]");
+      if (!cb) return;
+      const id = cb.dataset.check;
+      if (cb.checked) st.checked.add(id);
+      else st.checked.delete(id);
+      const tr = cb.closest("tr");
+      if (tr) tr.classList.toggle("picked", cb.checked);
+      renderBulk();
+      syncSelectAll();
+    });
+    // 行右键 = 程序菜单（编辑/复制/删除/打开目录…），服务没有这套动作。
+    table.addEventListener("contextmenu", (e) => {
+      const tr = e.target.closest("tr[data-id]");
+      if (!tr) return;
+      const it = st.items.find((x) => x.id === tr.dataset.id);
+      if (!it || it.kind !== "program") return;
+      const p = typeof programs !== "undefined" ? programs.find((x) => x.id === it.id) : null;
+      if (p && typeof ctxMenuAt === "function") {
+        e.preventDefault();
+        ctxMenuAt(e.clientX, e.clientY, progItemMenu(p));
+      }
+    });
+
+    const den = document.getElementById("wb-density");
+    try {
+      st.dense = localStorage.getItem("us.wb.dense") === "1";
+    } catch (e) {}
+    applyDensity();
+    if (den) {
+      den.onclick = () => {
+        st.dense = !st.dense;
+        applyDensity();
+      };
+    }
+    const close = document.getElementById("wb-insp-close");
+    if (close) close.onclick = () => document.body.classList.remove("wb-insp-open");
+  }
+
+  function bindMob() {
+    const list = document.getElementById("mob-cards");
+    if (list) {
+      list.addEventListener("click", (e) => {
+        const row = e.target.closest(".mob-row");
+        if (row) select(row.dataset.id, true);
+      });
+    }
+    const q = document.getElementById("mob-q");
+    if (q) {
+      q.oninput = () => {
+        st.query = q.value.trim();
+        renderMobCards();
+      };
+    }
+    const chips = document.getElementById("mob-chips");
+    if (chips) {
+      chips.onclick = (e) => {
+        const b = e.target.closest(".mob-chip");
+        if (!b) return;
+        st.filter = b.dataset.mf;
+        chips.querySelectorAll(".mob-chip").forEach((c) => c.classList.toggle("on", c === b));
+        renderMobCards();
+      };
+    }
+  }
 
   // 自己把列表拉起来：main.js 的 boot() 在脚本解析顺序上可能早于本文件，
   // 它那一刻拿不到 window.usWorkbench，不能指望它触发首次加载。
@@ -731,6 +890,8 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    bindTable();
+    bindMob();
     const q = document.getElementById("wb-q");
     if (q) {
       q.oninput = () => {

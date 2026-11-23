@@ -14,69 +14,84 @@
 </head>
 <body>
   <div class="app">
-    <aside class="sidebar">
-      <div class="sidebar-head">
-        <button id="theme-btn" class="theme-btn"></button>
-        <button id="lang-btn" class="lang-btn" data-i18n-title="ui.lang">文</button>
-        <button id="settings-btn" class="settings-btn" data-i18n-title="ui.settings">⚙</button>
-        <button id="github-btn" class="settings-btn" data-i18n-title="ui.github"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></button>
-      </div>
-      <div class="wb-filter">
-        <input id="wb-q" class="wb-search" type="search" data-i18n-placeholder="wb.search_ph" placeholder="搜索名称或 id…" />
-        <div id="wb-chips" class="wb-chips">
-          <button class="wb-chip on" data-wbf="all" data-i18n="wb.all">全部</button>
-          <button class="wb-chip" data-wbf="running" data-i18n="wb.running">运行中</button>
-          <button class="wb-chip" data-wbf="native" data-i18n="wb.native">系统调度</button>
-          <button class="wb-chip" data-wbf="update" data-i18n="wb.update">有更新</button>
-        </div>
-      </div>
-      <div class="wb-allrow">
-        <label class="wb-check-all"><input type="checkbox" id="wb-all" /><span data-i18n="wb.select_all">全选</span></label>
-        <span id="wb-all-count" class="wb-allcount"></span>
-      </div>
-      <nav id="program-tabs" class="room-list"></nav>
-      <div class="sidebar-foot">
-        <div class="wb-new-wrap">
-          <button id="wb-new" class="sidebar-settings" data-i18n="wb.new">＋ 新建</button>
-          <div id="wb-newmenu" class="wb-newmenu" hidden>
-            <button data-new="program">
-              <span class="wb-newmenu-title" data-i18n="wb.new_program">新建程序</span>
-              <span class="wb-newmenu-sub" data-i18n="wb.new_program_hint">手动填写参数</span>
-            </button>
-            <button data-new="service">
-              <span class="wb-newmenu-title" data-i18n="wb.new_service_item">新建服务</span>
-              <span class="wb-newmenu-sub" data-i18n="wb.new_service_hint">写一条命令</span>
-            </button>
-          </div>
-        </div>
-        <button id="library-link" class="sidebar-settings" data-i18n-title="ui.library">▤ <span class="app-btn-label" data-i18n="ui.library">模板库</span></button>
-        <button id="log-center-link" class="sidebar-settings" data-i18n-title="ui.log_center">📜 <span class="app-btn-label" data-i18n="ui.log_center">日志中心</span></button>
-      </div>
+    <!-- 图标窄栏：导航 + 全局操作。列表与详情都在主区，侧栏不再承载程序清单。 -->
+    <aside class="iconrail">
+      <div class="ir-logo" title="Universal Shell">US</div>
+      <button id="nav-prog" class="ir-btn on" title="程序" data-i18n-title="ui.program">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M2.5 6.5h11M6.5 6.5v7"/></svg>
+      </button>
+      <button id="nav-lib" class="ir-btn" title="模板库" data-i18n-title="ui.library">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2.2l5.3 2.8L8 7.8 2.7 5z"/><path d="M2.7 8L8 10.8 13.3 8M2.7 11L8 13.8l5.3-2.8"/></svg>
+      </button>
+      <button id="nav-log" class="ir-btn" title="日志中心" data-i18n-title="ui.log_center">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h6"/></svg>
+      </button>
+      <span class="spacer"></span>
+      <button id="theme-btn" class="ir-btn" data-i18n-title="ui.theme"></button>
+      <button id="lang-btn" class="ir-btn ir-text" data-i18n-title="ui.lang">文</button>
+      <button id="github-btn" class="ir-btn" data-i18n-title="ui.github"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></button>
+      <button id="settings-btn" class="ir-btn" data-i18n-title="ui.settings">⚙</button>
     </aside>
-    <div class="sidebar-edge"><button id="collapse-btn" class="edge" data-i18n-title="ui.collapse">«</button></div>
 
     <main class="main">
-      <div id="statusbar" class="statusbar">
-        <span class="room-title" id="prog-title"></span>
-        <span class="room-sub" id="prog-sub"></span>
-        <span class="spacer"></span>
-        <div id="status-chips" class="pills"></div>
-        <button id="upd-toggle" type="button" class="upd-toggle" hidden>
-          <span class="upd-toggle-caret">▸</span><span data-i18n="upd.expand">展开更新设置</span>
-        </button>
-        <button id="dl-btn" class="dl-btn" hidden></button>
-        <div class="status-desc" id="prog-desc" hidden></div>
-      </div>
-
-      <!-- 程序管理 -->
+      <!-- 程序管理：左侧表格（列表）+ 右侧检查器（详情），共用同一份 workspace_list -->
       <section id="manage-view" class="view manage-view">
-        <!-- 工作台：配置 / 调度 / 更新 三个 pane，日志固定在底部（任何 tab 都能看） -->
-        <div class="wb-tabs" id="wb-tabs">
-          <button class="wb-tab on" data-wbtab="cfg" data-i18n="wb.tab_cfg">配置</button>
-          <button class="wb-tab" data-wbtab="sched" data-i18n="wb.tab_sched">调度</button>
-          <button class="wb-tab" data-wbtab="upd" data-i18n="wb.tab_upd">更新</button>
+        <div class="wb-toolbar">
+          <div class="wb-title"><span data-i18n="ui.program">程序</span><span id="wb-count" class="wb-count"></span></div>
+          <input id="wb-q" class="wb-search" type="search" data-i18n-placeholder="wb.search_ph" placeholder="搜索名称或 id…" />
+          <div id="wb-chips" class="wb-chips">
+            <button class="wb-chip on" data-wbf="all" data-i18n="wb.all">全部</button>
+            <button class="wb-chip" data-wbf="running" data-i18n="wb.running">运行中</button>
+            <button class="wb-chip" data-wbf="native" data-i18n="wb.native">系统调度</button>
+            <button class="wb-chip" data-wbf="update" data-i18n="wb.update">有更新</button>
+          </div>
+          <span class="spacer"></span>
+          <label class="wb-check-all"><input type="checkbox" id="wb-all" /><span id="wb-all-count" class="wb-allcount"></span></label>
+          <button id="wb-density" class="wb-tool" title="切换行高">紧凑</button>
+          <div class="wb-new-wrap">
+            <button id="wb-new" class="wb-new" data-i18n="wb.new">＋ 新建</button>
+            <div id="wb-newmenu" class="wb-newmenu" hidden>
+              <button data-new="program">
+                <span class="wb-newmenu-title" data-i18n="wb.new_program">新建程序</span>
+                <span class="wb-newmenu-sub" data-i18n="wb.new_program_hint">手动填写参数</span>
+              </button>
+              <button data-new="service">
+                <span class="wb-newmenu-title" data-i18n="wb.new_service_item">新建服务</span>
+                <span class="wb-newmenu-sub" data-i18n="wb.new_service_hint">写一条命令</span>
+              </button>
+            </div>
+          </div>
         </div>
         <div id="wb-bulk" class="wb-bulk" hidden></div>
+
+        <div class="wb-split">
+          <div class="wb-tablewrap" id="wb-tablewrap">
+            <table class="wb-table" id="wb-table">
+              <thead><tr id="wb-head"></tr></thead>
+              <tbody id="wb-body"></tbody>
+            </table>
+            <div id="wb-empty" class="wb-empty" hidden></div>
+          </div>
+
+          <aside class="wb-inspector" id="wb-inspector">
+            <div id="statusbar" class="statusbar">
+              <span class="room-title" id="prog-title"></span>
+              <span class="room-sub" id="prog-sub"></span>
+              <span class="spacer"></span>
+              <div id="status-chips" class="pills"></div>
+              <button id="upd-toggle" type="button" class="upd-toggle" hidden>
+                <span class="upd-toggle-caret">▸</span><span data-i18n="upd.expand">展开更新设置</span>
+              </button>
+              <button id="dl-btn" class="dl-btn" hidden></button>
+              <button id="wb-insp-close" class="wb-insp-close" title="关闭详情">✕</button>
+              <div class="status-desc" id="prog-desc" hidden></div>
+            </div>
+            <!-- 工作台：配置 / 调度 / 更新 三个 pane，日志固定在底部（任何 tab 都能看） -->
+            <div class="wb-tabs" id="wb-tabs">
+              <button class="wb-tab on" data-wbtab="cfg" data-i18n="wb.tab_cfg">配置</button>
+              <button class="wb-tab" data-wbtab="sched" data-i18n="wb.tab_sched">调度</button>
+              <button class="wb-tab" data-wbtab="upd" data-i18n="wb.tab_upd">更新</button>
+            </div>
         <div id="pane-sched" class="wb-pane" hidden></div>
         <div id="pane-upd" class="wb-pane" hidden>
           <div id="upd-empty" class="svc-hint" hidden></div>
@@ -119,6 +134,8 @@
             <button id="manage-log-refresh" class="log-action" data-i18n-title="act.refresh">↻</button>
           </div>
           <pre id="manage-log-content" class="term-body"></pre>
+        </div>
+          </aside>
         </div>
       </section>
 
@@ -169,6 +186,15 @@
       <button id="mob-settings" class="mob-icobtn">⚙</button>
       <button id="mob-github" class="mob-icobtn"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></button>
     </header>
+    <div class="mob-tools">
+      <input id="mob-q" class="mob-search" type="search" data-i18n-placeholder="wb.search_ph" placeholder="搜索名称或 id…" />
+    </div>
+    <div class="mob-chips" id="mob-chips">
+      <button class="mob-chip on" data-mf="all" data-i18n="wb.all">全部</button>
+      <button class="mob-chip" data-mf="running" data-i18n="wb.running">运行中</button>
+      <button class="mob-chip" data-mf="native" data-i18n="wb.native">系统调度</button>
+      <button class="mob-chip" data-mf="update" data-i18n="wb.update">有更新</button>
+    </div>
     <div id="mob-cards" class="mob-cards"></div>
   </div>
 

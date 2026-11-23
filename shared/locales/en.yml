@@ -593,3 +593,18 @@ wb.new_program: New program
 wb.new_program_hint: Fill in the fields
 wb.new_service_item: New service
 wb.new_service_hint: Write a command
+
+# Table column labels (B+D merged layout)
+wb.col_state: State
+wb.col_name: Name
+wb.col_cat: Category
+wb.col_ver: Version
+wb.col_port: Port
+wb.col_sup: Supervisor
+wb.col_auto: Auto
+wb.col_desc: Description
+wb.density_dense: Compact
+wb.density_comfy: Comfortable
+lib.uncategorized: Uncategorized
+ui.theme: Theme
+toast.exported: Exported

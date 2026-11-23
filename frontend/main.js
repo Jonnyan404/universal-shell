@@ -16,6 +16,8 @@ let libSource = null;
 let libPage = 0;
 const LIB_PAGE_SIZE = 20;
 let libSearchValue = "";
+// 模板库分组折叠状态（只存在内存里：浏览是一次性的，不需要跨会话记住）
+const libCollapsed = new Set();
 const templateStatusCache = {};
 const importing = new Set();
 const installing = new Set();
@@ -142,6 +144,7 @@ async function openExternal(url) {
 function renderSidebar(preferId) {
   // 列表由工作台统一渲染（程序 + 手工服务）；旧实现保留为兜底
   if (window.usWorkbench) return window.usWorkbench.renderList(preferId);
+  if (!el.tabs) return;
   el.tabs.innerHTML = "";
   statuses.forEach((s) => {
     const it = document.createElement("div");
@@ -289,25 +292,15 @@ document.addEventListener("click", (e) => {
 document.addEventListener("click", hideCtxMenu);
 window.addEventListener("resize", hideCtxMenu);
 
-// 侧栏空白区右键 = 新建（行右键已自行 stopPropagation，不会冒泡到这里）。
-// 只排除程序条目本身，nav 内空白（如列表下方空区）也应弹出菜单。
-document.querySelector(".sidebar").addEventListener("contextmenu", (e) => {
-  if (
-    !e.target.closest(".prog-item") &&
-    !e.target.closest("#ctx-menu") &&
-    !e.target.closest(".modal")
-  ) {
+// 列表空白区右键 = 新建（行右键由工作台自己处理，不会冒泡到这里）。
+const wbTableWrap = document.querySelector("#wb-tablewrap");
+if (wbTableWrap) {
+  wbTableWrap.addEventListener("contextmenu", (e) => {
+    if (e.target.closest("tr, #ctx-menu, .modal")) return;
     e.preventDefault();
-    ctxMenuAt(e.clientX, e.clientY, [
-      { label: t("menu.new"), onClick: () => openEditModal(null) },
-    ]);
-  }
-});
-attachCtxLongPress(document.querySelector(".sidebar"), (x, y) => {
-  const hit = document.elementFromPoint(x, y);
-  if (hit && hit.closest("button, .prog-item, #ctx-menu, .modal")) return;
-  ctxMenuAt(x, y, [{ label: t("menu.new"), onClick: () => openEditModal(null) }]);
-});
+    ctxMenuAt(e.clientX, e.clientY, [{ label: t("menu.new"), onClick: () => openEditModal(null) }]);
+  });
+}
 
 async function duplicateProgram(p) {
   try {
@@ -393,9 +386,10 @@ function switchView(v) {
   }
   if (v !== "log") stopLogCenterTailing();
   renderSidebar();
-  document.querySelectorAll(".sidebar-foot .sidebar-settings").forEach((b) => {
-    const activeId = v === "library" ? "library-link" : v === "log" ? "log-center-link" : "";
-    b.classList.toggle("active", b.id === activeId);
+  // 图标栏高亮：程序 / 模板库 / 日志三个入口互斥
+  const navActive = v === "library" ? "nav-lib" : v === "log" ? "nav-log" : "nav-prog";
+  document.querySelectorAll(".iconrail .ir-btn").forEach((b) => {
+    if (["nav-prog", "nav-lib", "nav-log"].includes(b.id)) b.classList.toggle("on", b.id === navActive);
   });
   if (isMobile()) mobSyncView(v);
 }
@@ -1355,67 +1349,102 @@ function renderLibrary() {
     return hay.includes(kw);
   });
 
-  const pages = Math.max(1, Math.ceil(rows.length / LIB_PAGE_SIZE));
-  if (libPage >= pages) libPage = pages - 1;
-  const slice = rows.slice(libPage * LIB_PAGE_SIZE, (libPage + 1) * LIB_PAGE_SIZE);
+  // 模板库走「分类分组卡片」（方案 A）：模板是「浏览 → 识别 → 导入一次」，
+  // 不需要表格的列对齐与批量操作；分组让同类模板聚在一起，折叠状态只在内存里。
+  const groups = new Map();
+  for (const row of rows) {
+    const cat = (row[1] && row[1].category) || t("lib.uncategorized");
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(row);
+  }
 
   el.libList.innerHTML = "";
-  if (!slice.length) el.libList.innerHTML = '<div class="lib-desc">' + t("lib.no_match") + "</div>";
-  for (const [id, tpl, base] of slice) {
-    const card = document.createElement("div");
-    card.className = "lib-card";
-    const top = document.createElement("div");
-    top.className = "lib-top";
-    const h = document.createElement("span");
-    h.className = "lib-name";
-    h.textContent = tpl.name;
-    const cat = document.createElement("span");
-    cat.className = "lib-cat";
-    cat.textContent = `[${tpl.category}]`;
-    const repo = document.createElement("span");
-    repo.className = "lib-repo";
-    repo.textContent = tpl.repo || t("lib.local_program");
-
-    const imported = programs.some((p) => p.id === id);
-    const conflict = (manifest.conflicts || []).find(([cid]) => cid === id);
-    if (conflict && conflict[1] > 1) {
-      const mark = document.createElement("span");
-      mark.className = "lib-cat lib-conflict";
-      mark.textContent = t("lib.multi_source", { n: conflict[1] });
-      top.append(mark);
-    }
-
-    const btn = document.createElement("button");
-    const stKey = base + "\u0000" + id;
-    const status = templateStatusCache[stKey];
-    const latest = imported && status === "current";
-    btn.textContent = importing.has(id)
-      ? t("lib.importing")
-      : latest ? t("act.latest") : imported ? t("act.update") : t("act.import");
-    btn.disabled = importing.has(id) || latest;
-    btn.onclick = () => doImport(id, base, btn);
-    if (imported && latest) btn.title = t("act.latest_hint");
-    else if (imported) btn.title = t("act.update_hint");
-    top.append(h, cat, repo, btn);
-    if (imported && status === undefined) refreshTemplateStatus(base, id, btn);
-
-    const desc = document.createElement("div");
-    desc.className = "lib-desc";
-    desc.textContent = tpl.description;
-    const meta = document.createElement("div");
-    meta.className = "lib-meta";
-    if (imported) {
-      const local = document.createElement("span");
-      local.className = "lib-local-badge";
-      local.textContent = t("lib.local_last");
-      local.title = t("lib.imported");
-      meta.appendChild(local);
-    }
-    card.append(top, meta, desc);
-    el.libList.appendChild(card);
+  el.libList.classList.add("lib-groups");
+  if (!rows.length) {
+    el.libList.innerHTML = '<div class="lib-desc">' + t("lib.no_match") + "</div>";
   }
-  renderPager(pages);
+  for (const [cat, list] of groups) {
+    const sec = document.createElement("section");
+    sec.className = "lib-group";
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "lib-group-head";
+    const closed = libCollapsed.has(cat);
+    head.innerHTML =
+      `<span class="lib-group-chev">${closed ? "▶" : "▼"}</span>` +
+      `<b>${escHtml(cat)}</b>` +
+      `<span class="lib-group-count">${list.length}</span>`;
+    head.onclick = () => {
+      if (libCollapsed.has(cat)) libCollapsed.delete(cat);
+      else libCollapsed.add(cat);
+      renderLibrary();
+    };
+    sec.appendChild(head);
+    if (!closed) {
+      const grid = document.createElement("div");
+      grid.className = "lib-grid";
+      for (const [id, tpl, base] of list) grid.appendChild(libCard(id, tpl, base));
+      sec.appendChild(grid);
+    }
+    el.libList.appendChild(sec);
+  }
+  renderPager(1);
   renderLocalTemplates();
+}
+
+// 单个模板卡片：保持原有导入/更新按钮的全部行为，只是搬进分组栅格。
+function libCard(id, tpl, base) {
+  const card = document.createElement("div");
+  card.className = "lib-card";
+  const top = document.createElement("div");
+  top.className = "lib-top";
+  const h = document.createElement("span");
+  h.className = "lib-name";
+  h.textContent = tpl.name;
+  const cat = document.createElement("span");
+  cat.className = "lib-cat";
+  cat.textContent = `[${tpl.category}]`;
+  const repo = document.createElement("span");
+  repo.className = "lib-repo";
+  repo.textContent = tpl.repo || t("lib.local_program");
+
+  const imported = programs.some((p) => p.id === id);
+  const conflict = (manifest.conflicts || []).find(([cid]) => cid === id);
+  if (conflict && conflict[1] > 1) {
+    const mark = document.createElement("span");
+    mark.className = "lib-cat lib-conflict";
+    mark.textContent = t("lib.multi_source", { n: conflict[1] });
+    top.append(mark);
+  }
+
+  const btn = document.createElement("button");
+  const stKey = base + "\u0000" + id;
+  const status = templateStatusCache[stKey];
+  const latest = imported && status === "current";
+  btn.textContent = importing.has(id)
+    ? t("lib.importing")
+    : latest ? t("act.latest") : imported ? t("act.update") : t("act.import");
+  btn.disabled = importing.has(id) || latest;
+  btn.onclick = () => doImport(id, base, btn);
+  if (imported && latest) btn.title = t("act.latest_hint");
+  else if (imported) btn.title = t("act.update_hint");
+  top.append(h, cat, repo, btn);
+  if (imported && status === undefined) refreshTemplateStatus(base, id, btn);
+
+  const desc = document.createElement("div");
+  desc.className = "lib-desc";
+  desc.textContent = tpl.description;
+  const meta = document.createElement("div");
+  meta.className = "lib-meta";
+  if (imported) {
+    const local = document.createElement("span");
+    local.className = "lib-local-badge";
+    local.textContent = t("lib.local_last");
+    local.title = t("lib.imported");
+    meta.appendChild(local);
+  }
+  card.append(top, meta, desc);
+  return card;
 }
 
 function renderSourceBar() {
@@ -2852,14 +2881,24 @@ setupMobile();
 
 
 
-document.querySelector("#collapse-btn").onclick = () => {
-  const root = document.documentElement;
-  root.dataset.sidebar = root.dataset.sidebar === "narrow" ? "" : "narrow";
-  document.querySelector("#collapse-btn").textContent = root.dataset.sidebar === "narrow" ? "»" : "«";
-};
+// 布局重构后侧栏收窄为图标栏：折叠按钮与侧栏容器都不再存在，这里保留兼容判断，
+// 免得旧数据目录里的残留标记把启动流程打断。
+const collapseBtn = document.querySelector("#collapse-btn");
+if (collapseBtn) {
+  collapseBtn.onclick = () => {
+    const root = document.documentElement;
+    root.dataset.sidebar = root.dataset.sidebar === "narrow" ? "" : "narrow";
+    collapseBtn.textContent = root.dataset.sidebar === "narrow" ? "»" : "«";
+  };
+}
 document.querySelector("#theme-btn").onclick = toggleTheme;
 document.querySelector("#lang-btn").onclick = toggleLang;
-document.querySelector("#log-center-link").onclick = () => openLogCenter();
+const navLogBtn = document.querySelector("#nav-log") || document.querySelector("#log-center-link");
+if (navLogBtn) navLogBtn.onclick = () => openLogCenter();
+const navLibBtn = document.querySelector("#nav-lib");
+if (navLibBtn) navLibBtn.onclick = () => switchView("library");
+const navProgBtn = document.querySelector("#nav-prog");
+if (navProgBtn) navProgBtn.onclick = () => switchView("manage");
 document.querySelector("#log-search").oninput = (e) => {
   logCenter.search = e.target.value;
   renderLogContent();
@@ -3029,7 +3068,6 @@ document.querySelector("#del-modal-keep").onclick = () => applyDelete(false);
 document.querySelector("#del-modal-purge").onclick = () => applyDelete(true);
 
 // 模板库 / 设置 入口（批量与服务已并入工作台）
-document.querySelector("#library-link").onclick = () => switchView("library");
 document.querySelector("#github-btn").onclick = () => openExternal("https://github.com/Jonnyan404/universal-shell");
 
 // 设置模态
