@@ -109,6 +109,20 @@ pub fn start_with_state(
     bind: &str,
     port: u16,
 ) -> anyhow::Result<WebServerHandle> {
+    // 读回上次会话的子进程租约：壳被强杀时 Drop 不会执行，子进程会变成孤儿
+    // （PPID=1）继续占着端口和数据库文件锁。这里把还活着的登记为「外部接管」，
+    // 保证第一条状态查询就能看到它们，而不是显示「未运行」再让用户去撞锁。
+    {
+        let mut mgr = state.manager.lock().unwrap();
+        let adopted = mgr.reconcile_leases();
+        if !adopted.is_empty() {
+            log::warn!(
+                "web-server: 接管 {} 个上次会话残留进程: {adopted:?}",
+                adopted.len()
+            );
+        }
+    }
+
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -146,7 +160,11 @@ pub fn start_with_state(
                         while !sweep_stop.load(Ordering::SeqCst) {
                             let exited = {
                                 let mut mgr = sweep_state.manager.lock().unwrap();
-                                mgr.sweep_exited_programs()
+                                // 壳托管的子进程（有句柄，能拿到退出码）
+                                let mut gone = mgr.sweep_exited_programs();
+                                // 上次会话残留、被租约认领的进程（没有句柄，只能探活）
+                                gone.extend(mgr.reap_external());
+                                gone
                             };
                             for id in exited {
                                 shared::events::emit(shared::events::Event::ProgramStopped(id));

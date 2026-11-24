@@ -95,6 +95,15 @@
   }
 
   function statePill(it) {
+    // 外部接管：进程是上次会话残留的，壳只有租约、没有句柄。
+    // 必须显示成独立的第三态，否则用户看到「运行中」会以为一切正常，
+    // 实际上停止/重启/退出码/内存曲线全都不在壳手里。
+    if (it.external_pid) {
+      return (
+        `<span class="wb-pill external" title="${esc(t("wb.ext_tip", { pid: it.external_pid }))}">` +
+        `<i></i>${esc(t("wb.state_external"))}</span>`
+      );
+    }
     const cls =
       it.state === "running" ? "running" : it.state === "error" ? "error" : it.state === "not_installed" ? "missing" : "stopped";
     return `<span class="wb-pill ${cls}"><i></i>${esc(stateText(it.state))}</span>`;
@@ -853,8 +862,13 @@
     box.innerHTML =
       `<div class="kpis">` +
       `<div class="kpi"><div class="k">${esc(t("wb.ov_uptime"))}</div>` +
-      `<div class="v" style="font-size:15px">${esc(fmtUptime(it.uptime))}</div>` +
-      `<div class="kh">${esc(running ? t("wb.ov_running") : t("wb.ov_stopped"))}</div></div>` +
+      // 外部接管：壳没有句柄，拿不到启动时刻，显示 PID 比显示「—」有用得多
+      `<div class="v" style="font-size:15px">${esc(
+        it.external_pid ? "PID " + it.external_pid : fmtUptime(it.uptime)
+      )}</div>` +
+      `<div class="kh${it.external_pid ? " up" : ""}">${esc(
+        it.external_pid ? t("wb.state_external") : running ? t("wb.ov_running") : t("wb.ov_stopped")
+      )}</div></div>` +
       `<div class="kpi"><div class="k">${esc(t("wb.ov_port"))}</div><div class="v">${port ? ":" + port : "—"}${
         port ? "<small>TCP</small>" : ""
       }</div><div class="kh">${port ? "127.0.0.1" : esc(t("wb.ov_nobind"))}</div></div>` +
@@ -959,7 +973,9 @@
       }
     }
     if (chips) {
-      chips.innerHTML = `<span class="pill${row.state === "running" ? " ok" : ""}">${esc(stateText(row.state))}</span>`;
+      chips.innerHTML = row.external_pid
+        ? `<span class="pill ext" title="${esc(t("wb.ext_tip", { pid: row.external_pid }))}">${esc(t("wb.state_external"))}</span>`
+        : `<span class="pill${row.state === "running" ? " ok" : ""}">${esc(stateText(row.state))}</span>`;
     }
   }
 

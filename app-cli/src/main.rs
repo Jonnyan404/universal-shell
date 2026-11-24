@@ -113,6 +113,11 @@ fn main() -> anyhow::Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
     println!("stopping…");
+    // 显式停掉所有子进程：`Drop for Runner` 只在正常栈展开时可靠，
+    // 这里更早、更确定，也能保证 Ctrl-C 后端口立刻释放。
+    if let Ok(mut mgr) = manager.lock() {
+        mgr.stop_all();
+    }
     handle.stop();
     Ok(())
 }

@@ -654,6 +654,9 @@ wb.ov_tmpl: 模板
 wb.ov_events: 最近事件
 wb.ov_no_events: 暂无事件（启停后会出现在这里）
 wb.ov_log: 日志 · stdout
+wb.state_external: 外部接管
+wb.ext_tip: 上次会话残留的进程（PID %{pid}），壳没有它的句柄。点「停止」可结束它。
+wb.ext_hint: 这个进程不是本次会话启动的，壳拿不到它的退出码，也无法采集运行时长与内存曲线。
 wb.ov_log_expand: 展开
 wb.ov_log_empty: 暂无输出
 wb.ov_sup_row: 调度归属

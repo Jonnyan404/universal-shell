@@ -139,6 +139,9 @@ struct StatusView {
     latest_checked_at: Option<u64>,
     up_to_date: bool,
     bin_path: String,
+    /// 非空表示这个「运行中」是上次会话残留的进程（壳没有它的句柄），
+    /// 界面要显示成「外部接管中（PID x）」而不是普通的「运行中」。
+    external_pid: Option<u32>,
 }
 
 /// 把 `native` 程序的启停交给系统调度器。
@@ -375,6 +378,7 @@ impl StatusView {
             latest_checked_at: s.latest_version.as_ref().map(|_| Self::now_unix()),
             up_to_date,
             bin_path: bin_path.display().to_string(),
+            external_pid: s.external_pid,
         }
     }
 
@@ -405,6 +409,7 @@ impl StatusView {
             latest_checked_at: checked_at,
             up_to_date,
             bin_path: bin_path.display().to_string(),
+            external_pid: s.external_pid,
         }
     }
 }
@@ -1022,6 +1027,8 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                     "autostart": autostart,
                     "uptime": uptime,
                     "mem_kb": mem_kb,
+                    // 非 null = 上次会话残留、被租约认领的进程（壳没有句柄）
+                    "external_pid": st.external_pid,
                     "state": if !st.installed { "not_installed" } else if st.running { "running" } else { "stopped" },
                     "supervisor": p.supervisor.as_str(),
                     "installed": st.installed,
@@ -1064,6 +1071,8 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                         // 手工服务由 us-service 托管，壳侧同样看不到启动时刻
                         "uptime": Value::Null,
                         "mem_kb": Value::Null,
+                        // 手工服务由 us-service 托管，不存在「壳的残留进程」这个概念
+                        "external_pid": Value::Null,
                         "state": match st {
                             us_service::ServiceState::Running => "running",
                             us_service::ServiceState::Stopped => "stopped",
@@ -1259,7 +1268,12 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             if p.supervisor == Supervisor::Native {
                 note = native_dispatch(&mut mgr, &p, "apply")?;
             } else {
-                mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
+                // 只在确实在跑时才停：is_program_running 同时覆盖「壳持有的句柄」
+                // 和「上次会话残留、被租约认领的进程」，两者 stop 都能处理。
+                // 本来就没跑时不该因为 stop 报「未运行」而让重启失败。
+                if mgr.is_program_running(&p) {
+                    mgr.stop(&p.id).map_err(|e| format!("{e:#}"))?;
+                }
                 mgr.start(&p, &values).map_err(|e| format!("{e:#}"))?;
             }
             mgr.log_op(t!("op.restart", name = &p.name).as_ref());

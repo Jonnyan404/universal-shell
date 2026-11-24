@@ -206,3 +206,4 @@ await send("Page.navigate", { url });
 | `shots/impl-library-dark.png` | 模板库深色主题 |
 | `shots/impl-library-collapse.png` | 模板库：折叠 Clipboard 分组后的状态 |
 | `shots/impl-library-mobile.png` | 手机 390：页头按钮换行、搜索/源下拉/刷新单行、单列卡片 |
+| `shots/impl-adopted-process.png` | 外部接管态：列表琥珀色「外部接管」胶囊 + 详情页运行时长显示 `PID xxxxx`（设计见 `docs/process-lifecycle.md`） |

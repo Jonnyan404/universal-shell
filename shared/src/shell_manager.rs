@@ -43,6 +43,23 @@ pub struct ProgramStatus {
     pub local_version: String,
     pub latest_version: Option<String>,
     pub latest_published: String,
+    /// 壳没托管、但租约证明还活着的进程 PID（上次会话残留）。
+    /// 界面据此显示「外部接管中（PID x）」而不是笼统的「运行中」。
+    pub external_pid: Option<u32>,
+}
+
+/// 程序声明的监听端口：先看调度参数里的 `ready_port`，再看模板字段约定 `port`。
+///
+/// 只用于启动前的端口占用预检。取不到就跳过预检 —— 不是所有程序都监听 TCP
+/// （一次性脚本、纯 unix socket 的服务），不能因为「没端口」就不让启动。
+fn declared_port(program: &Program, values: &BTreeMap<String, String>) -> Option<u16> {
+    if let Some(p) = program.native.ready_port {
+        return Some(p);
+    }
+    values
+        .get("port")
+        .and_then(|v| v.trim().parse::<u16>().ok())
+        .filter(|p| *p != 0)
 }
 
 /// 实例与远端模板的差异(供「应用模板更新」前展示)
@@ -142,6 +159,11 @@ pub struct ShellManager {
     pub web: crate::config::WebSettings,
     /// 运行指标与事件时间线（内存采样 / 启停 / 异常退出）。详情页概览页读它。
     pub insight: crate::insight::Insight,
+    /// 子进程租约（`data_dir/pids.json`）。壳被 SIGKILL 后靠它把残留进程找回来。
+    pub leases: crate::lease::LeaseStore,
+    /// 壳没有句柄、但租约证明还活着的进程（上次会话残留）。id -> pid。
+    /// 它们能被停止、能被显示为运行中，但拿不到退出码，也不算 `uptime`。
+    external: BTreeMap<String, u32>,
 }
 
 impl ShellManager {
@@ -151,6 +173,9 @@ impl ShellManager {
         let program_autostart = Self::load_program_autostart(&data_dir);
         // 事件时间线跨重启保留（insight.json）；内存曲线只在内存里
         let insight = crate::insight::Insight::load(&data_dir);
+        // 租约：上次会话（可能是被强杀的）留下的子进程记录。
+        // 这里只加载，不探活——探活要 spawn lsof/ps，放 reconcile_leases 里由调用方择机执行。
+        let leases = crate::lease::LeaseStore::load(&data_dir);
         Ok(Self {
             data_dir,
             programs: vec![],
@@ -170,6 +195,8 @@ impl ShellManager {
             theme: "auto".to_string(),
             web: crate::config::WebSettings::default(),
             insight,
+            leases,
+            external: BTreeMap::new(),
         })
     }
 
@@ -715,6 +742,8 @@ impl ShellManager {
     pub fn sweep_exited_programs(&mut self) -> Vec<String> {
         let exited = self.runner.sweep_exited();
         for id in &exited {
+            // 进程已退出：租约失效，别让下次启动把它当成「残留还活着」
+            self.leases.remove(id);
             if let Some(code) = self.runner.take_exit(id) {
                 self.insight.push_event(id, "exit", None, code);
             }
@@ -735,11 +764,60 @@ impl ShellManager {
         }
     }
 
-    /// 该程序是否在运行：仅以壳持有的子进程句柄为准（try_wait 回收僵尸）。
-    /// 生命周期完全由壳接管，不再派生 pgrep/tasklist 探测残留进程，
-    /// 因此 UI 渲染路径可直接调用（无进程派生）。
+    /// 该程序是否在运行：壳持有的子进程句柄，或上次会话残留、已被租约认领的进程。
+    ///
+    /// 渲染路径可安全调用：句柄判定是 `try_wait`（无派生），外部进程只查内存表，
+    /// 真正的探活在 [`Self::reconcile_leases`] 与 sweep 线程里做。
     pub fn is_program_running(&mut self, program: &Program) -> bool {
-        self.runner.is_running(&program.id)
+        self.runner.is_running(&program.id) || self.external.contains_key(&program.id)
+    }
+
+    /// 壳没托管、但租约证明还活着的进程 PID。
+    pub fn external_pid(&self, id: &str) -> Option<u32> {
+        self.external.get(id).copied()
+    }
+
+    /// 读回 `pids.json`，把还活着的残留进程登记为「外部接管」，死的清掉。
+    ///
+    /// 返回被接管的 id。壳启动时（`load_config` 之后）调一次即可：这之后再点
+    /// 「启动」就会明确提示「上次会话的进程还在」，而不是让它去撞端口/文件锁。
+    pub fn reconcile_leases(&mut self) -> Vec<String> {
+        // 先清死记录（pid 不存在，或 pid 已被别的程序复用）
+        for id in self.leases.prune() {
+            self.external.remove(&id);
+        }
+        // 再把活的登记进来
+        self.external.clear();
+        let live = self.leases.live();
+        for (id, lease) in &live {
+            self.external.insert(id.clone(), lease.pid);
+        }
+        if !live.is_empty() {
+            log::warn!(
+                "检测到 {} 个上次会话残留的进程，已标记为外部接管: {:?}",
+                live.len(),
+                live.iter().map(|(id, l)| format!("{id}={}", l.pid)).collect::<Vec<_>>()
+            );
+        }
+        live.into_iter().map(|(id, _)| id).collect()
+    }
+
+    /// sweep 用：外部进程死了就撤掉接管状态，并写一条退出事件。
+    /// 只做 `kill(pid, 0)`，不取进程名——每 500ms 跑一次，`ps` 太重。
+    pub fn reap_external(&mut self) -> Vec<String> {
+        let dead: Vec<String> = self
+            .external
+            .iter()
+            .filter(|(_, pid)| !crate::lease::pid_alive(**pid))
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &dead {
+            self.external.remove(id);
+            self.leases.remove(id);
+            // 拿不到退出码：这不是壳 spawn 的进程，没有 wait 状态可读
+            self.insight.push_event(id, "exit", None, None);
+        }
+        dead
     }
 
     /// 仅本地状态（不发网络请求）：安装、运行、本地版本。
@@ -754,6 +832,7 @@ impl ShellManager {
             local_version,
             latest_version: None,
             latest_published: String::new(),
+            external_pid: self.external.get(&program.id).copied(),
         }
     }
 
@@ -865,9 +944,38 @@ impl ShellManager {
         if !bin.exists() {
             return Err(anyhow::anyhow!(t!("err.not_installed", name = &program.name)));
         }
-        // 若壳持有句柄 → 该程序已在运行（生命周期由壳接管，无孤儿残留概念）。
+        // 若壳持有句柄 → 该程序已在运行
         if self.runner.is_running(&program.id) {
             return Err(anyhow::anyhow!(t!("err.already_running", name = &program.name)));
+        }
+        // 上次会话残留：租约里有记录、进程还活着，但壳没有它的句柄。
+        // 这时直接 spawn 必然撞端口 / 数据库文件锁（redb 的
+        // "Cannot acquire lock" 就是这么来的），所以先明确拦下。
+        // 直接查租约而不是只看 external 表：后者是 reconcile 的结果，
+        // 壳运行期间进程死掉再被 sweep 清掉后，租约才是唯一可信来源。
+        if let Some(lease) = self.leases.get(&program.id).cloned() {
+            if lease.is_live() {
+                return Err(anyhow::anyhow!(
+                    "「{}」上次会话的进程还在运行（PID {}），壳没有它的句柄。先「停止」结束它再启动。",
+                    program.name,
+                    lease.pid
+                ));
+            }
+            // 已经死了：清掉陈旧记录，继续正常启动
+            self.external.remove(&program.id);
+            self.leases.remove(&program.id);
+        }
+        // 端口预检：被别的进程占着就直说，别等子进程起来 bind 失败再退出
+        let port = declared_port(program, field_values);
+        if let Some(port) = port {
+            if let Some(owner) = crate::lease::port_owner(port) {
+                return Err(anyhow::anyhow!(
+                    "端口 {} 已被 PID {} 占用（不是本壳启动的进程）。先结束它，或改「{}」的端口。",
+                    port,
+                    owner,
+                    program.name
+                ));
+            }
         }
         let missing: Vec<&str> = program
             .fields
@@ -900,6 +1008,15 @@ impl ShellManager {
             .start_async(&program.id, &bin, &args, &env, &wd, &self.log_dir())?;
         // 新一轮运行：上一轮的内存曲线作废，重新采样
         let pid = self.runner.child_pid(&program.id);
+        // 落租约：壳万一被 SIGKILL（Drop 不执行），下次启动靠它把进程找回来
+        if let Some(pid) = pid {
+            let bin_name = bin
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            self.leases
+                .put(&program.id, crate::lease::Lease::new(pid, port, bin_name));
+        }
         self.insight.clear_hist(&program.id);
         self.insight.push_event(&program.id, "start", pid, None);
         crate::events::emit(crate::events::Event::ProgramStarted(program.id.clone()));
@@ -907,15 +1024,32 @@ impl ShellManager {
     }
 
     pub fn stop(&mut self, id: &str) -> anyhow::Result<()> {
-        // 生命周期由壳接管：仅停止壳持有的子进程句柄。壳重启后残留进程
-        // 无从探测（不再派生 tasklist/pgrep），由用户手动处理或重新启动覆盖。
+        // 优先停壳持有的子进程句柄
         match self.runner.stop(id) {
             Ok(()) => {
+                self.leases.remove(id);
                 self.insight.push_event(id, "stop", None, None);
                 crate::events::emit(crate::events::Event::ProgramStopped(id.to_string()));
                 Ok(())
             }
-            Err(e1) => Err(e1),
+            Err(e1) => {
+                // 壳没有句柄：可能是上次会话残留（reconcile_leases 认领过）。
+                // 有租约就按 pid 结束它——这正是「接管」的意义：能显示、也能停。
+                let Some(lease) = self.leases.get(id).cloned() else {
+                    return Err(e1);
+                };
+                if !crate::lease::pid_alive(lease.pid) {
+                    self.external.remove(id);
+                    self.leases.remove(id);
+                    return Err(e1);
+                }
+                crate::lease::terminate(&lease).map_err(|m| anyhow::anyhow!(m))?;
+                self.external.remove(id);
+                self.leases.remove(id);
+                self.insight.push_event(id, "stop", None, None);
+                crate::events::emit(crate::events::Event::ProgramStopped(id.to_string()));
+                Ok(())
+            }
         }
     }
 
@@ -1234,6 +1368,9 @@ impl ShellManager {
         let _ = std::fs::remove_file(dir.join("values.json"));
         // 程序没了，它的事件时间线也不该留在 insight.json 里
         self.insight.forget(id);
+        // 租约同理：留着会让下次启动误以为有残留进程
+        self.leases.remove(id);
+        self.external.remove(id);
         self.save_config(path)
     }
 
@@ -1418,6 +1555,7 @@ impl Default for ProgramStatus {
             local_version: "-".into(),
             latest_version: None,
             latest_published: String::new(),
+            external_pid: None,
         }
     }
 }

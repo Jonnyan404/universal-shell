@@ -1874,6 +1874,14 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
+                // 显式停掉壳托管的所有子进程。`Drop for Runner` 也能做，但它只在
+                // 正常栈展开时可靠；进程退出路径不该赌析构一定跑（而且全局 state
+                // 在进程终止时未必会被 drop）。这一步失败也不影响退出。
+                if let Some(st) = app_handle.try_state::<AppState>() {
+                    if let Ok(mut mgr) = st.manager.lock() {
+                        mgr.stop_all();
+                    }
+                }
                 if let Some(st) = app_handle.try_state::<WebServerState>() {
                     if let Some(mut h) = st.0.lock().unwrap().take() {
                         h.stop();

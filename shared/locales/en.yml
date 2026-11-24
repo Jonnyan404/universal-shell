@@ -654,6 +654,9 @@ wb.ov_tmpl: template
 wb.ov_events: Recent events
 wb.ov_no_events: no events yet (start/stop will show up here)
 wb.ov_log: Log · stdout
+wb.state_external: Adopted
+wb.ext_tip: Process left over from the previous session (PID %{pid}); the shell has no handle for it. Stop to terminate.
+wb.ext_hint: This process was not started in this session, so the shell cannot read its exit code, uptime or memory history.
 wb.ov_log_expand: Expand
 wb.ov_log_empty: no output yet
 wb.ov_sup_row: Scheduler

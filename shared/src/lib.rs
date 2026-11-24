@@ -10,6 +10,7 @@ pub mod events;
 pub mod extract;
 pub mod github;
 pub mod insight;
+pub mod lease;
 pub mod locale;
 pub mod ping;
 pub mod progress;
