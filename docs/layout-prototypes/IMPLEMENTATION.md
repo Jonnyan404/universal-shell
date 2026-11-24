@@ -117,6 +117,33 @@
       壳重启后从上次位置继续，壳死掉那段的输出会补进合并日志；泵不依赖子进程句柄，
       所以孤儿进程（外部接管）也能继续采集。细节与验证见 `docs/process-lifecycle.md` 第 7 节。
 
+- [x] **P15 详情页收尾 + 日志中心重写**：
+      - **配置页「原始 JSON」**（设计稿 `04-master-detail.html` 里本来就有，合并稿砍掉了，之前漏做）。
+        新增 RPC `program_raw`：**直接读 `shell.json` 里这一项**再 `to_string_pretty`，不是把内存里的
+        `Program` 序列化——手改过文件、多写了壳不认识的字段时，内存态会把这些悄悄丢掉，
+        那就不是「原始」了。深色代码块 + key 蓝/值绿高亮 + 复制（复制永远给原文）。
+        敏感 env / 字段默认值默认打码，点眼睛展开；否则上面 env 列表打着码、下面原文明文躺着同一个
+        token，上面的打码就是自欺欺人。
+      - **日志标题显示真实文件名**：详情页日志页、概览页日志卡、日志中心都改成 `{id}.log` / `shell.log`，
+        不再是泛泛的「程序日志」。`get_logs` 新增返回 `path`，壳日志走新 RPC `log_path`
+        （`--config` 换过目录时猜不得）。
+      - **点空白关详情**：宽屏给检查器加了 `wb-insp-closed`（`✕` 按钮之前 `display:none`，宽屏根本
+        没有关闭入口），窄屏抽屉加遮罩层；三条路径都能关——`✕`、点表格空白/遮罩、`Esc`。
+        点任意行会把状态摘掉，不会卡死在「只有列表」。
+      - **「打开网站」**：从动作区右侧一个 `↗` 图标提升为带文字的主按钮（有站点才出现）；
+        列表行操作列和 `⋯` 菜单也补了入口。`webUrl()` 修了三处：只认 `host/bind/addr/url` 字段
+        （不从「有端口」反推——ech-tunnel 的 listen 是代理口，拼出 `http://127.0.0.1:1080` 只会打开
+        一个连不上的页面）；`0.0.0.0` 归一成 `127.0.0.1`；**非当前程序不用 `values`**（否则 A 的 host
+        会拼上 B 的 port）。点击后先给「正在打开」提示——首屏 RPC 排队时 `open_url` 可能十几秒才轮到，
+        期间按钮毫无动静，用户只会认为按钮坏了。
+      - **日志中心重写**（保留，收窄定位为「诊断台」）：详情页日志 tab 是「瞥一眼当前程序」，
+        日志中心负责它做不到的两件事——**壳自身日志**（启动失败 / RPC 报错 / 调度同步只写这里，
+        没有第二个入口）和**多程序横向切换对比**。改动：源列表分组（壳日志 / 程序日志，程序按
+        运行中优先排）、**「只看错误」**（stderr 行 + ERROR/WARN/PANIC 字样）、**增量渲染**
+        （原来每次 2s 轮询把最多 3000 行 DOM 推倒重来，长日志肉眼可见地卡；现在只在视图键变化
+        或文本被截头时重建，否则只追加新增的完整行）、头部显示当前源**实际文件名 + 行数/匹配数**、
+        清空支持程序日志（新 RPC `clear_program_log`，之前只有「停止程序」会顺带清）。
+
 ---
 
 ## 3. 下一步（接手从这里开始）
@@ -230,7 +257,7 @@ await send("Page.navigate", { url });
 | `shared/src/shell_manager.rs` | 持有 `insight`；start/stop/sweep 落事件；`sample_memory()`；删程序时 `forget()`；**P13 抽出 `derive_service()` + 新增 `unit_preview()`**；**P14 `reconcile_leases` 接管时 `refresh_live()` + `logpump::watch(resume=true)`，`clear_log` 连源文件一起清，`working_dir` 空串按 `.` 处理** |
 | `shared/src/lease.rs` | **P14 新增 `cmd_args`（命令行去掉 argv[0]）+ `pid_cmd_args()` + `refresh_identity()` / `refresh_live()`**：启动器再 exec 会换掉进程名（`python3` → `Python`），进程名对不上时用参数认人，否则孤儿进程停不掉 |
 | `web-server/src/lib.rs` | 新增 `us-mem` 采样线程（5 秒一次） |
-| `web-server/src/rpc.rs` | `workspace_list` 每项多 `category` / `port` / `autostart` / **`uptime`** / **`mem_kb`** / **`external_pid`** / **`imported_at`** / **`template_source`** / **`repo`**；新增 **`program_insight`**、**`program_unit_preview`** RPC；安装成功 / 自启 / 调度切换各记一条事件 |
+| `web-server/src/rpc.rs` | **P15 新增 `program_raw` / `log_path` / `clear_program_log`；`get_logs` 返回 `path`**；`workspace_list` 每项多 `category` / `port` / `autostart` / **`uptime`** / **`mem_kb`** / **`external_pid`** / **`imported_at`** / **`template_source`** / **`repo`**；新增 **`program_insight`**、**`program_unit_preview`** RPC；安装成功 / 自启 / 调度切换各记一条事件 |
 | `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；检查器按 D 重写成 `d-head / d-actions / d-tabs / d-body`，**日志搬进「日志」标签页**；移动端加搜索/筛选；**模板库换成 `.lib-shell` + `.lib-hero` + `.lib-bar` 结构（P12）**；**P13 配置页加「编辑」+「已保存」、env 块常显、更新页加「操作」行与提示条** |
 | `frontend/workbench.js` | `COLS` 增 `uptime` / `actions` 两列 + `fmtUptime()` / `actHTML()` / `quickAct()`；概览页按 D 五块重写（KPI + sparkline / 运行配置 / 依赖与关联 / 最近事件 / 日志卡）；`loadInsight()`；`renderInspHead()` 统一头部；`select()` 移动端先跳转后拉数据；**P13 概览页 KPI 重排 + 导入信息 + 日志卡「跟随」、调度页 `loadUnitPreview()`、`renderUpdatePane` 二次刷 `updateUpdateCard`** |
 | `frontend/styles.css` | 图标栏、工具条、表格、检查器（`.d-*` / `.kpi` / `.spark` / `.sec` / `.kv` / `.tl`）、深色终端（`.term-body` / logbar）、四档断点、移动端两行列表；**模板库全套（`.lib-hero` / `.lib-bar` / `.btn` / sticky 分组头 / `.lib-card` / 双色变量）**；`body{margin:0}` |
@@ -268,4 +295,7 @@ await send("Page.navigate", { url });
 | `shots/impl-detail-update-avail.png` | 详情页更新（P13）：**有新版时**的形态——「应用更新」按钮 + 黄色提示条（版本号是注入的，只为验证这条路径） |
 | `shots/impl-detail-config-dark.png` | 深色主题的配置页（password 输入框必须走 `--panel` 背景，不能留浏览器默认白底） |
 | `shots/impl-detail-config-mobile.png` | 手机 390：配置页字段与 env 行（标签 + 值 + 眼睛）全部在屏内 |
+| `shots/impl-detail-config-raw.png` | 配置页「原始 JSON」（P15）：读 `shell.json` 原文，key 蓝/值绿，敏感值打码 + 眼睛 + 复制 |
+| `shots/impl-log-center.png` | 日志中心（P15 重写）：源分组「壳日志 / 程序日志」+ 当前文件 `shell.log` 与行数 |
+| `shots/impl-log-center-errors.png` | 日志中心「只看错误」：12 行筛成 2 行（ERROR / WARN），计数显示 `2 / 12 行` |
 | `shots/impl-detail-log-stderr.png` | 日志页（P14）：`stdout` 普通色 / `stderr` 整行错误色，两路交织。日志已改成「子进程直写文件 + 壳侧合并泵」，壳被 SIGKILL 也不会 EPIPE（见 `docs/process-lifecycle.md` 第 7 节） |

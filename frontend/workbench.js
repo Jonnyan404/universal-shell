@@ -122,13 +122,20 @@
     return m + t("wb.up_m");
   }
 
-  // 行内快捷操作：启停 / 重启 / 更多（复用右键菜单）
+  // 行内快捷操作：打开网站 / 启停 / 重启 / 更多（复用右键菜单）
   function actHTML(it) {
     const running = it.state === "running";
     const ready = it.state !== "not_installed";
     const id = esc(it.id);
     const label = running ? t("act.stop") : t("act.start");
+    // 有站点才多一个 ↗：大部分程序不是网页服务，无条件加会把操作列撑爆。
+    // 用 main.js 的 webUrl 判断，两处口径一致。
+    const p = typeof programs !== "undefined" && programs ? programs.find((x) => x.id === it.id) : null;
+    const site = p && typeof webUrl === "function" && webUrl(p) ? "1" : "";
     return (
+      (site
+        ? `<button class="wb-act" data-act="site" data-id="${id}" title="${esc(t("act.open_site"))}"${running ? "" : " disabled"}>↗</button>`
+        : "") +
       `<button class="wb-act${running ? " stop" : " play"}" data-act="${running ? "stop" : "start"}" data-id="${id}"` +
       ` title="${esc(label)}"${ready ? "" : " disabled"}>${running ? "■" : "▶"}</button>` +
       `<button class="wb-act" data-act="restart" data-id="${id}" title="${esc(t("act.restart"))}"${ready ? "" : " disabled"}>↻</button>` +
@@ -334,6 +341,8 @@
     showTab(st.tab);
     // 窄屏（<1100）检查器变成抽屉：点行才滑出，桌面端常驻不需要这个 class。
     if (openDrawer && window.matchMedia("(max-width: 1100px)").matches) document.body.classList.add("wb-insp-open");
+    // 点行永远重新打开详情：否则宽屏关掉之后没有恢复入口，会卡死在「只有列表」。
+    document.body.classList.remove("wb-insp-closed");
 
     if (it.kind === "program") {
       showProgramChrome();
@@ -989,7 +998,8 @@
       `<span class="hint">${events.length}</span></div><div class="sec-b">${evHTML}</div></div>` +
       `<div class="sec ov-log" style="margin-bottom:0">` +
       `<div class="manage-log" data-open="1">` +
-      `<div class="manage-log-head"><span class="manage-log-title">${esc(t("wb.ov_log"))}</span>` +
+      // 标题给文件名而不是「程序日志」：出问题时要能立刻知道该 tail 哪个文件
+      `<div class="manage-log-head"><span class="manage-log-title">${esc(it.id)}.log</span>` +
       `<span class="spacer"></span>` +
       `<button class="log-action" data-ovlog-follow="1">${esc(t("wb.ov_log_follow"))}</button>` +
       `<button class="log-action" data-ovlog="1">${esc(t("wb.ov_log_expand"))}</button></div>` +
@@ -1236,8 +1246,13 @@
     }
   }
 
-  // 表格「操作」列：启停 / 重启 / 更多
+  // 表格「操作」列：打开网站 / 启停 / 重启 / 更多
   async function quickAct(it, act) {
+    if (act === "site") {
+      const p = typeof programs !== "undefined" && programs ? programs.find((x) => x.id === it.id) : null;
+      if (p && typeof openSiteOf === "function") openSiteOf(p);
+      return;
+    }
     if (act === "more") {
       const p = typeof programs !== "undefined" && programs ? programs.find((x) => x.id === it.id) : null;
       if (p && typeof ctxMenuAt === "function" && typeof progItemMenu === "function") {
@@ -1304,7 +1319,12 @@
       }
       if (e.target.closest("input[data-check]")) return;
       const tr = e.target.closest("tr[data-id]");
-      if (tr) select(tr.dataset.id, true);
+      if (tr) {
+        select(tr.dataset.id, true);
+        return;
+      }
+      // 点表格空白（表头、表体下方留白）等于「点空白处」：收起详情。
+      closeInspector();
     });
     table.addEventListener("change", (e) => {
       const cb = e.target.closest("input[data-check]");
@@ -1341,8 +1361,36 @@
         applyDensity();
       };
     }
+    // 点表格区域的空白（表头下方留白、表体之后的空档）关详情。
+    // 绑在 wrap 而不是 table 上：table 之外、wrap 之内的 padding 也是「空白处」。
+    const wrap = document.getElementById("wb-tablewrap");
+    if (wrap) {
+      wrap.addEventListener("click", (e) => {
+        // 行、排序表头、行内按钮/开关各有自己的 handler，不在这里插手
+        if (e.target.closest("tr[data-id]") || e.target.closest("th[data-sort]")) return;
+        if (e.target.closest("button, input, select, label, a")) return;
+        closeInspector();
+      });
+    }
     const close = document.getElementById("wb-insp-close");
-    if (close) close.onclick = () => document.body.classList.remove("wb-insp-open");
+    if (close) close.onclick = () => closeInspector();
+    // 遮罩就是窄屏抽屉下的「空白处」：点它关详情
+    const mask = document.getElementById("wb-insp-mask");
+    if (mask) mask.onclick = () => closeInspector();
+    // Esc 同样能关。弹窗自己会吃掉 Esc（有 open 的 modal 时不处理），
+    // 免得「关弹窗」顺手把详情也关了。
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (document.querySelector(".modal:not([hidden])")) return;
+      closeInspector();
+    });
+  }
+
+  // 收起详情：窄屏摘抽屉 class，宽屏摘常驻面板（wb-insp-closed 只在 ≥1101 生效）。
+  // 两个都摘，是因为同一份状态要在两种布局下都正确。
+  function closeInspector() {
+    document.body.classList.remove("wb-insp-open");
+    document.body.classList.add("wb-insp-closed");
   }
 
   function bindMob() {

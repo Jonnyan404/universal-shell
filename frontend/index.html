@@ -73,6 +73,10 @@
             <div id="wb-empty" class="wb-empty" hidden></div>
           </div>
 
+          <!-- 窄屏抽屉的遮罩：点它等于「点空白处」，关掉详情。
+               宽屏不显示（检查器是常驻分栏，不遮挡列表）。 -->
+          <div class="wb-insp-mask" id="wb-insp-mask"></div>
+
           <aside class="wb-inspector" id="wb-inspector">
             <!-- 检查器按 D 方案：头像 + 标题 + 状态 + 动作条 + 标签页，下面才是卡片体。
                  #statusbar / #prog-title / #prog-sub / #status-chips / #dl-btn / #actions
@@ -127,6 +131,18 @@
                   <div class="sec-b" style="padding:0"><div id="env-body"></div></div>
                 </div>
                 <div id="svc-form" hidden></div>
+                <!-- 原始 JSON：shell.json 里这一项原样展示（后端 program_raw 读盘），
+                     不是前端拿 get_programs 重拼的——那样只能看到壳「认识」的字段。
+                     出问题时要能把这段贴出去，所以带复制。 -->
+                <div class="sec unit-block" id="cfg-raw">
+                  <div class="unit-head">
+                    <span class="utitle" data-i18n="wb.cfg_raw">原始 JSON</span>
+                    <span class="upath" id="cfg-raw-path"></span>
+                    <button type="button" class="unit-copy" id="cfg-raw-eye" data-i18n-title="wb.env_reveal" hidden>👁</button>
+                    <button type="button" class="unit-copy" id="cfg-raw-copy" data-i18n="act.copy">复制</button>
+                  </div>
+                  <pre class="unit-pre" id="cfg-raw-pre"></pre>
+                </div>
               </div>
               <div id="pane-sched" class="wb-pane" hidden></div>
               <!-- 日志页：整块交给日志窗，不留内边距，终端自己铺满。
@@ -215,13 +231,25 @@
         <div class="panel log-panel">
           <div class="log-toolbar">
             <input id="log-search" type="search" class="log-search" data-i18n-placeholder="log.search_ph" placeholder="搜索…" />
+            <!-- 排障时真正想看的往往只是报错行，与其肉眼扫 3000 行不如筛出来 -->
+            <label class="log-onlyerr" data-i18n-title="log.only_err_hint">
+              <input type="checkbox" id="log-only-err" />
+              <span data-i18n="log.only_err">只看错误</span>
+            </label>
             <span class="spacer"></span>
             <button id="log-follow" class="op-btn" data-i18n="log.follow">跟随</button>
             <button id="log-copy" class="op-btn" data-i18n="log.copy">复制</button>
-            <button id="log-clear-src" class="op-btn op-danger" hidden data-i18n="log.clear">清空</button>
+            <button id="log-clear-src" class="op-btn op-danger" data-i18n="log.clear">清空</button>
           </div>
           <select id="log-source-select" class="log-source-select" hidden></select>
           <div id="log-sources" class="log-tabs"></div>
+          <!-- 当前源到底读的是哪个文件 + 行数/匹配数。排障第一步是确认「看的是对的日志」 -->
+          <div class="log-srcpath">
+            <span class="log-srcpath-dot"></span>
+            <span id="log-src-path" class="log-srcpath-text"></span>
+            <span class="spacer"></span>
+            <span id="log-src-count" class="log-srcpath-count"></span>
+          </div>
           <pre id="log-content" class="term-body log-content"></pre>
         </div>
       </section>

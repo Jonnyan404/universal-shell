@@ -54,6 +54,9 @@ const el = {
   updateApply: document.querySelector("#upd-apply"),
   updateKeepTip: document.querySelector("#upd-keep-tip"),
   envSection: document.querySelector("#env-section"),
+  cfgRawPre: document.querySelector("#cfg-raw-pre"),
+  cfgRawPath: document.querySelector("#cfg-raw-path"),
+  cfgRawCopy: document.querySelector("#cfg-raw-copy"),
   manageView: document.querySelector("#manage-view"),
   libraryView: document.querySelector("#library-view"),
   libSourceBar: document.querySelector("#lib-source-bar"),
@@ -137,9 +140,28 @@ async function netErrorNotice(err, n) {
 async function openExternal(url) {
   try {
     await invoke("open_url", { url });
+    return true;
   } catch (e) {
-    window.open(url, "_blank", "noopener");
+    // 后端打不开（远程访问时壳跑在另一台机器上、或没有默认浏览器）：
+    // 退回 window.open。它可能被弹窗拦截——那就明确说一声，
+    // 否则用户看到的只是「按钮点了没反应」。
+    const w = window.open(url, "_blank", "noopener");
+    if (!w) showNotice(t("err.open_site", { url }), true);
+    return false;
   }
+}
+
+// 打开某程序的站点。没在运行时给一句提示再打开——页面空白时用户会以为是
+// 「打开网站坏了」，其实是程序没起来。
+async function openSiteOf(prog) {
+  const url = webUrl(prog);
+  if (!url) return;
+  const st = (statuses.find((s) => s.id === prog.id) || {}).status;
+  // 点下去立刻给反馈。首屏那几个 RPC 排队时 open_url 可能十几秒才轮到，
+  // 期间按钮毫无动静——用户只会认为「这个按钮坏了」。
+  if (st && !st.running) showNotice(t("toast.site_not_running"), true);
+  else showNotice(t("toast.opening_site"));
+  await openExternal(url);
 }
 
 // ---------- 侧栏 ----------
@@ -233,12 +255,31 @@ function hideCtxMenu() {
 
 // 侧栏/卡片条目右键菜单项（桌面右键与移动长按共用）
 function progItemMenu(p) {
-  return [
+  const items = [];
+  // 有站点就放到最上面：从列表里直接打开比「先进详情再点按钮」少两步
+  const url = webUrl(p);
+  if (url) {
+    items.push({ label: t("act.open_site"), onClick: () => openSiteOf(p) });
+    items.push({ label: t("act.copy_addr"), onClick: () => copyText(url, "toast.addr_copied") });
+    items.push({ sep: true });
+  }
+  items.push(
     { label: t("menu.copy"), onClick: () => duplicateProgram(p) },
     { label: t("act.edit"), onClick: () => openEditModal(p) },
     { sep: true },
-    { label: t("act.delete"), danger: true, onClick: () => confirmAndDelete(p) },
-  ];
+    { label: t("act.delete"), danger: true, onClick: () => confirmAndDelete(p) }
+  );
+  return items;
+}
+
+// 复制一段文本 + 统一的成功/失败提示（复制地址、原始 JSON 都用它）
+async function copyText(text, okKey) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showNotice(t(okKey || "toast.copied"));
+  } catch {
+    showNotice(t("toast.copy_fail"), true);
+  }
 }
 
 // ---------- 移动端长按 = 右键菜单 ----------
@@ -418,9 +459,19 @@ async function switchCurrent(id) {
   renderForm();
   renderActions();
   // 日志条标题跟着一起切：不能等 await，否则网络慢时详情已经换了、日志条还是旧名字。
+  // 标题先按 `{id}.log` 占位，get_logs 回来后再补上绝对路径。
   const hint = document.querySelector("#manage-log-hint");
-  if (hint) hint.textContent = current.id;
+  if (hint) {
+    hint.textContent = "";
+    hint.title = "";
+  }
+  const logTitle = document.querySelector("#manage-log-head .manage-log-title");
+  if (logTitle) logTitle.textContent = `${current.id}.log`;
+  manageLogPath = "";
   refreshManageLog();
+  // 原始 JSON 换程序要重新打码（上一个程序点开过眼睛，不该带过来）
+  rawJsonRevealed = false;
+  renderRawJson(current.id);
 
   const wanted = current.id;
   const fresh = (await invoke("get_values", { programId: wanted }).catch(() => ({}))) || {};
@@ -950,8 +1001,88 @@ function renderEnvDisplay() {
   }
 }
 
-function renderActions() {
-  const actions = el.actions;
+// ---------- 配置页「原始 JSON」 ----------
+// 内容来自后端 program_raw：直接读 shell.json 里这一项，不是前端拿 get_programs 重拼。
+// 两者差别在于「壳不认识的字段」——手改过配置、多写了一个键，重拼就看不见了，
+// 而那恰恰是排查时最想看的东西。
+let rawJsonFull = ""; // 原文，复制走它
+let rawJsonData = null; // 解析后的对象，打码/还原都基于它
+let rawJsonRevealed = false; // 本次会话里是否已展开敏感值
+
+// 敏感值在原始 JSON 里同样打码：上面 env 列表打码、下面原文明文躺着同一个 token，
+// 那上面的打码就是自欺欺人。要看原文点眼睛（或直接复制——复制给的永远是原文）。
+function maskRawJson(obj) {
+  const clone = JSON.parse(JSON.stringify(obj));
+  for (const arr of [clone.env, clone.fields]) {
+    if (!Array.isArray(arr)) continue;
+    for (const it of arr) {
+      if (!it || typeof it.key !== "string" || !SECRET_ENV_RE.test(it.key)) continue;
+      if (typeof it.value === "string" && it.value) it.value = "••••••";
+      if (typeof it.default === "string" && it.default) it.default = "••••••";
+    }
+  }
+  return clone;
+}
+
+// 轻量高亮：逐行处理，只认「  "key": value」这种行首形状。
+// 不做全局正则替换——值里的引号会被 escHtml 转成 &quot;，全局匹配很容易把
+// 带 & 的 URL 切坏。
+function jsonHL(text) {
+  return escHtml(text)
+    .split("\n")
+    .map((line) => {
+      const m = line.match(/^(\s*)(&quot;.*?&quot;)(: )(.*)$/);
+      if (!m) return line;
+      const [, pad, key, sep, rest] = m;
+      const val = /^&quot;/.test(rest) ? `<span class="jv-s">${rest}</span>` : rest;
+      return `${pad}<span class="jv-k">${key}</span>${sep}${val}`;
+    })
+    .join("\n");
+}
+
+function paintRawJson() {
+  if (!el.cfgRawPre) return;
+  const data = rawJsonRevealed || !rawJsonData ? rawJsonData : maskRawJson(rawJsonData);
+  el.cfgRawPre.innerHTML = data ? jsonHL(JSON.stringify(data, null, 2)) : "";
+  const eye = document.querySelector("#cfg-raw-eye");
+  if (eye) {
+    eye.textContent = rawJsonRevealed ? "🙈" : "👁";
+    eye.hidden = !rawJsonData;
+  }
+}
+
+async function renderRawJson(id) {
+  if (!el.cfgRawPre) return;
+  rawJsonFull = "";
+  rawJsonData = null;
+  el.cfgRawPre.textContent = "…";
+  if (el.cfgRawPath) {
+    el.cfgRawPath.textContent = "";
+    el.cfgRawPath.title = "";
+  }
+  try {
+    const r = await invoke("program_raw", { programId: id });
+    // 等待期间可能又切了程序：过期响应直接丢，否则 A 的 JSON 会画到 B 上
+    if (!current || current.id !== id) return;
+    rawJsonFull = r.json || "";
+    try {
+      rawJsonData = JSON.parse(rawJsonFull);
+    } catch {
+      rawJsonData = null;
+    }
+    if (rawJsonData) paintRawJson();
+    else el.cfgRawPre.textContent = rawJsonFull;
+    if (el.cfgRawPath) {
+      el.cfgRawPath.textContent = r.path || "";
+      el.cfgRawPath.title = r.path || "";
+    }
+  } catch (e) {
+    if (!current || current.id !== id) return;
+    el.cfgRawPre.textContent = t("wb.cfg_raw_fail", { err: String(e) });
+  }
+}
+
+function renderActions() {  const actions = el.actions;
   actions.innerHTML = "";
   // 选中手工服务时操作区本来就是隐藏的；此时 current 为 null，别往下走。
   if (!current) return;
@@ -1018,6 +1149,17 @@ function renderActions() {
     }
   };
   group1.appendChild(restart);
+  // 打开网站：做成带文字的一等按钮。之前只有动作区右侧一个 ↗ 图标，
+  // 既看不出是什么、也不是所有人都会去点那一排图标。
+  const siteUrl = webUrl(current);
+  if (siteUrl) {
+    const site = document.createElement("button");
+    site.id = "site-btn";
+    site.textContent = "↗ " + t("act.open_site");
+    site.title = siteUrl;
+    site.onclick = () => openSiteOf(current);
+    group1.appendChild(site);
+  }
   // 系统调度下启停走后端 native_dispatch（直接操作系统调度器，不经过壳的
   // Runner，不会双开），所以按钮照常画完；末尾只多一个回退入口。
   if (current.supervisor === "native") {
@@ -1073,12 +1215,8 @@ function renderActions() {
       }
     };
     pushIcon(copy);
-    const open = document.createElement("button");
-    open.className = "icon-btn";
-    open.title = t("act.open_site");
-    open.textContent = "↗";
-    open.onclick = () => openExternal(url);
-    pushIcon(open);
+    // 「打开网站」已经在主按钮区了（带文字，比这里一个 ↗ 图标清楚），
+    // 图标组里不再重复放一个。
   }
   if (group2.children.length) {
     const sep = document.createElement("span");
@@ -1179,20 +1317,38 @@ function renderButtons(st) {
 }
 
 // 构造程序的 Web 访问地址(如有地址/端口字段)。无地址返回 null
+// 这个程序的「网站地址」。返回 null 表示它压根不是能打开的网页服务。
+//
+// 只认明确的地址来源：模板字段里的 host/bind/addr/url。**不从「有端口」反推**
+// —— ech-tunnel 的 listen 是代理端口、x-tunnel 的是本地监听口，按端口拼一个
+// http://127.0.0.1:1080 出来，点开只会得到一个连不上的页面，比没有按钮更糟。
 function webUrl(prog) {
   if (!prog) return null;
+  // values 只属于「当前详情页那个程序」。拿它去算别的程序（列表菜单里）
+  // 会串味：A 的 host 拼上 B 的 port。非当前程序一律用字段默认值。
+  const live = !!(current && current.id === prog.id);
   const fieldVal = (key) => {
-    const v = values[key];
+    const v = live ? values[key] : null;
     if (v && String(v).trim()) return String(v).trim();
-    const f = prog.fields.find((x) => x.key === key);
+    const f = (prog.fields || []).find((x) => x.key === key);
     return f && f.default && String(f.default).trim() ? String(f.default).trim() : null;
   };
+  // 完整 URL 字段（cloudflared 这类「把本地某地址暴露出去」的模板用它）
+  const raw = fieldVal("url");
+  if (raw && /^https?:\/\//i.test(raw)) return raw;
   const addr = fieldVal("host") ?? fieldVal("bind") ?? fieldVal("addr");
   if (!addr) return null;
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(addr)) return addr;
+  // 0.0.0.0 / :: 是「监听所有网卡」，浏览器里打不开；本机访问一律换成回环地址
+  const host = addr.replace(/^0\.0\.0\.0$/, "127.0.0.1").replace(/^::1?$/, "[::1]");
   const port = fieldVal("port");
-  if (port && !/:\d+$/.test(addr)) return `http://${addr}:${port}`;
-  return `http://${addr}`;
+  if (port && !/:\d+$/.test(host)) return `http://${host}:${port}`;
+  return `http://${host}`;
+}
+
+// 这个程序当前是否有可打开的站点（详情页动作条与列表菜单共用这一判断）
+function hasSite(prog) {
+  return !!webUrl(prog);
 }
 
 // ---------- 下载 / 安装（进度走 WS 事件总线） ----------
@@ -2409,6 +2565,9 @@ function renderLogBody(container, text) {
 const logOffsets = {};
 // 管理页日志窗口当前所属程序 id；切换程序时强制全量重渲避免残留旧程序内容
 let manageLogOwner = null;
+// 当前日志窗实际读的文件绝对路径。标题只显示文件名，完整路径放 hint，
+// 出问题时能直接拿去 tail。
+let manageLogPath = "";
 // 新行插到顶部。用户正往下翻着看旧日志时不能把他弹回顶部：按插入前后的
 // scrollHeight 差补偿 scrollTop，正在读的那几行视觉位置不动。
 function prependLogText(container, delta) {
@@ -2437,6 +2596,18 @@ async function refreshManageLog() {
     if (hasOffset) args.offset = logOffsets[current.id];
     const res = await invoke("get_logs", args);
     logOffsets[current.id] = res.offset;
+    // 标题显示实际读的文件名（`clip9.log`），hint 是绝对路径。
+    // 只写一次：这里 150ms 就被调一次，每次都改 DOM 属于白烧。
+    if (res.path && res.path !== manageLogPath) {
+      manageLogPath = res.path;
+      const title = document.querySelector("#manage-log-head .manage-log-title");
+      if (title) title.textContent = res.path.split(/[\\/]/).pop();
+      const hint = document.querySelector("#manage-log-hint");
+      if (hint) {
+        hint.textContent = res.path;
+        hint.title = res.path;
+      }
+    }
     if (!hasOffset || res.reset) renderLogBody(box, res.text);
     else if (res.text) prependLogText(box, res.text);
     manageLogOwner = current.id;
@@ -2446,14 +2617,25 @@ async function refreshManageLog() {
 }
 
 // ---------- 日志中心 ----------
-let logCenter = { kind: "shell", id: "", text: "", search: "", follow: true };
+// ---------- 日志中心（诊断台） ----------
+// 定位：详情页的日志 tab 是「瞥一眼当前程序」，日志中心负责它做不到的两件事：
+//   1) 壳自身的日志——启动失败、RPC 报错、调度同步失败只写在这里，没有第二个入口
+//   2) 多个程序的日志横向切换对比（排查「A 起来了 B 没起来」这类先后依赖）
+// 所以默认落在壳日志上，程序日志同排但分组显示，不抢主位。
+let logCenter = { kind: "shell", id: "", text: "", search: "", follow: true, onlyErr: false, path: "" };
 let logCenterTimer = null;
 let logCenterOffsets = {};
+// 增量渲染记账：视图键（源/搜索/筛选）变了就整体重建，否则只追加新增的完整行。
+// 原来每次轮询都把最多 3000 行 DOM 推倒重来，长日志下肉眼可见地卡。
+let logViewKey = "";
+let logRenderedLen = 0;
+// 已渲染文本的前缀，用来判断「文本是不是被截头了」（超 3000 行会砍掉开头）。
+// 被截头就不能增量，必须整体重建，否则行号全错。
+let logRenderedText = "";
 
 function switchLogCenterView() {
   switchView("log");
-  const fb = document.querySelector("#log-follow");
-  fb.textContent = t("log.follow") + (logCenter.follow ? " ✓" : "");
+  syncLogToolbar();
   renderLogSources();
   loadLogSource(logCenter.kind, logCenter.id, true);
   startLogCenterTailing();
@@ -2461,6 +2643,13 @@ function switchLogCenterView() {
 
 function openLogCenter() {
   switchLogCenterView();
+}
+
+function syncLogToolbar() {
+  const fb = document.querySelector("#log-follow");
+  if (fb) fb.textContent = t("log.follow") + (logCenter.follow ? " ✓" : "");
+  const oe = document.querySelector("#log-only-err");
+  if (oe) oe.checked = !!logCenter.onlyErr;
 }
 
 function stopLogCenterTailing() {
@@ -2482,10 +2671,13 @@ function startLogCenterTailing() {
   }, 2000);
 }
 
+// 源列表：壳日志一组、程序日志一组。程序按「运行中优先 + 名称」排，
+// 只列已安装的——没装过的程序不可能有日志文件。
 function renderLogSources() {
   const box = el.logSources;
-  box.innerHTML = "";
+  if (!box) return;
   const sel = el.logSourceSelect;
+  box.innerHTML = "";
   if (sel) {
     sel.innerHTML = "";
     sel.hidden = false;
@@ -2498,6 +2690,12 @@ function renderLogSources() {
     if (logCenter.kind === kind && logCenter.id === id) o.selected = true;
     sel.appendChild(o);
   };
+  const pick = (kind, id) => {
+    logCenter.kind = kind;
+    logCenter.id = id;
+    renderLogSources();
+    loadLogSource(kind, id, true);
+  };
   const mk = (kind, id, label, running) => {
     const b = document.createElement("button");
     b.className = "log-src" + (logCenter.kind === kind && logCenter.id === id ? " active" : "");
@@ -2505,57 +2703,71 @@ function renderLogSources() {
     dot.className = "src-dot" + (running ? " on" : "");
     b.appendChild(dot);
     b.appendChild(document.createTextNode(label));
-    b.onclick = () => {
-      logCenter.kind = kind;
-      logCenter.id = id;
-      renderLogSources();
-      loadLogSource(kind, id, true);
-    };
+    b.title = kind === "shell" ? t("log.shell_hint") : label;
+    b.onclick = () => pick(kind, id);
     box.appendChild(b);
   };
-  const sources = [
-    ["shell", "", t("log.shell_title"), false],
-    ...statuses.filter((s) => s.status.installed).map((s) => ["program", s.id, s.name, !!s.status.running]),
-  ];
-  for (const [kind, id, label, running] of sources) {
-    mk(kind, id, label, running);
-    addOpt(kind, id, label, running);
+  const grp = (label) => {
+    const sp = document.createElement("span");
+    sp.className = "log-grp";
+    sp.textContent = label;
+    box.appendChild(sp);
+  };
+
+  grp(t("log.grp_shell"));
+  mk("shell", "", t("log.shell_title"), false);
+  addOpt("shell", "", t("log.shell_title"), false);
+
+  const progs = statuses
+    .filter((s) => s.status.installed)
+    .sort(
+      (a, b) =>
+        (b.status.running ? 1 : 0) - (a.status.running ? 1 : 0) ||
+        String(a.name).localeCompare(String(b.name))
+    );
+  if (progs.length) {
+    grp(t("log.grp_prog"));
+    for (const s of progs) {
+      mk("program", s.id, s.name, !!s.status.running);
+      addOpt("program", s.id, s.name, !!s.status.running);
+    }
   }
   if (sel) {
     sel.onchange = () => {
       const [kind, id] = sel.value.split("\u0000");
-      logCenter.kind = kind;
-      logCenter.id = id;
-      renderLogSources();
-      loadLogSource(kind, id, true);
+      pick(kind, id);
     };
   }
 }
 
 async function loadLogSource(kind, id, reset) {
-  let text = "";
-  if (kind === "shell") {
-    text = await invoke("get_shell_log");
-    if (reset || !logCenterOffsets.shell) logCenterOffsets.shell = 0;
-    logCenter.text = text;
-    capTextLines();
-  } else {
-    try {
+  try {
+    if (kind === "shell") {
+      logCenter.text = await invoke("get_shell_log");
+      // 文件名从后端取：`--config` 换过目录时猜不得
+      const lp = await invoke("log_path", { kind: "shell" }).catch(() => null);
+      logCenter.path = (lp && lp.path) || "shell.log";
+      capTextLines();
+    } else {
       const args = { programId: id };
       if (!reset && logCenterOffsets[id] != null) args.offset = logCenterOffsets[id];
       const res = await invoke("get_logs", args);
       if (reset || res.reset) logCenter.text = res.text;
       else logCenter.text += res.text;
       logCenterOffsets[id] = res.offset;
-      // 封顶：日志中心文本只保留末尾 LOG_CENTER_MAX_LINES 行，防长时间运行 DOM 无限膨胀
+      // 后端给的是实际读的绝对路径，界面上照实显示，别自己拼一个
+      logCenter.path = res.path || `${id}.log`;
       capTextLines();
-    } catch {
-      if (reset) logCenter.text = t("shell_log.empty");
+    }
+  } catch {
+    if (reset) {
+      logCenter.text = "";
+      logCenter.path = "";
     }
   }
   logCenter.kind = kind;
   logCenter.id = id;
-  el.logClearSrcBtn.hidden = kind !== "shell";
+  if (el.logClearSrcBtn) el.logClearSrcBtn.hidden = false;
   renderLogContent();
 }
 
@@ -2581,51 +2793,92 @@ function capTextLines() {
   if (count >= LOG_CENTER_MAX_LINES) logCenter.text = t.slice(idx);
 }
 
+// 一行是否符合当前筛选。「只看错误」既认后端打的 stderr 前缀（\x1F），
+// 也认行内明显的级别词——很多程序把错误写到 stdout，只按流分不够。
+const LOG_ERR_WORDS = /\b(ERROR|ERR|FATAL|PANIC|WARN|FAILED|FAIL|EXCEPTION)\b/i;
+function logLineVisible(line, q) {
+  if (q && !line.toLowerCase().includes(q)) return false;
+  if (!logCenter.onlyErr) return true;
+  return line.charCodeAt(0) === 0x1f || LOG_ERR_WORDS.test(line) || /失败|错误|异常/.test(line);
+}
+
+function logLineEl(rawLine) {
+  const isErr = rawLine.charCodeAt(0) === 0x1f;
+  const div = document.createElement("div");
+  if (isErr) {
+    div.className = "log-err";
+    div.textContent = rawLine.slice(1);
+  } else {
+    div.textContent = rawLine;
+  }
+  return div;
+}
+
 function renderLogContent() {
-  const q = logCenter.search.trim().toLowerCase();
   const container = el.logContent;
+  if (!container) return;
   const wasAtBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 80;
-  // 阅读中不跟随：整段重建后 DOM 滚动位置会被清零。
-  // 记录当前视口顶部所在行的索引，重建后按行号恢复位置（新行继续追加下方），
-  // 避免「跟随开启时滚轮上翻，每 2s 轮询被弹回顶部/底部」的跳来跳去。
-  let anchorIndex = -1;
-  if (!wasAtBottom && container.children.length) {
-    const top = container.scrollTop;
-    for (let i = 0; i < container.children.length; i++) {
-      if (container.children[i].offsetTop + container.children[i].offsetHeight > top) {
-        anchorIndex = i;
-        break;
-      }
-    }
+  const text = (logCenter.text || "").replace(/\r\n?/g, "\n");
+  const q = logCenter.search.trim().toLowerCase();
+  const key = `${logCenter.kind}\u0000${logCenter.id}\u0000${q}\u0000${logCenter.onlyErr ? 1 : 0}`;
+  // 视图变了、或者文本不再以已渲染内容开头（被截头了）→ 整体重建
+  const rebuild = key !== logViewKey || !text.startsWith(logRenderedText);
+
+  if (rebuild) {
+    container.innerHTML = "";
+    logViewKey = key;
+    logRenderedLen = 0;
+    logRenderedText = "";
   }
-  container.innerHTML = "";
-  let matched = 0;
-  const text = logCenter.text || "";
+
+  // 只渲染到最后一个换行：末尾那半行还没写完，下一轮再画，
+  // 免得把一行拆成两个 div 又在下轮变成重复行。
+  const upto = text.lastIndexOf("\n");
+  const limit = upto >= 0 ? upto + 1 : 0;
   const frag = document.createDocumentFragment();
-  for (const rawLine of text.replace(/\r\n?/g, "\n").split("\n")) {
-    const isErr = rawLine.startsWith("\u001f");
-    const line = isErr ? rawLine.slice(1) : rawLine;
-    if (q && !line.toLowerCase().includes(q)) continue;
-    matched++;
-    const div = document.createElement("div");
-    div.className = isErr ? "log-err" : "";
-    div.textContent = line;
-    frag.appendChild(div);
+  if (limit > logRenderedLen) {
+    const delta = text.slice(logRenderedLen, limit);
+    for (const rawLine of delta.split("\n")) {
+      if (rawLine === "" && delta.endsWith("\n")) continue;
+      if (!logLineVisible(rawLine, q)) continue;
+      frag.appendChild(logLineEl(rawLine));
+    }
+    if (frag.childNodes.length) {
+      // 之前那行「没有日志」的空态留着会变成一条假日志夹在中间
+      const stale = container.querySelector(".log-muted");
+      if (stale) stale.remove();
+      container.appendChild(frag);
+    }
+    logRenderedLen = limit;
+    logRenderedText = text.slice(0, limit);
   }
-  if (!q && !matched) {
+
+  // 统计口径：总行数取整段（不受增量影响），匹配数按当前筛选重新数一遍太贵，
+  // 用「已渲染的可见行数」就够指导判断了。
+  const allLines = text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
+  const shownLines = container.querySelectorAll("div:not(.log-muted)").length;
+  const cnt = document.querySelector("#log-src-count");
+  if (cnt) {
+    cnt.textContent = logCenter.onlyErr || q
+      ? t("log.count_filtered", { shown: shownLines, total: allLines })
+      : t("log.count", { total: allLines });
+  }
+  const pathEl = document.querySelector("#log-src-path");
+  if (pathEl) {
+    // 只显示文件名（`clip9.log` / `shell.log`），完整路径放 title：
+    // 头部这一行是「我现在看的是哪份日志」，太长反而看不清。
+    const full = logCenter.path || "";
+    pathEl.textContent = full.split(/[\\/]/).pop() || full;
+    pathEl.title = full;
+  }
+  if (!container.querySelector("div:not(.log-muted)")) {
     const empty = document.createElement("div");
     empty.className = "log-muted";
-    empty.textContent = t("shell_log.empty");
-    frag.appendChild(empty);
+    empty.textContent = logCenter.onlyErr || q ? t("log.no_match") : t("shell_log.empty");
+    container.appendChild(empty);
   }
-  container.appendChild(frag);
   if (logCenter.follow && wasAtBottom) {
-    // 跟随模式 + 本来就在底部：固定钉在最新一行
     container.scrollTop = container.scrollHeight;
-    return;
-  }
-  if (anchorIndex >= 0 && container.children[anchorIndex]) {
-    container.scrollTop = container.children[anchorIndex].offsetTop;
   }
 }
 
@@ -3136,26 +3389,40 @@ document.querySelector("#log-search").oninput = (e) => {
   logCenter.search = e.target.value;
   renderLogContent();
 };
+// 「只看错误」：筛出 stderr 行 + 带 ERROR/WARN/PANIC 等字样的行。
+// 排障时 90% 的时间在看这几十行，而不是 3000 行 INFO。
+const onlyErrBox = document.querySelector("#log-only-err");
+if (onlyErrBox) {
+  onlyErrBox.onchange = () => {
+    logCenter.onlyErr = onlyErrBox.checked;
+    renderLogContent();
+  };
+}
 document.querySelector("#log-follow").onclick = () => {
   logCenter.follow = !logCenter.follow;
-  const b = document.querySelector("#log-follow");
-  b.textContent = t("log.follow") + (logCenter.follow ? " ✓" : "");
-  if (logCenter.follow) startLogCenterTailing();
-  else stopLogCenterTailing();
-};
-document.querySelector("#log-copy").onclick = async () => {
-  try {
-    await navigator.clipboard.writeText(logCenter.text || "");
-    showNotice(t("toast.addr_copied"));
-  } catch {
-    showNotice(t("toast.copy_fail"), true);
+  syncLogToolbar();
+  if (logCenter.follow) {
+    startLogCenterTailing();
+    // 重新打开跟随时立刻贴底，而不是等下一次轮询
+    const c = el.logContent;
+    if (c) c.scrollTop = c.scrollHeight;
+  } else {
+    stopLogCenterTailing();
   }
+};
+document.querySelector("#log-copy").onclick = () => {
+  // 复制当前源的全部文本（不是筛选后的视图）：粘到别处要的是原始日志
+  copyText(logCenter.text || "", "toast.addr_copied");
 };
 document.querySelector("#log-clear-src").onclick = async () => {
   try {
-    await invoke("clear_shell_log");
+    if (logCenter.kind === "shell") await invoke("clear_shell_log");
+    else await invoke("clear_program_log", { programId: logCenter.id });
     logCenter.text = "";
+    // 清完把偏移归零，否则下一轮增量会以为「文件变短」而走重建分支
+    if (logCenter.kind === "program") delete logCenterOffsets[logCenter.id];
     renderLogContent();
+    showNotice(t("log.cleared"));
   } catch (e) {
     showNotice(String(e), true);
   }
@@ -3235,6 +3502,28 @@ const cfgEditBtn = document.querySelector("#cfg-edit-btn");
 if (cfgEditBtn) {
   cfgEditBtn.onclick = () => {
     if (current) openEditModal(current);
+  };
+}
+
+// 配置页「原始 JSON」的复制与明文切换。
+// 复制永远给原文（打码后的 JSON 复制出去没有排查价值）；
+// 眼睛只影响屏幕上显示的那一份。
+if (el.cfgRawCopy) {
+  el.cfgRawCopy.onclick = async () => {
+    if (!rawJsonFull) return;
+    try {
+      await navigator.clipboard.writeText(rawJsonFull);
+      showNotice(t("toast.copied"), false);
+    } catch {
+      /* 剪贴板不可用（非 https / 无权限）：静默，和日志复制保持一致 */
+    }
+  };
+}
+const rawEye = document.querySelector("#cfg-raw-eye");
+if (rawEye) {
+  rawEye.onclick = () => {
+    rawJsonRevealed = !rawJsonRevealed;
+    paintRawJson();
   };
 }
 

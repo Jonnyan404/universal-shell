@@ -926,6 +926,35 @@ impl ShellManager {
         Some((name.to_string(), path.display().to_string(), content))
     }
 
+    /// 该程序在 `shell.json` 里的**原始条目**（连同上一步落盘路径）。
+    ///
+    /// 直接读盘，而不是把内存里的 `Program` 序列化后给前端：用户要的是「配置文件里
+    /// 到底写了什么」。手改过文件、多写了壳不认识的字段时，内存态会把这些悄悄丢掉，
+    /// 那就不是「原始」了。读不到（还没落盘 / 文件坏了）时退回内存序列化，
+    /// 至少界面上不是空的。
+    pub fn raw_program(&self, id: &str) -> Option<(String, serde_json::Value)> {
+        let path = self.data_dir.join("shell.json");
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                if let Some(item) = v
+                    .get("programs")
+                    .and_then(|x| x.as_array())
+                    .and_then(|arr| {
+                        arr.iter()
+                            .find(|x| x.get("id").and_then(|i| i.as_str()) == Some(id))
+                    })
+                {
+                    return Some((path.display().to_string(), item.clone()));
+                }
+            }
+        }
+        self.all_programs()
+            .into_iter()
+            .find(|p| p.id == id)
+            .and_then(|p| serde_json::to_value(&p).ok())
+            .map(|v| (path.display().to_string(), v))
+    }
+
     /// 用字段值渲染 args 并启动子进程
     /// 把 `supervisor = native` 的程序同步成 `services.toml` 里的派生条目。
     ///

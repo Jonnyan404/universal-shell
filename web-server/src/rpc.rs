@@ -302,6 +302,9 @@ struct LogsView {
     offset: u64,
     /// 文件被截断/重建导致偏移失效，前端应整体重渲
     reset: bool,
+    /// 实际读的那个文件的绝对路径。界面标题要显示 `{id}.log` 而不是
+    /// 泛泛的「程序日志」——出问题时要能直接把这个路径拿去 tail。
+    path: String,
 }
 
 /// 增量日志读取（F-3/F11）：
@@ -1144,6 +1147,19 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 None => Err(program_not_found(&id)),
             }
         }
+        // 配置页底部的「原始 JSON」：读 shell.json 里这一项，原样给前端。
+        // 不是前端拿 get_programs 重新拼的——那样只能看到壳「认识」的字段。
+        "program_raw" => {
+            let id = arg_str(args, "programId");
+            let mgr = state.manager.lock().unwrap();
+            match mgr.raw_program(&id) {
+                Some((path, v)) => Ok(json!({
+                    "path": path,
+                    "json": serde_json::to_string_pretty(&v).unwrap_or_default(),
+                })),
+                None => Err(program_not_found(&id)),
+            }
+        }
         "services_list" => {
             let dir = { state.manager.lock().unwrap().data_dir.clone() };
             crate::services::list(&dir).map_err(|e| format!("{e:#}"))
@@ -1381,7 +1397,13 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
             }
             let path = mgr.log_dir().join(format!("{program_id}.log"));
             let (text, new_offset, reset) = read_log_delta(&path, offset);
-            Ok(serde_json::to_value(LogsView { text, offset: new_offset, reset }).map_err(|e| format!("rpc: logs view: {e}"))?)
+            Ok(serde_json::to_value(LogsView {
+                text,
+                offset: new_offset,
+                reset,
+                path: path.display().to_string(),
+            })
+            .map_err(|e| format!("rpc: logs view: {e}"))?)
         }
         "get_shell_log" => {
             let mgr = state.manager.lock().unwrap();
@@ -1404,6 +1426,29 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
         "clear_shell_log" => {
             let mgr = state.manager.lock().unwrap();
             mgr.clear_op_log();
+            Ok(json!({}))
+        }
+        // 日志中心头部要显示「实际读的是哪个文件」。壳日志的文件名不一定是
+        // shell.log（`--config` 可以换目录），所以路径从后端拿，前端不猜。
+        "log_path" => {
+            let kind = arg_str(args, "kind");
+            let mgr = state.manager.lock().unwrap();
+            let path = if kind == "shell" {
+                mgr.op_log_path()
+            } else {
+                mgr.log_dir().join(format!("{}.log", arg_str(args, "programId")))
+            };
+            Ok(json!({ "path": path.display().to_string() }))
+        }
+        // 清空单个程序的日志。之前只有「停止程序」会顺带清，日志中心想单独清
+        // 一份历史日志没有入口。
+        "clear_program_log" => {
+            let id = arg_str(args, "programId");
+            let mgr = state.manager.lock().unwrap();
+            if !mgr.all_programs().iter().any(|p| p.id == id) {
+                return Err(program_not_found(&id));
+            }
+            mgr.clear_log(&id);
             Ok(json!({}))
         }
 

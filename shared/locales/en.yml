@@ -687,3 +687,18 @@ wb.upd_keep: Update keeps your filled fields; only the binary is replaced and re
 wb.sched_unit: Generated %{p} unit
 wb.sched_unit_none: Switch to "System scheduler" to see the unit file that will be written
 wb.sched_unit_fail: 'Cannot read unit file: %{err}'
+wb.cfg_raw: Raw JSON
+wb.cfg_raw_fail: 'Cannot read: %{err}'
+err.open_site: 'Cannot open the browser, visit manually: %{url}'
+toast.site_not_running: Program is not running, the page may not load
+log.grp_shell: Shell
+log.grp_prog: Programs
+log.shell_hint: The shell's own log — startup failures, RPC errors and scheduler sync all land here
+log.shell_file: shell.log (shell runtime log)
+log.only_err: Errors only
+log.only_err_hint: Show only stderr lines and lines containing ERROR / WARN / PANIC
+log.count: '%{total} lines'
+log.count_filtered: '%{shown} / %{total} lines'
+log.no_match: No matching lines
+log.cleared: Log cleared
+toast.opening_site: Opening the site…

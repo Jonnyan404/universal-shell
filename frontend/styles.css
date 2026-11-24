@@ -321,6 +321,39 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .log-tabs .log-src.active { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .log-tabs .log-src .src-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: var(--muted); }
 .log-tabs .log-src .src-dot.on { background: var(--ok); }
+/* 源分组标签（壳日志 / 程序日志）：比源按钮更轻，只做分隔说明 */
+.log-tabs .log-grp {
+  flex: 0 0 auto; align-self: center; padding: 0 2px 0 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: .4px;
+  color: var(--muted); opacity: .75; white-space: nowrap;
+}
+.log-tabs .log-grp:first-child { padding-left: 0; }
+/* 当前源实际读的文件 + 行数：排障第一步是确认「看的是对的日志」 */
+.log-srcpath {
+  display: flex; align-items: center; gap: 7px; flex: 0 0 auto;
+  margin: -2px 0 8px; padding: 0 2px;
+  font-size: 10.5px; color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.log-srcpath-dot {
+  width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.log-srcpath-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-srcpath-count { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+/* 「只看错误」开关 */
+.log-onlyerr {
+  display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
+  font-size: 11.5px; color: var(--muted); cursor: pointer; user-select: none;
+  padding: 4px 8px; border-radius: 7px; border: 1px solid transparent;
+}
+.log-onlyerr:hover { color: var(--text); border-color: var(--border); }
+.log-onlyerr input { margin: 0; width: 13px; height: 13px; cursor: pointer; }
+.log-onlyerr:has(input:checked) {
+  color: color-mix(in srgb, var(--danger) 78%, var(--text));
+  border-color: color-mix(in srgb, var(--danger) 32%, transparent);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
 .log-search {
   width: 220px; padding: 5px 10px; border-radius: 6px;
   background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
@@ -822,6 +855,20 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .unit-pre::-webkit-scrollbar-track { background: #0f172a; }
 .unit-pre::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
 .unit-empty { padding: 12px 11px; font-size: 11.5px; color: var(--muted); }
+/* 深色头里的操作按钮：用半透明白描边，不跟浅色主题的 .btn 混 */
+.unit-head .unit-copy {
+  flex: 0 0 auto; padding: 2px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 10.5px; line-height: 1.6;
+  color: #cbd5e1; background: rgba(148, 163, 184, .14);
+  border: 1px solid rgba(148, 163, 184, .28);
+}
+.unit-head .unit-copy:hover { background: rgba(148, 163, 184, .26); color: #f1f5f9; }
+.unit-head .unit-copy[hidden] { display: none; }
+/* 原始 JSON 的轻量高亮：key 天蓝、字符串值绿，和日志窗的配色同族 */
+.unit-pre .jv-k { color: #7dd3fc; }
+.unit-pre .jv-s { color: #86efac; }
+/* 配置页最后一块，底部留白交给面板，不再多叠 12px */
+#cfg-raw { margin-bottom: 0; }
 .edit-field-del {
   flex: 0 0 auto; background: none; border: none; color: var(--danger);
   font-size: 16px; cursor: pointer;
@@ -1431,13 +1478,28 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
 .wb-inspector .d-body > .manage-body { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 14px; }
 .wb-inspector .manage-log { --ml-height: 180px; }
 .wb-insp-close {
-  display: none; width: 24px; height: 24px; padding: 0; flex: 0 0 auto;
+  display: inline-grid; place-items: center;
+  width: 24px; height: 24px; padding: 0; flex: 0 0 auto;
   border: 1px solid var(--border); border-radius: 6px; background: transparent;
   color: var(--muted); cursor: pointer; font-size: 11px;
 }
 .wb-insp-close:hover { color: var(--text); border-color: var(--accent); }
 /* 说明搬到概览页的「说明」卡片里了，这里不再重复渲染一遍 */
 .wb-inspector .status-desc { display: none !important; }
+
+/* 抽屉遮罩：只在窄屏 + 抽屉打开时出现。点它就是「点空白处」——关掉详情。 */
+.wb-insp-mask { display: none; }
+@media (max-width: 1100px) {
+  body.wb-insp-open .wb-insp-mask {
+    display: block; position: absolute; inset: 0; z-index: 35;
+    background: rgba(15, 23, 42, .34);
+  }
+}
+/* 宽屏收起详情：检查器整块消失，列表自然占满。
+   再点任意一行会由 select() 把 wb-insp-closed 摘掉，不会卡死在「没有详情」的状态。 */
+@media (min-width: 1101px) {
+  body.wb-insp-closed .wb-inspector { display: none; }
+}
 
 /* ---------- 概览页：KPI + 卡片 ---------- */
 .kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
@@ -1604,7 +1666,6 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
     transform: translateX(102%); transition: transform .18s ease;
   }
   body.wb-insp-open .wb-inspector { transform: none; }
-  .wb-insp-close { display: inline-grid; place-items: center; }
 }
 
 /* ---------- 移动端：两行列表 ---------- */

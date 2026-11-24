@@ -687,3 +687,18 @@ wb.upd_keep: 更新保留已填字段，仅替换二进制并重启
 wb.sched_unit: 生成的 %{p} 单元
 wb.sched_unit_none: 切到「系统调度」后这里会显示将要写入的单元文件
 wb.sched_unit_fail: 读不到单元文件：%{err}
+wb.cfg_raw: 原始 JSON
+wb.cfg_raw_fail: '读取失败: %{err}'
+err.open_site: '打不开浏览器，请手动访问: %{url}'
+toast.site_not_running: 程序未运行，页面可能打不开
+log.grp_shell: 壳日志
+log.grp_prog: 程序日志
+log.shell_hint: 壳自身的运行日志：启动失败、RPC 报错、调度同步都写这里
+log.shell_file: shell.log（壳运行日志）
+log.only_err: 只看错误
+log.only_err_hint: 只显示 stderr 行和带 ERROR / WARN / PANIC 等字样的行
+log.count: '%{total} 行'
+log.count_filtered: '%{shown} / %{total} 行'
+log.no_match: 没有匹配的行
+log.cleared: 日志已清空
+toast.opening_site: 正在打开网站…
