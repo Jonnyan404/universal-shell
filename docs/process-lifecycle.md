@@ -39,15 +39,16 @@ ShellManager::start()
 1. 端口、数据库文件锁（如 redb）仍被占用；
 2. 壳重启后 `children` 表空 → 界面显示「未运行」；
 3. 用户点启动 → 新实例打开同一个数据库 → `Cannot acquire lock` → exit 1；
-4. 子进程的 stdout 管道读端随壳进程消失，之后写日志只会 EPIPE。
+4. ~~子进程的 stdout 管道读端随壳进程消失，之后写日志只会 EPIPE。~~
 
-第 4 点比想象中严重：**持续往 stdout 写日志的程序会在壳死后自己退出**
-（Python 抛 `BrokenPipeError`、Rust `println!` panic）。所以租约对「启动后
-安静运行」的程序有效（例如 clip9 这种 Rust 二进制），对高频打印的程序只能
-在它自杀前的一小段时间内有效。
+第 4 点曾经最致命：管道读端在壳进程里，壳被 SIGKILL 后读端消失，子进程下一次
+`write` 就拿到 EPIPE —— Python 抛 `BrokenPipeError`、Rust `println!` panic、
+Go 默认被 `SIGPIPE` 杀掉。实测「每 5 秒 print 一次」的程序在壳死后 **5 秒内
+自己退出**，租约抓到的是一具尸体。`SIGPIPE = SIG_IGN` 只挡信号，挡不住
+`write()` 返回 EPIPE。
 
-> 根治办法是让子进程的 stdout/stderr 直接指向日志文件（fd 不经过壳），
-> 代价是失去 stderr 前缀染色与实时推送。尚未实施。
+**已解决**（见第 7 节）：stdout/stderr 不再走管道，直接写文件；壳侧一个「泵」
+线程轮询文件新增字节，合并进 `{id}.log` 并保留 stderr 前缀染色与实时推送。
 
 ## 3. 租约（lease）：把管理关系写到盘上
 
@@ -60,22 +61,37 @@ ShellManager::start()
     "started_at": 1795486542,
     "port": 9511,
     "bin": "clip9-cli",
-    "comm": "python3"
+    "comm": "clip9-cli",
+    "cmd_args": "-host 127.0.0.1 -port 9501"
+  },
+  "chatty": {
+    "pid": 17038,
+    "started_at": 1795490733,
+    "port": null,
+    "bin": "python3",
+    "comm": "Python",
+    "cmd_args": "/tmp/us-epipe-test/chatty.py"
   }
 }
 ```
 
 - `bin`：可执行文件名（`bin_path` 的最后一段）
-- `comm`：spawn 之后实际进程名。脚本型程序这里是解释器，和 `bin` 对不上，
+- `comm`：实际进程名。脚本型程序这里是解释器，和 `bin` 对不上，
   结束进程时两个名字任一匹配即可
+- `cmd_args`：命令行去掉 `argv[0]` 的剩余部分。**这是给「启动器再 exec 一次」
+  准备的第二判据**：macOS 的 `/usr/bin/python3` 是个壳，真正跑的是
+  `.../Python.app/.../Python`，进程名变成 `Python`；`argv[0]` 会被 exec 改写，
+  但后面的参数原样保留，所以参数一致就能认出同一个进程
 - 写入时机：`start()` 成功后；删除时机：`stop()` / 进程退出 / 删程序 / `prune`
+- 自愈：`reconcile_leases()` 会用活进程 `refresh_identity()` 刷一遍这两个字段，
+  旧版本写的、没有 `cmd_args` 的租约也能补上
 
 ### 认领宽松，动手严格
 
 | 判断 | 规则 | 理由 |
 |---|---|---|
 | `Lease::is_live` | 只看 `kill(pid, 0)` | 名字对不上可能是脚本，一律当死会把正常残留丢掉 |
-| `Lease::name_matches` | `bin` 或 `comm` 任一匹配当前进程名 | pid 可能被复用，kill 前必须确认 |
+| `Lease::name_matches` | `bin`/`comm` 匹配当前进程名，**或** `cmd_args` 与当前命令行参数完全一致 | pid 可能被复用，kill 前必须确认；启动器 exec 会换掉进程名，参数不会变 |
 | `terminate` | `name_matches` 为假就拒绝 | 宁可清理失败，也不能误杀无关进程 |
 
 ### 启动时 reconcile
@@ -83,7 +99,8 @@ ShellManager::start()
 `web-server::start_with_state()` 在起服务前调用 `mgr.reconcile_leases()`：
 
 1. `prune()` 清掉死记录；
-2. 活着的写进 `external: BTreeMap<String, u32>`；
+2. `refresh_live()` 用活进程刷新 `comm` / `cmd_args`，活着的写进 `external: BTreeMap<String, u32>`；
+   顺手 `logpump::watch(..., resume = true)` 把日志泵接上（孤儿进程的输出照样实时进界面）；
 3. 打一条 warn 日志「接管 N 个上次会话残留进程」。
 
 之后：
@@ -123,6 +140,68 @@ lsof -nP -iTCP:9501 -sTCP:LISTEN
 
 ## 6. 仍未做
 
-- 子进程 stdout/stderr 改指向文件（解决 EPIPE 自杀）
 - 进程组：Unix 上 `setsid` + 按 pgid 杀，连带清掉程序自己 fork 的子进程
 - 外部接管的进程不采样内存（没有 pid 之外的凭据时无法确认归属，先不采）
+- Windows 上 `pid_cmd_args` 取不到命令行（`tasklist` 不提供），只能靠进程名认人
+
+---
+
+## 7. 日志：不用管道，改「文件 + 合并泵」
+
+代码在 `shared/src/logpump.rs`。
+
+### 为什么管道不行
+
+管道的读端属于壳进程。壳被 SIGKILL → 读端关闭 → 子进程 `write` 返回 EPIPE。
+这不是「偶尔报个错」，是**把子进程直接弄死**（见第 2 节第 4 点）。
+
+### 现在的结构
+
+```
+子进程 stdout ──► {id}.stdout  ┐
+                              ├─► 泵线程（壳内，120ms 轮询）──► {id}.log ──► 界面
+子进程 stderr ──► {id}.stderr  ┘        stderr 行加 \x1F 前缀
+```
+
+- `open_sources()` 用 `append` 打开两个普通文件，直接作为 `Stdio` 交给 `Command`。
+  壳怎么死，子进程的 `write` 都成功。
+- 泵线程每 120ms 读两个文件的新增字节（记住偏移），把 stdout 原样、stderr
+  逐行加 `\x1F` 前缀后追加进合并日志 `{id}.log`，然后广播 `LogWritten` 事件
+  （前端据此增量拉 `get_logs`，150ms 内合并成一次）。
+- 偏移落盘在 `{id}.log.off`（`"<out> <err>"`，临时文件 + rename）。
+  壳重启后从上次偏移继续，**壳死掉那段时间的输出会被补进合并日志**。
+- 泵**不依赖子进程句柄**，只读文件。所以孤儿进程（外部接管）也能继续采集日志，
+  `reconcile_leases()` 接管时顺手 `watch(..., resume=true)`。
+- 截断：合并日志 512KB、源文件 4MB，超限截末一半并对齐行首。
+- `clear_log` 必须连两个源文件一起清，否则泵下一轮会把旧内容再合一遍。
+
+### 代价（如实记录）
+
+- **两路之间没有严格时序**：同一轮轮询里先追加 stdout 再追加 stderr。
+  正常速率下（每轮各一行）看起来是交织的；如果壳刚重启、积压了几十行，
+  会看到「一段 stdout + 一段 stderr」。旧实现是两个线程抢同一把写锁，
+  本来也没有严格时序保证，所以这不算退步。
+- **壳死掉期间源文件没人裁**。合并日志仍按 512KB 截，源文件在泵恢复后
+  一并裁到 4MB。壳长时间不启动 + 程序狂打日志，磁盘会被吃掉一些。
+
+### 验证过的场景
+
+1. 起一个每秒写 stdout+stderr 的 python 程序 → 合并日志里 `stdout tick N` 与
+   `\x1Fstderr tick N` 逐行交织，界面 stderr 行是红色。
+2. `kill -9` 壳 → 子进程 PPID=1 **继续存活并继续写**（旧实现在 1 秒内就死了）。
+3. 重启壳 → `workspace_list` 返回 `external_pid`，泵从 `{id}.log.off` 继续，
+   把壳死掉那段的输出补进合并日志（实测 tick 29–32 补齐，无重复无丢失）。
+4. 界面不刷新，4 秒内日志从 tick 87 涨到 91 —— 实时推送链路完好。
+5. `stop_program` → 进程结束、泵收尾。
+
+### 顺带修掉的两个坑
+
+- **`working_dir` 为空串**时 `Command::spawn` 返回 ENOENT，错误信息却指着二进制
+  （「Cannot start /usr/bin/python3: No such file or directory」），极难排查。
+  现在空串按 `.` 处理，自定义目录不存在则给出明确报错。
+- **进程名被 exec 换掉**：macOS 的 `/usr/bin/python3` 是个壳，真正跑的是
+  `.../Python.app/.../Python`，进程名变成 `Python`。租约里记的是 `python3`，
+  于是「停止」以「pid 可能已被复用」为由拒绝，孤儿永远清不掉。
+  租约新增 `cmd_args`（命令行去掉 argv[0]）：**进程名对不上时看参数**，
+  参数完全一致即认作同一个进程。`reconcile_leases()` 接管时会用活进程刷新
+  这两个字段，旧版本写的、没有 `cmd_args` 的租约也能自愈。

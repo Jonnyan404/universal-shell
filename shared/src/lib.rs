@@ -12,6 +12,7 @@ pub mod github;
 pub mod insight;
 pub mod lease;
 pub mod locale;
+pub mod logpump;
 pub mod ping;
 pub mod progress;
 pub mod registry;

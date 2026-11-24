@@ -41,6 +41,15 @@ pub struct Lease {
     /// 「pid 已被复用」而拒绝清理。
     #[serde(default)]
     pub comm: String,
+    /// 命令行去掉 argv[0] 之后的剩余部分（参数原样拼接）。
+    ///
+    /// 光靠进程名挡不住「启动器再 exec 一次」的情况：macOS 的 `/usr/bin/python3`
+    /// 是个壳，真正跑起来的是 `.../Python.app/.../Python`，进程名变成 `Python`，
+    /// 和租约里的 `python3` 对不上，于是「停止」被拒绝、孤儿杀不掉。
+    /// 参数部分不会变（`ps -o command=` 里 argv[0] 被换掉，后面原样保留），
+    /// 所以拿它做第二判据：参数完全一致 ⇒ 就是同一个进程。
+    #[serde(default)]
+    pub cmd_args: String,
 }
 
 impl Lease {
@@ -51,6 +60,7 @@ impl Lease {
             port,
             bin: bin.into(),
             comm: pid_comm(pid).unwrap_or_default(),
+            cmd_args: pid_cmd_args(pid).unwrap_or_default(),
         }
     }
 
@@ -62,6 +72,27 @@ impl Lease {
     /// [`terminate`] 里：认领可以宽，动手必须严。
     pub fn is_live(&self) -> bool {
         pid_alive(self.pid)
+    }
+
+    /// 用当前活着的进程刷新身份字段（进程名 / 命令行参数），返回是否有变化。
+    ///
+    /// 两处用到：壳重启接管旧租约时（补上旧版本没有的 `cmd_args`，也修正
+    /// 「spawn 瞬间读到的还是启动器名字」的记录）；以及 put 之后的一次校正。
+    pub fn refresh_identity(&mut self) -> bool {
+        let mut changed = false;
+        if let Some(c) = pid_comm(self.pid) {
+            if c != self.comm {
+                self.comm = c;
+                changed = true;
+            }
+        }
+        if let Some(a) = pid_cmd_args(self.pid) {
+            if a != self.cmd_args {
+                self.cmd_args = a;
+                changed = true;
+            }
+        }
+        changed
     }
 
     /// 当前进程名是否对得上这条租约（`bin` 或 `comm` 任一匹配）。
@@ -76,9 +107,22 @@ impl Lease {
         let cur = normalize_comm(&cur);
         let bin = normalize_comm(&self.bin);
         let comm = normalize_comm(&self.comm);
-        (!bin.is_empty() && cur == bin)
+        if (!bin.is_empty() && cur == bin)
             || (!comm.is_empty() && cur == comm)
             || (!bin.is_empty() && cur.starts_with(&bin))
+        {
+            return true;
+        }
+        // 进程名对不上时看参数：启动器再 exec 会换掉 argv[0]（进程名跟着变），
+        // 但后面的参数原样保留。参数完全一致 ⇒ 同一个进程。
+        if !self.cmd_args.trim().is_empty() {
+            if let Some(live) = pid_cmd_args(self.pid) {
+                if live.trim() == self.cmd_args.trim() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -176,6 +220,21 @@ impl LeaseStore {
         dead
     }
 
+    /// 给所有活着的租约刷一遍身份字段（进程名 / 命令行参数）。
+    /// 返回刷新后的活租约列表；有变化就落盘。
+    pub fn refresh_live(&mut self) -> Vec<(String, Lease)> {
+        let mut changed = false;
+        for l in self.map.values_mut() {
+            if l.is_live() && l.refresh_identity() {
+                changed = true;
+            }
+        }
+        if changed {
+            self.save();
+        }
+        self.live()
+    }
+
     /// 还活着、且确实是我们当初那个进程的租约。
     pub fn live(&self) -> Vec<(String, Lease)> {
         self.map
@@ -271,6 +330,53 @@ pub fn pid_comm(pid: u32) -> Option<String> {
         s = stripped.to_string();
     }
     Some(s)
+}
+
+/// 命令行去掉 argv[0] 的剩余部分，用于「进程名被 exec 换掉」时认人。
+///
+/// 只取参数、不取 argv[0]：启动器 exec 真身时会把 argv[0] 改写成真身路径
+/// （`python3` → `/Library/.../Python.app/.../Python`），参数则原样带过去。
+pub fn pid_cmd_args(pid: u32) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    {
+        let raw = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+        let parts: Vec<String> = raw
+            .split(|&b| b == 0)
+            .filter(|s| !s.is_empty())
+            .map(|s| String::from_utf8_lossy(s).into_owned())
+            .collect();
+        if parts.len() <= 1 {
+            return None;
+        }
+        Some(parts[1..].join(" "))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "command=", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let line = text.trim();
+        if line.is_empty() {
+            return None;
+        }
+        // 按空白切掉 argv[0] 再拼回去；两侧用同一套归一化，所以带空格的参数也能比对上
+        let mut it = line.split_whitespace();
+        it.next()?;
+        let rest = it.collect::<Vec<_>>().join(" ");
+        if rest.is_empty() {
+            None
+        } else {
+            Some(rest)
+        }
+    }
+    #[cfg(windows)]
+    {
+        // tasklist 不提供命令行；返回 None 就走进程名那条路
+        let _ = pid;
+        None
+    }
 }
 
 /// 谁在监听这个 TCP 端口。拿不到（没权限 / 没装 lsof）返回 None。
@@ -435,9 +541,41 @@ mod tests {
         // 名字都对不上 = pid 被复用，不能认领也不能 kill
         let mut stale = Lease::new(me, None, "definitely-not-this-binary");
         stale.comm = String::new();
+        stale.cmd_args = "totally-different-args".into();
         assert!(!stale.name_matches());
         // 但存活判定仍为真（认领宽松，动手严格）
         assert!(stale.is_live());
+    }
+
+    /// 启动器再 exec 一次会把进程名换掉（macOS 的 `/usr/bin/python3` 实际跑的是
+    /// `.../Python.app/.../Python`），此时进程名对不上但参数不变 —— 必须靠
+    /// `cmd_args` 认出来，否则孤儿进程永远停不掉。
+    #[test]
+    fn exec_rewritten_comm_falls_back_to_cmd_args() {
+        let sleep_bin = std::path::PathBuf::from("/bin/sleep");
+        if !sleep_bin.exists() {
+            return; // 非 unix 环境跳过
+        }
+        let mut child = std::process::Command::new(&sleep_bin)
+            .arg("30")
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let args = pid_cmd_args(pid).expect("应能读到命令行参数");
+        assert_eq!(args, "30", "argv[0] 应被剥掉");
+
+        // 名字故意写错（模拟 exec 换名），参数对得上 → 认人成功
+        let mut l = Lease::new(pid, None, "not-the-real-binary");
+        l.comm = "definitely-not-sleep".into();
+        l.cmd_args = args;
+        assert!(l.name_matches(), "参数一致就该认作同一个进程");
+
+        // 参数也不同 → 才是真的 pid 复用
+        l.cmd_args = "29".into();
+        assert!(!l.name_matches(), "参数不一致不能认领");
+
+        let _ = child.kill();
+        let _ = child.wait();
     }
 
     #[test]

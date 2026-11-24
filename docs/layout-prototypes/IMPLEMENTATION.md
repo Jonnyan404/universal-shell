@@ -109,6 +109,14 @@
         另外 `input[type=password]` 没被 `input[type=text]` 的样式覆盖，深色主题下留了浏览器默认白底，
         四处选择器都补上 `[type="password"]`。
 
+- [x] **P14 日志不再走管道（EPIPE 根治）**：`shared/src/logpump.rs` 新增「文件 + 合并泵」。
+      子进程 stdout/stderr 直接 `append` 到 `{id}.stdout` / `{id}.stderr`（`Stdio::from(File)`，
+      不经过壳），壳里一个泵线程每 120ms 读新增字节，把 stderr 逐行加 `\x1F` 前缀后合并进
+      `{id}.log`，再广播 `LogWritten`。**前缀染色与实时推送全部保留**，代价只是两路之间
+      没有严格时序（旧实现两个线程抢同一把写锁，本来也没有）。偏移落盘 `{id}.log.off`，
+      壳重启后从上次位置继续，壳死掉那段的输出会补进合并日志；泵不依赖子进程句柄，
+      所以孤儿进程（外部接管）也能继续采集。细节与验证见 `docs/process-lifecycle.md` 第 7 节。
+
 ---
 
 ## 3. 下一步（接手从这里开始）
@@ -216,9 +224,11 @@ await send("Page.navigate", { url });
 
 | 文件 | 改了什么 |
 |---|---|
+| `shared/src/logpump.rs` | **新增**：子进程日志「文件 + 合并泵」——直写文件不走管道（根治 EPIPE 自杀），stderr 行加 `\x1F` 前缀后合并，偏移落盘支持壳重启续采；4 个单测 |
 | `shared/src/insight.rs` | **新增**：内存采样环形缓冲 + 事件环形缓冲（落盘 `insight.json`）+ 跨平台 `rss_kb(pid)` |
-| `shared/src/runner.rs` | `Runner.started` 记录启动时刻（`uptime_secs()`）、`exits` 记录退出码（`take_exit()`）；补测试 `uptime_tracks_start_and_stop` |
-| `shared/src/shell_manager.rs` | 持有 `insight`；start/stop/sweep 落事件；`sample_memory()`；删程序时 `forget()`；**P13 抽出 `derive_service()` + 新增 `unit_preview()`** |
+| `shared/src/runner.rs` | `Runner.started` 记录启动时刻（`uptime_secs()`）、`exits` 记录退出码（`take_exit()`）；**P14 删掉两个管道读线程（`copy_stream_lines` / `trim_program_log`），`Stdio::piped()` 改 `Stdio::from(File)`，`stop`/`is_running` 收尾时 `logpump::unwatch`** |
+| `shared/src/shell_manager.rs` | 持有 `insight`；start/stop/sweep 落事件；`sample_memory()`；删程序时 `forget()`；**P13 抽出 `derive_service()` + 新增 `unit_preview()`**；**P14 `reconcile_leases` 接管时 `refresh_live()` + `logpump::watch(resume=true)`，`clear_log` 连源文件一起清，`working_dir` 空串按 `.` 处理** |
+| `shared/src/lease.rs` | **P14 新增 `cmd_args`（命令行去掉 argv[0]）+ `pid_cmd_args()` + `refresh_identity()` / `refresh_live()`**：启动器再 exec 会换掉进程名（`python3` → `Python`），进程名对不上时用参数认人，否则孤儿进程停不掉 |
 | `web-server/src/lib.rs` | 新增 `us-mem` 采样线程（5 秒一次） |
 | `web-server/src/rpc.rs` | `workspace_list` 每项多 `category` / `port` / `autostart` / **`uptime`** / **`mem_kb`** / **`external_pid`** / **`imported_at`** / **`template_source`** / **`repo`**；新增 **`program_insight`**、**`program_unit_preview`** RPC；安装成功 / 自启 / 调度切换各记一条事件 |
 | `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；检查器按 D 重写成 `d-head / d-actions / d-tabs / d-body`，**日志搬进「日志」标签页**；移动端加搜索/筛选；**模板库换成 `.lib-shell` + `.lib-hero` + `.lib-bar` 结构（P12）**；**P13 配置页加「编辑」+「已保存」、env 块常显、更新页加「操作」行与提示条** |
@@ -258,3 +268,4 @@ await send("Page.navigate", { url });
 | `shots/impl-detail-update-avail.png` | 详情页更新（P13）：**有新版时**的形态——「应用更新」按钮 + 黄色提示条（版本号是注入的，只为验证这条路径） |
 | `shots/impl-detail-config-dark.png` | 深色主题的配置页（password 输入框必须走 `--panel` 背景，不能留浏览器默认白底） |
 | `shots/impl-detail-config-mobile.png` | 手机 390：配置页字段与 env 行（标签 + 值 + 眼睛）全部在屏内 |
+| `shots/impl-detail-log-stderr.png` | 日志页（P14）：`stdout` 普通色 / `stderr` 整行错误色，两路交织。日志已改成「子进程直写文件 + 壳侧合并泵」，壳被 SIGKILL 也不会 EPIPE（见 `docs/process-lifecycle.md` 第 7 节） |

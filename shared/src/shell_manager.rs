@@ -419,8 +419,11 @@ impl ShellManager {
     }
 
     /// 清空某程序的日志文件（显式“停止”时调用；重启不清空）
+    ///
+    /// 必须连两个源文件一起清：只清合并日志的话，日志泵下一轮会把源文件里
+    /// 还没合并的旧内容再合一遍，看起来像「清空没生效」。
     pub fn clear_log(&self, id: &str) {
-        let _ = std::fs::write(self.log_dir().join(format!("{id}.log")), b"");
+        crate::logpump::clear(&self.log_dir(), id);
     }
 
     // ---------- 安装 / 更新 ----------
@@ -786,9 +789,11 @@ impl ShellManager {
         for id in self.leases.prune() {
             self.external.remove(&id);
         }
-        // 再把活的登记进来
+        // 再把活的登记进来。顺手刷新身份字段：旧版本写的租约没有 `cmd_args`，
+        // 而进程名可能已被启动器 exec 换掉（python3 → Python），不刷新的话
+        // 「停止」会以「pid 可能已被复用」为由拒绝，孤儿就永远清不掉了。
         self.external.clear();
-        let live = self.leases.live();
+        let live = self.leases.refresh_live();
         for (id, lease) in &live {
             self.external.insert(id.clone(), lease.pid);
         }
@@ -798,6 +803,13 @@ impl ShellManager {
                 live.len(),
                 live.iter().map(|(id, l)| format!("{id}={}", l.pid)).collect::<Vec<_>>()
             );
+        }
+        // 接管的同时把日志泵也接上：这些进程的 stdout/stderr 指向的是普通文件，
+        // 泵只读文件、不依赖子进程句柄，所以孤儿进程的输出照样能实时进界面。
+        // resume=true：从上次落盘的偏移继续，把壳死掉那段时间的输出补进合并日志。
+        let log_dir = self.log_dir();
+        for (id, _) in &live {
+            crate::logpump::watch(&log_dir, id, true);
         }
         live.into_iter().map(|(id, _)| id).collect()
     }
@@ -814,6 +826,7 @@ impl ShellManager {
         for id in &dead {
             self.external.remove(id);
             self.leases.remove(id);
+            crate::logpump::unwatch(id);
             // 拿不到退出码：这不是壳 spawn 的进程，没有 wait 状态可读
             self.insight.push_event(id, "exit", None, None);
         }
@@ -1037,12 +1050,26 @@ impl ShellManager {
         let args = program.render_args(field_values);
         // 环境变量同样做 {field} 展开再注入；值只进子进程环境，不落任何日志/配置
         let env = program.render_env(field_values);
-        let wd: PathBuf = if program.working_dir == "." {
-            let dir = self.app_dir(program);
-            let _ = std::fs::create_dir_all(&dir);
-            dir
-        } else {
-            PathBuf::from(&program.working_dir)
+        // 工作目录：空串按 "." 处理。`Command::spawn` 在 current_dir 不存在时
+        // 返回的 ENOENT 会被包装成「Cannot start <二进制路径>: No such file or
+        // directory」——二进制明明在，错误却指着它，极难排查（真踩过）。
+        let wd: PathBuf = match program.working_dir.trim() {
+            "" | "." => {
+                let dir = self.app_dir(program);
+                let _ = std::fs::create_dir_all(&dir);
+                dir
+            }
+            other => {
+                let dir = PathBuf::from(other);
+                if !dir.is_dir() {
+                    anyhow::bail!(
+                        "「{}」的工作目录 {} 不存在，先建好它或改配置。",
+                        program.name,
+                        dir.display()
+                    );
+                }
+                dir
+            }
         };
         self.runner
             .start_async(&program.id, &bin, &args, &env, &wd, &self.log_dir())?;
@@ -1084,6 +1111,7 @@ impl ShellManager {
                     return Err(e1);
                 }
                 crate::lease::terminate(&lease).map_err(|m| anyhow::anyhow!(m))?;
+                crate::logpump::unwatch(id);
                 self.external.remove(id);
                 self.leases.remove(id);
                 self.insight.push_event(id, "stop", None, None);
@@ -1411,6 +1439,8 @@ impl ShellManager {
         // 租约同理：留着会让下次启动误以为有残留进程
         self.leases.remove(id);
         self.external.remove(id);
+        // 日志泵也停掉；否则它还会继续轮询一个已经不存在的程序
+        crate::logpump::unwatch(id);
         self.save_config(path)
     }
 

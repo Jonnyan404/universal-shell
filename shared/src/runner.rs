@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Child;
-use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use anyhow::{anyhow, Context};
@@ -23,97 +22,6 @@ fn suppress_console(cmd: &mut std::process::Command) {
 
 #[cfg(not(windows))]
 fn suppress_console(_cmd: &mut std::process::Command) {}
-
-/// 把一路字节流逐行写入共享日志。`is_stderr` 时行首加 \x1F 标记(供前端着色)。
-/// 写满一定行数后检查体积，超限就地截末一半：程序跑几小时日志不再无限增长。
-fn copy_stream_lines<R: std::io::BufRead>(
-    r: &mut R,
-    writer: &Arc<Mutex<std::io::BufWriter<std::fs::File>>>,
-    is_stderr: bool,
-    id: &str,
-) {
-    use std::io::Write as _;
-    let mut buf = String::new();
-    let mut since_check = 0usize;
-    // log-tick 降频：只按「≥1行且距上次 ≥150ms」发射，避免 chatty 程序按行风暴式
-    // 推送事件，最小化后恢复时前端一次积压成千上万个 log-tick 导致假死。
-    let mut last_emit: Option<std::time::Instant> = None;
-    loop {
-        buf.clear();
-        match r.read_line(&mut buf) {
-            Ok(0) | Err(_) => break,
-            Ok(_) => {
-                let mut line = String::with_capacity(buf.len() + 1);
-                if is_stderr {
-                    line.push('\u{1f}');
-                }
-                line.push_str(&buf);
-                if let Ok(mut w) = writer.lock() {
-                    let _ = w.write_all(line.as_bytes());
-                    let _ = w.flush();
-                    since_check += 1;
-                    // 两路写线程各自计数检查，近似即可；修整全程持锁，另一路短暂等待
-                    if since_check >= PROGRAM_LOG_CHECK_LINES {
-                        since_check = 0;
-                        trim_program_log(&mut w);
-                    }
-                    let due = match last_emit {
-                        None => true,
-                        Some(t) => t.elapsed() >= LOG_TICK_MIN_INTERVAL,
-                    };
-                    if due {
-                        last_emit = Some(std::time::Instant::now());
-                        crate::events::emit(crate::events::Event::LogWritten(id.to_string()));
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// 程序运行日志单文件上限（字节）。超过后在写线程内截末一半（和 shell.log 同策略），
-/// 长时间运行不再无限增长，恢复界面时的尾部读取也保持轻量。
-const PROGRAM_LOG_MAX: u64 = 512 * 1024;
-/// 写满多少行检查一次体积
-const PROGRAM_LOG_CHECK_LINES: usize = 64;
-/// log-tick 事件最小发射间隔：日志按行写、按此降频广播，
-/// chatty 程序不再逐行推事件，最小化恢复时前端也不会积压事件风暴。
-const LOG_TICK_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
-
-/// 体积超限时保留末尾一半的完整行。调用方须已持有写锁、缓冲区已刷盘；
-/// 全程经同一句柄操作，写偏移始终有效。
-fn trim_program_log(w: &mut std::io::BufWriter<std::fs::File>) {
-    use std::io::{Read, Seek, SeekFrom, Write as _};
-    let Ok(len) = w.get_ref().metadata().map(|m| m.len()) else {
-        return;
-    };
-    if len <= PROGRAM_LOG_MAX {
-        return;
-    }
-    if w.seek(SeekFrom::Start(0)).is_err() {
-        return;
-    }
-    // 经底层 File 直读（BufWriter 本身无 Read 实现）；此前已刷盘，偏移有效
-    let mut data = Vec::new();
-    if w.get_mut().read_to_end(&mut data).is_err() {
-        return;
-    }
-    let half = data.len().saturating_sub((PROGRAM_LOG_MAX / 2) as usize);
-    let start = data[half..]
-        .iter()
-        .position(|&b| b == b'\n')
-        .map(|i| half + i + 1)
-        .unwrap_or(0);
-    let keep = if start == 0 { data } else { data[start..].to_vec() };
-    if w.get_mut().set_len(0).is_err() {
-        return;
-    }
-    if w.seek(SeekFrom::Start(0)).is_err() {
-        return;
-    }
-    let _ = w.write_all(&keep);
-    let _ = w.flush();
-}
 
 /// 正在运行且被壳持有的子进程
 #[derive(Default)]
@@ -141,6 +49,8 @@ impl Runner {
                 Ok(Some(st)) => {
                     self.children.remove(id);
                     self.started.remove(id);
+                    // 进程没了，泵也没必要再轮询；退出前会把最后几行抽干净
+                    crate::logpump::unwatch(id);
                     // 记下退出码：sweep 线程会把「自己退了」写成一条事件
                     self.exits.insert(id.to_string(), st.code());
                     false
@@ -166,8 +76,14 @@ impl Runner {
         exited
     }
 
-    /// 前台启动(窗口应用用这个)：stdout/stderr 合并写入同一日志文件，
-    /// 其中 stderr 行以记录分隔符 `\x1F` 开头，供前端着色区分。
+
+    /// 前台启动(窗口应用用这个)：stdout/stderr 直接落到两个普通文件，
+    /// 壳侧的「泵」再把它们合并进 `{id}.log`（stderr 行带 `\x1F` 前缀供前端着色）。
+    ///
+    /// **为什么不是 `Stdio::piped()`**：管道读端在壳进程里，壳被 SIGKILL 后读端消失，
+    /// 子进程下一次 write 就 EPIPE 自杀（详见 `logpump` 模块文档）。
+    /// 写普通文件则永远成功，壳死不死都不影响子进程。
+    ///
     /// 日志采用「会话追加」语义：不截断历史，逐会话写入一条分隔标记
     /// （与 shell.log 同策略），界面始终能见到上次会话内容、避免空窗。
     pub fn start_async(
@@ -184,16 +100,9 @@ impl Runner {
         }
 
         std::fs::create_dir_all(log_dir)?;
-        let log_path = log_dir.join(format!("{id}.log"));
-        // 读写打开：写线程超限截断时需经同一句柄回读（只写句柄 read 会 EBADF 导致截断静默失效）
-        let log_file = std::fs::OpenOptions::new()
-            .read(true)
-            .create(true)
-            .append(true)
-            .open(&log_path)?;
-        // 会话标记：与上次内容接在同一个文件里，写线程按顺序继续
-        let prior_len = log_file.metadata().map(|m| m.len()).unwrap_or(0);
-        let mut writer = std::io::BufWriter::new(log_file);
+        let log_path = crate::logpump::merged_path(log_dir, id);
+        // 会话标记：与上次内容接在同一个文件里，泵按偏移继续往后追加
+        let prior_len = std::fs::metadata(&log_path).map(|m| m.len()).unwrap_or(0);
         {
             use std::io::Write as _;
             use time::format_description::well_known::Rfc3339;
@@ -207,26 +116,37 @@ impl Runner {
             }
             marker.push_str(&t!("log.session_started", time = stamp));
             marker.push('\n');
-            let _ = writer.write_all(marker.as_bytes());
-            let _ = writer.flush();
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+            {
+                let _ = f.write_all(marker.as_bytes());
+                let _ = f.flush();
+            }
         }
+
+        // 子进程的 stdout/stderr 直接指向普通文件：壳怎么死都不会 EPIPE
+        let (out_file, err_file) = crate::logpump::open_sources(log_dir, id)?;
+        // 上一轮已经合并过的内容不能再合一遍：偏移对齐到源文件当前末尾
+        crate::logpump::reset_offsets(log_dir, id);
 
         let mut cmd = std::process::Command::new(bin_path);
         cmd.args(args)
             .envs(env.iter().cloned())
             .current_dir(working_dir)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::from(out_file))
+            .stderr(std::process::Stdio::from(err_file))
             .stdin(std::process::Stdio::null());
         // Windows「无黑窗」：壳是 GUI 进程，直接 spawn 控制台程序会闪黑窗，
-        // 派生前设 CREATE_NO_WINDOW；受管程序的 stdout/stderr 已重定向到日志文件，
+        // 派生前设 CREATE_NO_WINDOW；受管程序的 stdout/stderr 已重定向到文件，
         // 无需可见控制台，不影响其功能。unix 上为 no-op。
         suppress_console(&mut cmd);
         #[cfg(unix)]
         {
-            // 子进程忽略 SIGPIPE：壳退出后管道读端关闭，残留孤儿再写日志只会 EPIPE，
-            // 不会被信号杀死（Go 等程序默认会被 SIGPIPE 杀死）。生命周期已由壳接管，
-            // 壳退出时会 stop_all 杀掉全部子进程，此处保留 SIG_IGN 作防御性兜底。
+            // 子进程忽略 SIGPIPE：壳退出后如果还有残留的管道写端（比如程序自己
+            // 又拉了个管道给子进程），写 EPIPE 只会返回错误而不是被信号杀死。
+            // 现在 stdout/stderr 已经是普通文件，这条是防御性兜底。
             use std::os::unix::process::CommandExt;
             unsafe {
                 cmd.pre_exec(|| {
@@ -236,30 +156,13 @@ impl Runner {
             }
         }
 
-        let mut child = cmd
+        let child = cmd
             .spawn()
             .with_context(|| t!("err.runner.launch", path = bin_path.display()).to_string())?;
         info!("{}", t!("log.runner.started", id = id, pid = child.id()));
 
-        // 后台线程把 stdout/stderr 两路写到同一文件；stderr 行加前缀
-        let out = child.stdout.take();
-        let err = child.stderr.take();
-        let writer = std::sync::Arc::new(std::sync::Mutex::new(writer));
-        let (out, err) = (out.map(std::io::BufReader::new), err.map(std::io::BufReader::new));
-        if let Some(mut out) = out {
-            let w = writer.clone();
-            let id = id.to_string();
-            std::thread::spawn(move || {
-                copy_stream_lines(&mut out, &w, false, &id);
-            });
-        }
-        if let Some(mut err) = err {
-            let w = writer.clone();
-            let id = id.to_string();
-            std::thread::spawn(move || {
-                copy_stream_lines(&mut err, &w, true, &id);
-            });
-        }
+        // 泵：轮询两个源文件，合并进 {id}.log 并广播 log-tick
+        crate::logpump::watch(log_dir, id, false);
 
         self.children.insert(id.to_string(), child);
         self.started.insert(id.to_string(), SystemTime::now());
@@ -296,6 +199,8 @@ impl Runner {
         // 先试 SIGTERM
         child.kill().ok(); // kill() on std Child == SIGKILL on unix
         let wait = child.wait().context(t!("err.runner.wait"))?;
+        // 进程已停，泵退出前做最后一次抽取，别把退出前那几行丢掉
+        crate::logpump::unwatch(id);
         if !wait.success() {
             info!("{}", t!("log.runner.nonzero", id = id, code = format!("{:?}", wait.code())));
         }
@@ -354,56 +259,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// 超 512KB 后截末一半：体积回落、尾部保留、头部丢掉、行对齐。
-    #[test]
-    fn trim_program_log_keeps_tail_half() {
-        use std::io::Write as _;
-        let dir = std::env::temp_dir().join("cc-trim-proglog");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("app.log");
-        let f = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&path)
-            .unwrap();
-        let mut w = std::io::BufWriter::new(f);
-        // 写 ~600KB 行日志
-        for i in 0..20000 {
-            use std::io::Write as _;
-            writeln!(w, "line-{i:05}-0123456789abcdef").unwrap();
-        }
-        w.flush().unwrap();
-        assert!(std::fs::metadata(&path).unwrap().len() > PROGRAM_LOG_MAX);
-
-        trim_program_log(&mut w);
-        drop(w);
-        let text = std::fs::read_to_string(&path).unwrap();
-        assert!((text.len() as u64) < PROGRAM_LOG_MAX);
-        assert!(text.ends_with("line-19999-0123456789abcdef\n"));
-        assert!(!text.contains("line-00000-"));
-        let first = text.lines().next().unwrap();
-        assert!(first.starts_with("line-"), "首行应对齐换行：{first}");
-    }
-
-    /// 未超限时不碰文件。
-    #[test]
-    fn trim_program_log_keeps_small_file() {
-        let dir = std::env::temp_dir().join("cc-trim-proglog-small");
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("app.log");
-        let f = std::fs::File::create(&path).unwrap();
-        let mut w = std::io::BufWriter::new(f);
-        {
-            use std::io::Write as _;
-            writeln!(w, "hello").unwrap();
-            w.flush().unwrap();
-        }
-        trim_program_log(&mut w);
-        drop(w);
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello\n");
-    }
 }
