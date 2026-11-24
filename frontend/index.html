@@ -169,19 +169,28 @@
 
       <!-- 模板库 -->
       <section id="library-view" class="view" hidden>
-        <div class="panel">
-          <div class="lib-toolbar">
+        <div class="lib-shell">
+          <header class="lib-hero">
+            <div class="lib-hero-txt">
+              <h1 data-i18n="lib.title">模板库</h1>
+              <p id="lib-status"></p>
+            </div>
+            <div class="lib-hero-ops">
+              <button id="lib-cache-toggle" class="btn" data-i18n="lib.local">本地模板</button>
+              <button id="lib-import-local" class="btn" data-i18n="lib.import">导入本地模板</button>
+              <button id="lib-manage-sources" class="btn btn-icon" data-i18n-title="lib.sources" aria-label="管理源">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.11a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.11A1.7 1.7 0 0 0 4.67 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.11A1.7 1.7 0 0 0 15.1 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.11a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.11a1.7 1.7 0 0 0-1.49.86z"/></svg>
+              </button>
+            </div>
+          </header>
+          <div class="lib-bar">
+            <div id="lib-search" class="lib-search"></div>
+            <div id="lib-source-bar"></div>
             <span class="spacer"></span>
-            <button id="lib-cache-toggle" data-i18n="lib.local">本地模板</button>
-            <button id="lib-import-local" data-i18n="lib.import">导入本地模板</button>
-            <button id="lib-manage-sources" data-i18n="lib.sources">管理源</button>
+            <span id="lib-fetch-info" class="lib-fetchinfo"></span>
           </div>
-          <div id="lib-source-bar"></div>
-          <div id="lib-fetch-info"></div>
-          <div id="lib-status"></div>
           <div id="lib-cache-drawer" hidden></div>
-          <div id="lib-search"></div>
-          <div id="lib-list"></div>
+          <div id="lib-list" class="lib-groups"></div>
           <div id="lib-pager"></div>
         </div>
       </section>

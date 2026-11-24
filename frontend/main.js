@@ -1353,7 +1353,7 @@ async function refreshTemplateStatus(base, id, btn) {
 
 function renderLibrary() {
   if (!manifest) {
-    el.libList.innerHTML = t("lib.empty_remote");
+    el.libList.innerHTML = '<div class="lib-desc-empty">' + escHtml(t("lib.empty_remote")) + "</div>";
     renderSourceBar();
     renderLocalTemplates();
     return;
@@ -1364,6 +1364,19 @@ function renderLibrary() {
     (manifest.sources || []).length === 0
       ? t("lib.no_sources")
       : t("lib.summary", { n: manifest.sources.length, offline: nOffline ? t("lib.summary_offline", { n: nOffline }) : "", m: manifest.templates.length });
+
+  // 工具条右侧补一行「上次拉取」，离线时用户能一眼看出列表是缓存的
+  if (el.libFetchInfo) {
+    const srcs = manifest.sources || [];
+    const picked = (libSource && srcs.find(([b]) => b === libSource)) || srcs[0];
+    if (picked && picked[2]) {
+      el.libFetchInfo.textContent = t("lib.last_pull", { date: fmtDate(picked[2]) });
+      el.libFetchInfo.title = picked[0];
+    } else {
+      el.libFetchInfo.textContent = t("lib.not_pulled");
+      el.libFetchInfo.title = "";
+    }
+  }
 
   const kw = libSearchValue.trim().toLowerCase();
   const rows = manifest.templates.filter(([id, tpl, base]) => {
@@ -1385,17 +1398,20 @@ function renderLibrary() {
   el.libList.innerHTML = "";
   el.libList.classList.add("lib-groups");
   if (!rows.length) {
-    el.libList.innerHTML = '<div class="lib-desc">' + t("lib.no_match") + "</div>";
+    el.libList.innerHTML = '<div class="lib-desc-empty">' + escHtml(t("lib.no_match")) + "</div>";
   }
   for (const [cat, list] of groups) {
     const sec = document.createElement("section");
-    sec.className = "lib-group";
+    const closed = libCollapsed.has(cat);
+    sec.className = "lib-group" + (closed ? " closed" : "");
+    sec.style.setProperty("--cat-color", libCatColor(cat));
     const head = document.createElement("button");
     head.type = "button";
     head.className = "lib-group-head";
-    const closed = libCollapsed.has(cat);
+    head.setAttribute("aria-expanded", String(!closed));
     head.innerHTML =
-      `<span class="lib-group-chev">${closed ? "▶" : "▼"}</span>` +
+      `<span class="lib-group-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>` +
+      `<span class="lib-group-dot"></span>` +
       `<b>${escHtml(cat)}</b>` +
       `<span class="lib-group-count">${list.length}</span>`;
     head.onclick = () => {
@@ -1416,35 +1432,55 @@ function renderLibrary() {
   renderLocalTemplates();
 }
 
-// 单个模板卡片：保持原有导入/更新按钮的全部行为，只是搬进分组栅格。
+// 分类配色：同一分类恒定同色，作为卡片头像块与标签的视觉锚点。
+// 用分类名哈希取色——模板源新增分类时不需要改代码，也不会出现「全灰一片」。
+const LIB_CAT_PALETTE = [
+  "#4f8cff", "#8b5cf6", "#06b6d4", "#f59e0b",
+  "#10b981", "#ec4899", "#0ea5e9", "#f97316",
+];
+function libCatColor(cat) {
+  let h = 0;
+  for (const ch of String(cat || "")) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return LIB_CAT_PALETTE[h % LIB_CAT_PALETTE.length];
+}
+
+// 单个模板卡片：头像 + 名称/仓库 + 动作按钮 / 描述 / 底部标签行。
+// 行为与旧卡片完全一致（导入、更新、已是最新三态），只是换成 D 方案的视觉语言。
 function libCard(id, tpl, base) {
-  const card = document.createElement("div");
+  const cat = tpl.category || t("lib.uncategorized");
+  const card = document.createElement("article");
   card.className = "lib-card";
+  // 两个色：--cat-color 给分类标签（同组统一），--tpl-color 给头像与 hover 描边
+  // （按模板 id 取，同组内卡片也能彼此区分，不至于一排全蓝）。
+  card.style.setProperty("--cat-color", libCatColor(cat));
+  card.style.setProperty("--tpl-color", libCatColor(tpl.id || id));
+
   const top = document.createElement("div");
   top.className = "lib-top";
+
+  const avatar = document.createElement("span");
+  avatar.className = "lib-avatar";
+  avatar.textContent = String(tpl.name || id || "?").trim().charAt(0).toUpperCase();
+  avatar.setAttribute("aria-hidden", "true");
+
+  const idBox = document.createElement("div");
+  idBox.className = "lib-id";
   const h = document.createElement("span");
   h.className = "lib-name";
-  h.textContent = tpl.name;
-  const cat = document.createElement("span");
-  cat.className = "lib-cat";
-  cat.textContent = `[${tpl.category}]`;
+  h.textContent = tpl.name || id;
+  h.title = tpl.name || id;
   const repo = document.createElement("span");
   repo.className = "lib-repo";
   repo.textContent = tpl.repo || t("lib.local_program");
+  repo.title = repo.textContent;
+  idBox.append(h, repo);
 
   const imported = programs.some((p) => p.id === id);
-  const conflict = (manifest.conflicts || []).find(([cid]) => cid === id);
-  if (conflict && conflict[1] > 1) {
-    const mark = document.createElement("span");
-    mark.className = "lib-cat lib-conflict";
-    mark.textContent = t("lib.multi_source", { n: conflict[1] });
-    top.append(mark);
-  }
-
   const btn = document.createElement("button");
   const stKey = base + "\u0000" + id;
   const status = templateStatusCache[stKey];
   const latest = imported && status === "current";
+  btn.className = "btn lib-act-btn" + (latest ? " ghost" : imported ? "" : " primary");
   btn.textContent = importing.has(id)
     ? t("lib.importing")
     : latest ? t("act.latest") : imported ? t("act.update") : t("act.import");
@@ -1452,22 +1488,42 @@ function libCard(id, tpl, base) {
   btn.onclick = () => doImport(id, base, btn);
   if (imported && latest) btn.title = t("act.latest_hint");
   else if (imported) btn.title = t("act.update_hint");
-  top.append(h, cat, repo, btn);
   if (imported && status === undefined) refreshTemplateStatus(base, id, btn);
 
-  const desc = document.createElement("div");
+  top.append(avatar, idBox, btn);
+
+  const desc = document.createElement("p");
   desc.className = "lib-desc";
-  desc.textContent = tpl.description;
-  const meta = document.createElement("div");
-  meta.className = "lib-meta";
+  desc.textContent = tpl.description || "";
+  if (tpl.description) desc.title = tpl.description;
+
+  const foot = document.createElement("div");
+  foot.className = "lib-foot";
+  const tag = document.createElement("span");
+  tag.className = "lib-tag";
+  tag.textContent = cat;
+  foot.appendChild(tag);
+
+  const conflict = (manifest.conflicts || []).find(([cid]) => cid === id);
+  if (conflict && conflict[1] > 1) {
+    const mark = document.createElement("span");
+    mark.className = "lib-conflict";
+    mark.textContent = t("lib.multi_source", { n: conflict[1] });
+    foot.appendChild(mark);
+  }
+
   if (imported) {
     const local = document.createElement("span");
-    local.className = "lib-local-badge";
-    local.textContent = t("lib.local_last");
+    local.className = "lib-local";
     local.title = t("lib.imported");
-    meta.appendChild(local);
+    const dot = document.createElement("i");
+    const label = document.createElement("span");
+    label.textContent = t("lib.local_last");
+    local.append(dot, label);
+    foot.appendChild(local);
   }
-  card.append(top, meta, desc);
+
+  card.append(top, desc, foot);
   return card;
 }
 
@@ -1496,6 +1552,7 @@ function renderSourceBar() {
   };
   el.libSourceBar.appendChild(sel);
   const refresh = document.createElement("button");
+  refresh.className = "btn";
   refresh.textContent = t("act.refresh");
   refresh.onclick = async () => {
     refresh.disabled = true;
@@ -1513,6 +1570,7 @@ function renderPager(pages) {
   el.libPager.innerHTML = "";
   if (pages <= 1) return;
   const prev = document.createElement("button");
+  prev.className = "btn";
   prev.textContent = t("lib.prev");
   prev.disabled = libPage <= 0;
   prev.onclick = () => { libPage--; renderLibrary(); };
@@ -1520,6 +1578,7 @@ function renderPager(pages) {
   info.className = "lib-page-info";
   info.textContent = `${libPage + 1} / ${pages}`;
   const next = document.createElement("button");
+  next.className = "btn";
   next.textContent = t("lib.next");
   next.disabled = libPage >= pages - 1;
   next.onclick = () => { libPage++; renderLibrary(); };
@@ -3228,7 +3287,8 @@ async function boot() {
     libSearchValue = libSearchInput.value;
     renderLibrary();
   };
-  el.libSearch.innerHTML = "";
+  el.libSearch.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>';
   el.libSearch.appendChild(libSearchInput);
 
   checkShellUpdate(false);

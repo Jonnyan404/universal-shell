@@ -55,6 +55,21 @@
       并新增「日志」tab；样式换成 D 的深色终端：`#0f172a` 底、`#1e293b` logbar、等宽 11.5px，
       时间戳灰、INFO 绿、WARN 黄、ERROR 红（`logLineEl` 里做 token 化，只染已知形态，绝不丢字符）。
       概览页底部另有一张 148px 的日志卡，读同一份行缓存（`usLogTail`），点「展开」跳到日志页。
+- [x] **P12 模板库视觉重做**（信息架构仍是方案 A 的分类分组，视觉换成 D 的设计语言）：
+      - 结构：`#library-view > .lib-shell`（页头 `.lib-hero` + 工具条 `.lib-bar` + 列表 + 分页），
+        去掉原来那层 `.panel`；页头放「模板库」标题与源/模板统计，右上角是「本地模板 / 导入本地模板 / 管理源（齿轮图标）」。
+      - 工具条：带放大镜的搜索框（260px，focus 蓝环）、去原生外观的源下拉（自绘 chevron）、「刷新」按钮、
+        右侧补「上次拉取 …」——离线时用户能一眼看出列表来自缓存。
+      - 分组头：`position: sticky` + 半透明毛玻璃底，顺序是 chevron → 分类色点 → 分类名 → 数量胶囊 → 渐隐细线；
+        折叠状态存 `libCollapsed`，箭头用 CSS `rotate` 而不是 ▼/▶ 字符。
+      - 卡片：30px 分类色头像块 + 名称/仓库两行 + 右上动作按钮，描述固定两行（`min-height: 3.2em` 保证同行等高），
+        底部是分类标签胶囊 + 「● 本地」绿点。
+      - 双色变量：`--cat-color` 按**分类**取色（标签、分组点，同组统一），`--tpl-color` 按**模板 id** 取色
+        （头像、hover 描边）。只用一个色会导致同组卡片一排全蓝，没有区分度。
+      - 按钮三态：未导入 = `btn primary`（蓝实心）、已导入可更新 = `btn`（描边）、已是最新 = `btn ghost`（弱化但保留描边，
+        否则深色下看不见）。全部 30px 高 / 8px 圆角，与 D 方案一致。
+      - 坑：`<select>` 的固有宽度按最长 option 算，移动端必须 `flex: 1 1 0; min-width: 0`，
+        否则要么撑出屏幕、要么把「刷新」挤到下一行。
 
 ---
 
@@ -162,10 +177,10 @@ await send("Page.navigate", { url });
 | `shared/src/shell_manager.rs` | 持有 `insight`；start/stop/sweep 落事件；`sample_memory()`；删程序时 `forget()` |
 | `web-server/src/lib.rs` | 新增 `us-mem` 采样线程（5 秒一次） |
 | `web-server/src/rpc.rs` | `workspace_list` 每项多 `category` / `port` / `autostart` / **`uptime`** / **`mem_kb`**；新增 **`program_insight`** RPC；安装成功 / 自启 / 调度切换各记一条事件 |
-| `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；检查器按 D 重写成 `d-head / d-actions / d-tabs / d-body`，**日志搬进「日志」标签页**；移动端加搜索/筛选 |
+| `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；检查器按 D 重写成 `d-head / d-actions / d-tabs / d-body`，**日志搬进「日志」标签页**；移动端加搜索/筛选；**模板库换成 `.lib-shell` + `.lib-hero` + `.lib-bar` 结构（P12）** |
 | `frontend/workbench.js` | `COLS` 增 `uptime` / `actions` 两列 + `fmtUptime()` / `actHTML()` / `quickAct()`；概览页按 D 五块重写（KPI + sparkline / 运行配置 / 依赖与关联 / 最近事件 / 日志卡）；`loadInsight()`；`renderInspHead()` 统一头部；`select()` 移动端先跳转后拉数据 |
-| `frontend/styles.css` | 图标栏、工具条、表格、检查器（`.d-*` / `.kpi` / `.spark` / `.sec` / `.kv` / `.tl`）、深色终端（`.term-body` / logbar）、四档断点、移动端两行列表、模板库分组栅格；`body{margin:0}` |
-| `frontend/main.js` | `renderHeader` / `renderChips` / `switchView` 的头部写入全部转调 `renderInspHead`；`logLineEl` 做时间戳/级别 token 化并导出 `usLogLine` / `usLogTail`；`switchCurrent` 先赋值 `current`；boot 不再抢选中 |
+| `frontend/styles.css` | 图标栏、工具条、表格、检查器（`.d-*` / `.kpi` / `.spark` / `.sec` / `.kv` / `.tl`）、深色终端（`.term-body` / logbar）、四档断点、移动端两行列表；**模板库全套（`.lib-hero` / `.lib-bar` / `.btn` / sticky 分组头 / `.lib-card` / 双色变量）**；`body{margin:0}` |
+| `frontend/main.js` | `renderHeader` / `renderChips` / `switchView` 的头部写入全部转调 `renderInspHead`；`logLineEl` 做时间戳/级别 token 化并导出 `usLogLine` / `usLogTail`；`switchCurrent` 先赋值 `current`；boot 不再抢选中；**模板库 `libCard()` 重写 + `libCatColor()` 分类取色 + 分组头色点/`aria-expanded` + 工具条「上次拉取」（P12）** |
 | `shared/locales/zh-CN.yml` / `en.yml` | 补 `wb.col_*`、`wb.ov_*`（含 mem/dep/events/log）、`ev.*` 事件文案、`wb.tab_log` 等，各 671 条 |
 
 > 语言包**只改 `shared/locales/*.yml`**。`frontend/locales/*.json` 是 `web-server/build.rs` 生成的，
@@ -187,4 +202,7 @@ await send("Page.navigate", { url });
 | `shots/impl-mobile-390.png` | 手机 390：两行列表 |
 | `shots/impl-mobile-390-detail.png` | 手机 390：全屏二级页概览（含内存曲线） |
 | `shots/impl-mobile-390-log.png` | 手机 390：二级页日志页（深色终端铺满） |
-| `shots/impl-library-1440.png` | 模板库分组卡片 |
+| `shots/impl-library-1440.png` | 模板库：分组头 + 卡片（头像色块 / 分类标签 / 三态按钮） |
+| `shots/impl-library-dark.png` | 模板库深色主题 |
+| `shots/impl-library-collapse.png` | 模板库：折叠 Clipboard 分组后的状态 |
+| `shots/impl-library-mobile.png` | 手机 390：页头按钮换行、搜索/源下拉/刷新单行、单列卡片 |
