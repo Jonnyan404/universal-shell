@@ -67,7 +67,9 @@
     { k: "supervisor", label: "wb.col_sup", w: "78px" },
     { k: "autostart", label: "wb.col_auto", w: "46px" },
     { k: "uptime", label: "wb.col_uptime", w: "86px" },
-    { k: "actions", label: "wb.col_act", w: "92px" },
+    // 118px：4 个 22px 按钮 + 间距 + 单元格左右内边距。原来是 92px（只够 3 个），
+    // 加了「打开网站」↗ 之后最右的 ⋯ 会溢出到填充列下面，被那一格吃掉点击。
+    { k: "actions", label: "wb.col_act", w: "118px" },
   ];
 
   // 按 id 派生稳定色：刷新后颜色不跳，和图标首字母一起构成记忆点。

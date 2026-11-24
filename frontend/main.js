@@ -137,31 +137,45 @@ async function netErrorNotice(err, n) {
   if (err) console.warn("net error detail:", err);
 }
 
-async function openExternal(url) {
+// 打开外部链接。**必须同步 window.open**：浏览器只认「点击的同一轮事件循环」
+// 里的 window.open，一旦 await 过任何东西再调，一律按弹窗拦截处理。
+//
+// 旧实现是「先 await 后端 open_url，失败才 window.open」——两头都可能落空：
+// 后端 `open` 在没有 GUI 会话（launchd 起的进程）、远程访问、或沙箱里会
+// 「spawn 成功但什么都没发生」，而兜底的 window.open 又因为已经 await 过被拦。
+// 用户看到的就是「点了没反应」。
+function openExternal(url) {
+  let w = null;
   try {
-    await invoke("open_url", { url });
+    w = window.open(url, "_blank");
+  } catch {}
+  if (w) {
+    // 等价于 noopener，但不能直接在 window.open 的参数里写 "noopener"：
+    // 那样它一律返回 null，就没法判断到底是「被拦了」还是「开好了」。
+    try {
+      w.opener = null;
+    } catch {}
     return true;
-  } catch (e) {
-    // 后端打不开（远程访问时壳跑在另一台机器上、或没有默认浏览器）：
-    // 退回 window.open。它可能被弹窗拦截——那就明确说一声，
-    // 否则用户看到的只是「按钮点了没反应」。
-    const w = window.open(url, "_blank", "noopener");
-    if (!w) showNotice(t("err.open_site", { url }), true);
-    return false;
   }
+  // 弹窗被拦 / webview 不支持新窗口 → 退回壳的 open（本机窗口场景）。
+  // 两条都不通时把地址塞进剪贴板，别让人对着没反应的按钮发呆。
+  invoke("open_url", { url }).catch(() => {
+    copyText(url, "toast.addr_copied");
+    showNotice(t("err.open_site", { url }), true);
+  });
+  return false;
 }
 
 // 打开某程序的站点。没在运行时给一句提示再打开——页面空白时用户会以为是
 // 「打开网站坏了」，其实是程序没起来。
-async function openSiteOf(prog) {
+function openSiteOf(prog) {
   const url = webUrl(prog);
   if (!url) return;
   const st = (statuses.find((s) => s.id === prog.id) || {}).status;
-  // 点下去立刻给反馈。首屏那几个 RPC 排队时 open_url 可能十几秒才轮到，
-  // 期间按钮毫无动静——用户只会认为「这个按钮坏了」。
+  // 没在跑就先说一句：打开是一回事，页面空白是另一回事，不说清会被当成「按钮坏了」
   if (st && !st.running) showNotice(t("toast.site_not_running"), true);
-  else showNotice(t("toast.opening_site"));
-  await openExternal(url);
+  // 同步打开，不 await——见 openExternal 的注释
+  openExternal(url);
 }
 
 // ---------- 侧栏 ----------

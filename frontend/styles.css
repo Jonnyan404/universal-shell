@@ -1414,7 +1414,9 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
 .wb-act:disabled { opacity: .28; cursor: default; }
 .wb-act:disabled:hover { background: transparent; border-color: transparent; color: var(--muted); }
 .wb-empty { padding: 56px 20px; text-align: center; color: var(--muted); font-size: 12.5px; }
-.wb-fill { width: auto; padding: 0 !important; }
+/* 填充列只是把表格撑满，不该拦截任何点击：操作列的按钮一旦溢出到这里，
+   elementFromPoint 会命中这一格，按钮就「点不动」了（真踩过）。 */
+.wb-fill { width: auto; padding: 0 !important; pointer-events: none; }
 .wb-empty[hidden] { display: none; }
 
 /* 紧凑行高 */
