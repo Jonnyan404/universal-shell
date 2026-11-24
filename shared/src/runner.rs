@@ -10,18 +10,12 @@ use log::info;
 use rust_i18n::t;
 
 /// 让子进程不弹出控制台窗口（黑窗）。
-/// Rust 的 Command::spawn 在 Windows 默认会为控制台子系统程序创建/继承一个
-/// 控制台窗口——壳是 GUI 进程，启动 CLI 程序（如 tasklist、被管理的控制台应用）
-/// 时就会闪现黑色窗口。用 CREATE_NO_WINDOW 让派生进程不占用可见控制台。
-#[cfg(windows)]
+///
+/// 实现统一放在 `crate::hide_console`——lease / insight 里的 tasklist、netstat
+/// 也要用同一份，早先各写各的漏了好几处（Windows 上状态轮询会不停闪黑框）。
 fn suppress_console(cmd: &mut std::process::Command) {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    crate::hide_console(cmd);
 }
-
-#[cfg(not(windows))]
-fn suppress_console(_cmd: &mut std::process::Command) {}
 
 /// 正在运行且被壳持有的子进程
 #[derive(Default)]

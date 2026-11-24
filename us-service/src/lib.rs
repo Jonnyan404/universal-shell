@@ -21,6 +21,25 @@ pub use config::{config_dir, Config, Restart, Scope, Service};
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
+/// 让子进程不弹控制台黑窗（仅 Windows 需要，其它平台 no-op）。
+///
+/// 本 crate 不依赖 `shared`，所以这里有一份同样的实现。所有出壳的命令
+/// （launchctl / systemctl / schtasks / 被调度的服务进程）都必须过它：
+/// us-svc 是 GUI/计划任务拉起的无控制台进程，spawn 控制台程序会让 Windows
+/// 新建窗口，表现为「装个服务闪一片黑框」。
+pub(crate) fn hide_console(cmd: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
 /// 生成配置时需要的上下文：由谁拉起、配置在哪。
 #[derive(Debug, Clone)]
 pub struct Ctx {
@@ -249,8 +268,10 @@ fn reload(p: Platform, item: &PlanItem, cfg: &Config) -> Result<()> {
 }
 
 fn run_ok(bin: &str, args: &[&str]) -> Result<()> {
-    let out = std::process::Command::new(bin)
-        .args(args)
+    let mut c = std::process::Command::new(bin);
+    c.args(args);
+    hide_console(&mut c);
+    let out = c
         .output()
         .with_context(|| format!("执行 {bin} 失败（是否未安装？）"))?;
     if !out.status.success() {
@@ -281,7 +302,10 @@ pub fn current_uid() -> u32 {
 }
 
 fn cmd_capture(bin: &str, args: &[&str]) -> Option<String> {
-    let out = std::process::Command::new(bin).args(args).output().ok()?;
+    let mut c = std::process::Command::new(bin);
+    c.args(args);
+    hide_console(&mut c);
+    let out = c.output().ok()?;
     if !out.status.success() {
         return None;
     }

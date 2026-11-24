@@ -266,10 +266,12 @@ pub fn pid_alive(pid: u32) -> bool {
     #[cfg(windows)]
     {
         // tasklist 精确过滤；没有匹配时输出的是「信息: 没有运行的任务…」，不含 "pid"
-        match std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-            .output()
-        {
+        let mut c = std::process::Command::new("tasklist");
+        c.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]);
+        // 不加这个，Windows 会给每次探活新建一个控制台窗口——状态轮询是每秒级的，
+        // 屏幕上会一直闪黑框
+        crate::hide_console(&mut c);
+        match c.output() {
             Ok(o) => String::from_utf8_lossy(&o.stdout).contains(&format!("\"{pid}\"")),
             Err(_) => false,
         }
@@ -306,10 +308,10 @@ pub fn pid_comm(pid: u32) -> Option<String> {
         }
         #[cfg(windows)]
         {
-            let out = std::process::Command::new("tasklist")
-                .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-                .output()
-                .ok()?;
+            let mut c = std::process::Command::new("tasklist");
+            c.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]);
+            crate::hide_console(&mut c);
+            let out = c.output().ok()?;
             let text = String::from_utf8_lossy(&out.stdout);
             let line = text.lines().next()?;
             let name = line.trim_start_matches('"').split("\",\"").next()?.to_string();
@@ -403,10 +405,10 @@ pub fn port_owner(port: u16) -> Option<u32> {
     }
     #[cfg(windows)]
     {
-        let out = std::process::Command::new("netstat")
-            .args(["-ano", "-p", "TCP"])
-            .output()
-            .ok()?;
+        let mut c = std::process::Command::new("netstat");
+        c.args(["-ano", "-p", "TCP"]);
+        crate::hide_console(&mut c);
+        let out = c.output().ok()?;
         let text = String::from_utf8_lossy(&out.stdout);
         text.lines()
             .find(|l| {
@@ -455,18 +457,20 @@ pub fn terminate(lease: &Lease) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T"])
-            .output();
+        let mut c = std::process::Command::new("taskkill");
+        c.args(["/PID", &pid.to_string(), "/T"]);
+        crate::hide_console(&mut c);
+        let _ = c.output();
         for _ in 0..30 {
             if !pid_alive(pid) {
                 return Ok(());
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        let _ = std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .output();
+        let mut c = std::process::Command::new("taskkill");
+        c.args(["/PID", &pid.to_string(), "/T", "/F"]);
+        crate::hide_console(&mut c);
+        let _ = c.output();
         Ok(())
     }
     #[cfg(not(any(unix, windows)))]

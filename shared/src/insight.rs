@@ -162,10 +162,11 @@ pub fn rss_kb(pid: u32) -> Option<u64> {
     #[cfg(windows)]
     {
         // tasklist CSV 末列是 "12,345 K"
-        let out = std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
-            .output()
-            .ok()?;
+        let mut c = std::process::Command::new("tasklist");
+        c.args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"]);
+        // 内存采样是周期性的，不隐藏控制台就会定期闪黑框
+        crate::hide_console(&mut c);
+        let out = c.output().ok()?;
         let text = String::from_utf8_lossy(&out.stdout);
         let line = text.lines().next()?;
         let mem = line.rsplit("\",\"").next()?.trim_matches('"');

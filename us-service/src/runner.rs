@@ -151,6 +151,10 @@ pub fn run(service: &Service, cfg: &Config, config_path: &Path, log_path: &Path)
     cmd.stdout(Stdio::from(out))
         .stderr(Stdio::from(err))
         .stdin(Stdio::null());
+    // 被调度的服务多半是控制台程序（CLI 工具、脚本解释器）。计划任务在无控制台
+    // 会话里拉起 us-svc，spawn 时 Windows 会给它新建一个控制台窗口——桌面用户
+    // 看到的就是「开机后莫名冒出一个黑框」。
+    crate::hide_console(&mut cmd);
 
     let mut child = cmd
         .spawn()

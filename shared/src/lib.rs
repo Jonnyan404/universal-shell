@@ -23,6 +23,27 @@ pub mod shell_update;
 pub mod source_http;
 pub mod version;
 
+/// 让子进程不弹控制台黑窗（仅 Windows 需要，其它平台是 no-op）。
+///
+/// 壳是 GUI 进程（没有控制台），直接 spawn `tasklist` / `netstat` / `schtasks`
+/// 这类控制台程序时，Windows 会给每个子进程新建一个控制台窗口——表现就是
+/// 屏幕上不停闪黑框。`CREATE_NO_WINDOW` 让子进程不分配控制台。
+///
+/// **所有** `Command::new` 出壳的地方都要过一遍这个函数，包括 `output()`：
+/// `output()` 只是帮你收 stdout，控制台该建还是会建。
+pub fn hide_console(cmd: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = cmd;
+    }
+}
+
 rust_i18n::i18n!("locales");
 
 pub use config::{
