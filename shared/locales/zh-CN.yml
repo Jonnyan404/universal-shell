@@ -672,3 +672,18 @@ ev.autostart_off: 关闭开机自启
 ev.sup_native: 切换为系统调度
 ev.sup_managed: 切回壳托管
 wb.ov_dep_hint_managed: 壳托管不涉及
+wb.cfg_saved: 已保存
+wb.cfg_save_fail: 保存失败：%{err}
+wb.env_none: 无环境变量（当前字段没有派生任何 env）
+wb.env_reveal: 显示/隐藏
+wb.ov_import: 导入信息
+wb.ov_imported_at: 导入时间
+wb.ov_source: 模板来源
+wb.ov_log_follow: 跟随
+wb.upd_act: 操作
+wb.upd_apply: 应用更新
+wb.upd_uptodate: 已是最新
+wb.upd_keep: 更新保留已填字段，仅替换二进制并重启
+wb.sched_unit: 生成的 %{p} 单元
+wb.sched_unit_none: 切到「系统调度」后这里会显示将要写入的单元文件
+wb.sched_unit_fail: 读不到单元文件：%{err}

@@ -838,6 +838,81 @@ impl ShellManager {
 
     // ---------- 启动 / 停止 ----------
 
+    /// 由程序当前状态派生一条 `us-service` 服务条目。
+    ///
+    /// 这是「壳的程序」与「系统调度器的服务」之间唯一的映射点：
+    /// `sync_native_services` 用它写 `services.toml`，调度页的单元预览也用它，
+    /// 两处必须一致，否则预览看到的和真正装进去的不是同一个东西。
+    pub fn derive_service(&self, p: &Program) -> us_service::Service {
+        let values = self.load_field_values(p);
+        let bin = self.bin_path(p);
+        let cwd = if p.working_dir == "." {
+            let dir = self.app_dir(p);
+            let _ = std::fs::create_dir_all(&dir);
+            Some(dir)
+        } else {
+            Some(std::path::PathBuf::from(&p.working_dir))
+        };
+        us_service::Service {
+            id: format!("prog-{}", p.id),
+            name: p.name.clone(),
+            description: p.description.clone(),
+            command: bin.to_string_lossy().into_owned(),
+            args: p.render_args(&values),
+            env: p.render_env(&values).into_iter().collect(),
+            cwd,
+            log: Some(self.log_dir().join(format!("{}.log", p.id))),
+            delay_secs: p.native.delay_secs,
+            restart: us_service::restart_from(p.native.restart_or_default()),
+            restart_secs: 10,
+            scope: us_service::scope_from(p.native.scope_or_default()),
+            // 「开机启动」是唯一事实来源：壳托管时由壳拉起，系统调度时
+            // 决定这条派生服务是否装载到系统启动项。不要硬编码 true，
+            // 否则用户在系统调度下关掉开关仍会开机自启。
+            enabled: self.program_autostart(&p.id),
+            depends_on: p.native.depends_on.clone(),
+            wait_timeout_secs: if p.native.wait_timeout_secs == 0 {
+                60
+            } else {
+                p.native.wait_timeout_secs
+            },
+            ready_port: p.native.ready_port,
+            ready_file: p.native.ready_file.as_ref().map(std::path::PathBuf::from),
+            origin: Some(format!("program:{}", p.id)),
+        }
+    }
+
+    /// 生成该程序「如果交给系统调度器会长什么样」的单元文件预览。
+    ///
+    /// 不看当前 `supervisor`：managed 的程序也该能看到切换过去之后的产物，
+    /// 否则用户只能凭想象判断要不要切。返回 `(平台名, 落盘路径, 文件内容)`。
+    pub fn unit_preview(&self, id: &str) -> Option<(String, String, String)> {
+        let p = self.all_programs().into_iter().find(|x| x.id == id)?;
+        let svc = self.derive_service(&p);
+        let cfg_path = self.services_config_path();
+        let wrapper = std::env::current_exe().ok()?;
+        let ctx = us_service::Ctx::with_wrapper(&cfg_path, wrapper);
+        let platform = us_service::Platform::current();
+        let (name, path, content) = match platform {
+            us_service::Platform::Launchd => (
+                "launchd",
+                us_service::launchd::unit_path(&svc),
+                us_service::launchd::plist(&svc, &ctx),
+            ),
+            us_service::Platform::Systemd => (
+                "systemd",
+                us_service::systemd::unit_path(&svc),
+                us_service::systemd::unit(&svc, &ctx),
+            ),
+            us_service::Platform::Schtasks => (
+                "schtasks",
+                us_service::schtasks::xml_path(&svc, &cfg_path),
+                us_service::schtasks::xml(&svc, &ctx),
+            ),
+        };
+        Some((name.to_string(), path.display().to_string(), content))
+    }
+
     /// 用字段值渲染 args 并启动子进程
     /// 把 `supervisor = native` 的程序同步成 `services.toml` 里的派生条目。
     ///
@@ -861,42 +936,7 @@ impl ShellManager {
             if p.supervisor != Supervisor::Native {
                 continue;
             }
-            let values = self.load_field_values(&p);
-            let bin = self.bin_path(&p);
-            let cwd = if p.working_dir == "." {
-                let dir = self.app_dir(&p);
-                let _ = std::fs::create_dir_all(&dir);
-                Some(dir)
-            } else {
-                Some(std::path::PathBuf::from(&p.working_dir))
-            };
-            wanted.push(us_service::Service {
-                id: format!("prog-{}", p.id),
-                name: p.name.clone(),
-                description: p.description.clone(),
-                command: bin.to_string_lossy().into_owned(),
-                args: p.render_args(&values),
-                env: p.render_env(&values).into_iter().collect(),
-                cwd,
-                log: Some(self.log_dir().join(format!("{}.log", p.id))),
-                delay_secs: p.native.delay_secs,
-                restart: us_service::restart_from(p.native.restart_or_default()),
-                restart_secs: 10,
-                scope: us_service::scope_from(p.native.scope_or_default()),
-                // 「开机启动」是唯一事实来源：壳托管时由壳拉起，系统调度时
-                // 决定这条派生服务是否装载到系统启动项。不要硬编码 true，
-                // 否则用户在系统调度下关掉开关仍会开机自启。
-                enabled: self.program_autostart(&p.id),
-                depends_on: p.native.depends_on.clone(),
-                wait_timeout_secs: if p.native.wait_timeout_secs == 0 {
-                    60
-                } else {
-                    p.native.wait_timeout_secs
-                },
-                ready_port: p.native.ready_port,
-                ready_file: p.native.ready_file.as_ref().map(std::path::PathBuf::from),
-                origin: Some(format!("program:{}", p.id)),
-            });
+            wanted.push(self.derive_service(&p));
         }
 
         let mut changed: Vec<String> = Vec::new();

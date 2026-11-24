@@ -51,6 +51,8 @@ const el = {
   updateToggle: document.querySelector("#upd-toggle"),
   updateCheckedAt: document.querySelector("#upd-checked-at"),
   updateCheckBtn: document.querySelector("#upd-check-btn"),
+  updateApply: document.querySelector("#upd-apply"),
+  updateKeepTip: document.querySelector("#upd-keep-tip"),
   envSection: document.querySelector("#env-section"),
   manageView: document.querySelector("#manage-view"),
   libraryView: document.querySelector("#library-view"),
@@ -407,15 +409,26 @@ async function switchCurrent(id) {
   current = programs.find((p) => p.id === id) || null;
   switchView("manage");
   if (!current) return;
-  values = (await invoke("get_values", { programId: current.id }).catch(() => ({}))) || {};
+  // 先用空值渲染骨架，再等 get_values 回填。
+  // 之前是「先 await 再渲染」：网络慢（没外网时 registry 请求会占满浏览器
+  // 的 6 条连接池，RPC 排十几秒）期间详情区还挂着上一个程序的字段，
+  // 用户看到的是「点了 A 却显示 B 的配置」——最坏的正确性问题。
+  values = {};
   renderHeader();
   renderForm();
   renderActions();
-  // 日志条标题跟着一起切：放在两个 await 之后的话，网络慢时详情已经换成新程序，
-  // 日志条还挂着上一个程序的名字。
+  // 日志条标题跟着一起切：不能等 await，否则网络慢时详情已经换了、日志条还是旧名字。
   const hint = document.querySelector("#manage-log-hint");
   if (hint) hint.textContent = current.id;
   refreshManageLog();
+
+  const wanted = current.id;
+  const fresh = (await invoke("get_values", { programId: wanted }).catch(() => ({}))) || {};
+  // 等待期间用户可能又点了别的程序：过期的响应直接丢掉，否则会把新程序的
+  // 字段覆盖成旧程序的值。
+  if (!current || current.id !== wanted) return;
+  values = fresh;
+  renderForm();
   await refreshStatusLocal();
   await renderUpdateSettings();
 }
@@ -692,6 +705,26 @@ function updateUpdateCard(st) {
       ? t("check.last_checked", { ago: timeAgo(at) })
       : t("check.not_checked");
   }
+  // 「操作」行：有新版就直接给按钮，没有就明确说已是最新。
+  // 之前更新页只有一行版本对比，看完不知道该点哪里——落地动作藏在状态栏的下载按钮里。
+  if (el.updateApply) {
+    el.updateApply.innerHTML = "";
+    if (!st?.installed) {
+      // 没装过就谈不上「更新」，装由状态栏的下载按钮负责
+      el.updateApply.innerHTML = `<span>${escHtml(t("st.not_installed_bare"))}</span>`;
+    } else if (newer) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "op";
+      b.textContent = t("wb.upd_apply");
+      b.onclick = () => installProgram(current.id, b);
+      el.updateApply.appendChild(b);
+    } else {
+      el.updateApply.innerHTML = `<span class="upd-uptodate">${escHtml(t("wb.upd_uptodate"))}</span>`;
+    }
+  }
+  // 提示条只在真能更新时出现：没新版时它说的是不存在的事
+  if (el.updateKeepTip) el.updateKeepTip.hidden = !newer;
 }
 
 function renderHeader() {
@@ -738,6 +771,29 @@ function scheduleNativeApply(id) {
   }, 1200);
 }
 
+// 字段是 600ms 防抖自动保存的：没有反馈的话，用户改完根本不知道存没存进去，
+// 只会反复改。在「字段」区块标题里闪一下「已保存」，失败则常驻红色提示。
+let cfgSavedTimer = 0;
+function flashCfgSaved(ok, err) {
+  const node = document.querySelector("#cfg-save-hint");
+  if (!node) return;
+  clearTimeout(cfgSavedTimer);
+  node.hidden = false;
+  node.classList.toggle("err", !ok);
+  node.textContent = ok ? t("wb.cfg_saved") : t("wb.cfg_save_fail", { err: String(err || "") });
+  // 用 rAF 让 .on 的过渡生效（同一帧里改 class 会被合并掉）
+  requestAnimationFrame(() => node.classList.add("on"));
+  if (ok) {
+    cfgSavedTimer = setTimeout(() => {
+      node.classList.remove("on");
+      // 过渡结束后再真正隐藏，否则会闪一下布局
+      setTimeout(() => {
+        if (!node.classList.contains("on")) node.hidden = true;
+      }, 220);
+    }, 1400);
+  }
+}
+
 function scheduleAutosave() {
   if (!current) return;
   const id = current.id;
@@ -747,14 +803,21 @@ function scheduleAutosave() {
   autosaveTimers[id] = setTimeout(async () => {
     try {
       await invoke("save_values", { programId: id, values: snap });
+      flashCfgSaved(true);
       // 由系统调度接管的程序：字段值改了要重新派生并重装，
       // 否则系统里跑的仍是旧参数（端口、路径、token 都可能是旧的）。
       if (isNative) scheduleNativeApply(id);
     } catch (e) {
+      flashCfgSaved(false, e);
       showNotice(String(e), true);
     }
   }, 600);
 }
+
+// 敏感 env 打码：token / secret / password 这类值在界面上不该明文躺着
+// （截图、投屏、别人路过都能看见）。默认打码，按需点眼睛展开。
+const SECRET_ENV_RE = /(TOKEN|SECRET|PASSW|PASSWD|PASSWORD|APIKEY|API_KEY|_KEY|CREDENTIAL|AUTH|COOKIE|SESSION)/i;
+const revealedEnv = new Set(); // 按 programId + key 记住本次会话里展开过哪些
 
 function renderForm() {
   el.form.innerHTML = "";
@@ -763,7 +826,14 @@ function renderForm() {
     row.className = "field-row";
     const label = document.createElement("label");
     label.className = "field-label" + (f.required ? " required" : "");
-    label.textContent = f.required ? f.label + " *" : f.label;
+    // 设计稿写「端口 port」：label 给人看，key 是 shell.json 里真正的键。
+    // 两者一样时不重复（很多模板 label 直接就是 key）。
+    const labText = f.required ? f.label + " *" : f.label;
+    if (f.key && f.key !== f.label) {
+      label.innerHTML = escHtml(labText) + `<code class="fkey">${escHtml(f.key)}</code>`;
+    } else {
+      label.textContent = labText;
+    }
     row.appendChild(label);
 
     if (f.kind === "boolean") {
@@ -776,8 +846,15 @@ function renderForm() {
       });
       row.appendChild(check);
     } else {
+      // 输入框和它右侧的按钮（浏览 / 眼睛）包一层，否则在「标签在上」的
+      // 竖排布局里按钮会掉到输入框下面另起一行。
+      const wrap = document.createElement("div");
+      wrap.className = "field-ctl";
       const input = document.createElement("input");
-      input.type = "text";
+      // token / secret 这类字段用 password 呈现：上面 env 都打码了，
+      // 字段里却明文躺着同一个 token，打码就白做了。值本身照旧可编辑。
+      const secret = SECRET_ENV_RE.test(f.key || "");
+      input.type = secret ? "password" : "text";
       input.setAttribute("autocorrect", "off");
       input.setAttribute("spellcheck", "false");
       input.setAttribute("autocapitalize", "off");
@@ -787,7 +864,20 @@ function renderForm() {
         values[f.key] = input.value;
         scheduleAutosave();
       });
-      row.appendChild(input);
+      wrap.appendChild(input);
+      if (secret) {
+        const eye = document.createElement("button");
+        eye.type = "button";
+        eye.className = "env-reveal";
+        eye.textContent = "👁";
+        eye.title = t("wb.env_reveal");
+        eye.onclick = () => {
+          const hidden = input.type === "password";
+          input.type = hidden ? "text" : "password";
+          eye.textContent = hidden ? "🙈" : "👁";
+        };
+        wrap.appendChild(eye);
+      }
       // 文件/目录类型：显示「浏览」按钮，走宿主机原生选择器（本机窗口可用）
       if ((f.kind === "file" || f.kind === "directory") && globalThis.haveNativePick) {
         const br = document.createElement("button");
@@ -806,8 +896,9 @@ function renderForm() {
             showNotice(String(e), true);
           }
         };
-        row.appendChild(br);
+        wrap.appendChild(br);
       }
+      row.appendChild(wrap);
     }
     el.form.appendChild(row);
   }
@@ -815,23 +906,47 @@ function renderForm() {
 }
 
 function renderEnvDisplay() {
-  el.envSection.hidden = !current.env.length;
-  el.envBody.innerHTML = "";
-  for (const e of current.env) {
+  const box = el.envBody;
+  const list = (current && current.env) || [];
+  // 空态不隐藏整块：藏起来会让人以为「这程序没有 env」，而实际可能是
+  // 字段没填全、派生结果为空——那是要排查的信息，不是要藏起来的信息。
+  if (!list.length) {
+    box.innerHTML = `<div class="env-none">${escHtml(t("wb.env_none"))}</div>`;
+    return;
+  }
+  box.innerHTML = "";
+  for (const e of list) {
     const row = document.createElement("div");
     row.className = "field-row";
     const lab = document.createElement("label");
     lab.className = "field-label";
     lab.textContent = e.label || e.key;
+    let v = e.value;
+    for (const [k, fv] of Object.entries(values)) v = v.split(`{${k}}`).join(String(fv));
     const val = document.createElement("input");
     val.type = "text";
     val.readOnly = true;
-    let v = e.value;
-    for (const [k, fv] of Object.entries(values)) v = v.split(`{${k}}`).join(String(fv));
-    val.value = v;
+    const secret = SECRET_ENV_RE.test(e.key || "");
+    const rid = current.id + "::" + e.key;
+    const shown = !secret || revealedEnv.has(rid);
+    val.value = shown ? v : "•".repeat(Math.min(Math.max(v.length, 6), 16));
+    if (!shown) val.classList.add("env-mask");
     row.appendChild(lab);
     row.appendChild(val);
-    el.envBody.appendChild(row);
+    if (secret) {
+      const eye = document.createElement("button");
+      eye.type = "button";
+      eye.className = "env-reveal";
+      eye.textContent = shown ? "🙈" : "👁";
+      eye.title = t("wb.env_reveal");
+      eye.onclick = () => {
+        if (revealedEnv.has(rid)) revealedEnv.delete(rid);
+        else revealedEnv.add(rid);
+        renderEnvDisplay();
+      };
+      row.appendChild(eye);
+    }
+    box.appendChild(row);
   }
 }
 
@@ -861,7 +976,7 @@ function renderActions() {
   start.textContent = "▶ " + t("act.start");
   start.onclick = async () => {
     try {
-      const st = await invoke("start_program", { programId: current.id, values });
+      const st = await invoke("start_program", { programId: current.id, values }, { timeout: 60000 });
       applyStatus(st);
       // 后端可能顺带改了「开机自启」（native 下启动=装载），要如实说出来
       showNotice((st && st.note) || t("toast.started"));
@@ -878,7 +993,7 @@ function renderActions() {
   stop.textContent = "■ " + t("act.stop");
   stop.onclick = async () => {
     try {
-      const st = await invoke("stop_program", { programId: current.id });
+      const st = await invoke("stop_program", { programId: current.id }, { timeout: 30000 });
       applyStatus(st);
       showNotice(t("toast.stopped"));
       refreshManageLog();
@@ -894,7 +1009,7 @@ function renderActions() {
   restart.textContent = "↻ " + t("act.restart");
   restart.onclick = async () => {
     try {
-      const st = await invoke("restart_program", { programId: current.id, values });
+      const st = await invoke("restart_program", { programId: current.id, values }, { timeout: 90000 });
       applyStatus(st);
       showNotice((st && st.note) || t("toast.restarted"));
       refreshManageLog();
@@ -1092,7 +1207,7 @@ async function installProgram(id, btn) {
   }
   syncInstallBtns(id);
   try {
-    await invoke("install", { programId: id });
+    await invoke("install", { programId: id }, { timeout: 1800000 });
   } catch (e) {
     installing.delete(id);
     clearButtonProgress(btn);
@@ -1252,7 +1367,7 @@ async function checkUpdates(btn) {
     b.textContent = t("dl.checking_short");
   });
   try {
-    const full = await invoke("batch_status");
+    const full = await invoke("batch_status", {}, { timeout: 90000 });
     statuses = full;
     renderSidebar();
     if (window.usWorkbench) await window.usWorkbench.load();
@@ -1311,7 +1426,7 @@ async function ensureLibraryFromCache() {
 
 async function refreshLibrary() {
   try {
-    const m = await invoke("get_merged_manifest", { registryUrl: registryUrl || "" });
+    const m = await invoke("get_merged_manifest", { registryUrl: registryUrl || "" }, { timeout: 120000 });
     manifest = m;
     if (libSource && !(manifest.sources || []).some((s) => s[0] === libSource)) libSource = null;
     libPage = 0;
@@ -1333,7 +1448,7 @@ async function refreshLibrary() {
 async function refreshTemplateStatus(base, id, btn) {
   const stKey = base + "\u0000" + id;
   try {
-    const st = await invoke("template_status", { registryUrl: base || registryUrl || "", templateId: id });
+    const st = await invoke("template_status", { registryUrl: base || registryUrl || "", templateId: id }, { timeout: 120000 });
     templateStatusCache[stKey] = st;
     if (st === "current") {
       btn.disabled = true;
@@ -1649,7 +1764,7 @@ async function doImport(id, base, btn) {
     btn.textContent = t("lib.importing");
   }
   try {
-    await invoke("import_template", { registryUrl: base || registryUrl || "", templateId: id, overwrite: false });
+    await invoke("import_template", { registryUrl: base || registryUrl || "", templateId: id, overwrite: false }, { timeout: 120000 });
     showNotice(t("toast.import_done", { id }));
     await afterImport(id);
     clearTemplateStatusCache();
@@ -1690,7 +1805,7 @@ async function openTemplateDiffModal(id, base) {
   diffModal.hidden = false;
   applyBtn.disabled = false;
   try {
-    const d = await invoke("template_diff", { registryUrl: base || registryUrl || "", templateId: id });
+    const d = await invoke("template_diff", { registryUrl: base || registryUrl || "", templateId: id }, { timeout: 120000 });
     renderTemplateDiff(content, d);
   } catch (e) {
     content.textContent = "";
@@ -1759,7 +1874,7 @@ async function applyTemplateUpdate() {
   if (importing.has(id)) return;
   importing.add(id);
   try {
-    await invoke("import_template", { registryUrl: base || registryUrl || "", templateId: id, overwrite: true });
+    await invoke("import_template", { registryUrl: base || registryUrl || "", templateId: id, overwrite: true }, { timeout: 120000 });
     showNotice(t("toast.import_overwritten", { id }));
     await afterImport(id);
     clearTemplateStatusCache();
@@ -2120,7 +2235,7 @@ function measureNetPings() {
   // 每个目标单独发起，完成后即逐行展示，不等最慢的超时目标
   items.forEach((it) => {
     const kind = it.kind === "proxy" ? "proxy" : "url";
-    invoke("check_pings", { targets: [{ url: it.url, kind }] })
+    invoke("check_pings", { targets: [{ url: it.url, kind }] }, { timeout: 60000 })
       .then((list) => {
         const arr = (list && list.pings) || [];
         const v = arr[0] != null ? arr[0] : null;
@@ -2200,7 +2315,7 @@ async function checkShellUpdate(manual) {
   shellChecking = true;
   renderShellUpdate();
   try {
-    const r = await invoke("check_shell_update");
+    const r = await invoke("check_shell_update", {}, { timeout: 120000 });
     shellUpdate = r;
     if (r.latest_tag) showNotice(t("upd.available", { latest: r.latest_tag, current: r.current }), false, 8000);
     else if (manual) showNotice(t("upd.latest", { ver: r.current }));
@@ -2518,7 +2633,7 @@ function renderLogContent() {
 async function refreshAllStatuses() {
   let all;
   try {
-    all = await invoke("batch_status_local");
+    all = await invoke("batch_status_local", {}, { timeout: 90000 });
   } catch {
     return;
   }
@@ -2768,7 +2883,7 @@ async function saveEdit() {
 // 新程序要等 5 秒轮询才出现在侧栏里。现在这里一次刷两处。
 async function reloadPrograms() {
   programs = await invoke("get_programs");
-  statuses = (await invoke("batch_status_local")) || [];
+  statuses = (await invoke("batch_status_local", {}, { timeout: 90000 })) || [];
   if (window.usWorkbench && typeof window.usWorkbench.load === "function") {
     await window.usWorkbench.load();
   } else {
@@ -3114,6 +3229,15 @@ document.querySelector("#edit-modal-close").onclick = () => (document.querySelec
 document.querySelector("#edit-modal-cancel").onclick = () => (document.querySelector("#edit-modal").hidden = true);
 document.querySelector("#edit-modal-save").onclick = saveEdit;
 
+// 配置页的「编辑」：进的是程序定义（id / 名称 / args / 模板字段），
+// 不是上面那些即时保存的字段值。之前这个入口只藏在侧栏右键菜单里。
+const cfgEditBtn = document.querySelector("#cfg-edit-btn");
+if (cfgEditBtn) {
+  cfgEditBtn.onclick = () => {
+    if (current) openEditModal(current);
+  };
+}
+
 // F9：本机窗口支持服务端原生选择器；远程（无该能力）隐藏按钮、手填路径
 const browseBtn = document.querySelector("#edit-binary-browse");
 globalThis.haveNativePick = false;
@@ -3262,7 +3386,7 @@ async function boot() {
   applyTheme(dark ? "dark" : "light");
 
   programs = await invoke("get_programs");
-  statuses = (await invoke("batch_status_local")) || [];
+  statuses = (await invoke("batch_status_local", {}, { timeout: 90000 })) || [];
   // 工作台：统一列表（程序 + 手工服务）。列表与详情都由它驱动。
   const wbItems = window.usWorkbench ? await window.usWorkbench.load() : [];
   renderSidebar();

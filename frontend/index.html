@@ -110,12 +110,18 @@
                 <div class="sec">
                   <div class="sec-h">
                     <span data-i18n="wb.ov_fields">字段</span>
+                    <span id="cfg-save-hint" class="cfg-saved" hidden data-i18n="wb.cfg_saved">已保存</span>
                     <span class="spacer"></span>
                     <span class="hint" data-i18n="wb.ov_template">模板定义</span>
+                    <!-- 字段是即时保存的，这个「编辑」进的是程序定义（id/名称/args/模板），
+                         和字段值不是一回事，设计稿里的入口就是它 -->
+                    <button id="cfg-edit-btn" type="button" class="btn sm" data-i18n="act.edit">编辑</button>
                   </div>
                   <form id="field-form"></form>
                 </div>
-                <div id="env-section" class="sec" hidden>
+                <!-- 环境变量没有内容时也不藏：藏起来会让人以为「这个程序没有 env」，
+                     而实际可能是字段没填全、派生结果为空。空态显示一行说明。 -->
+                <div id="env-section" class="sec">
                   <div class="sec-h"><span data-i18n="edit.env">环境变量</span><span class="spacer"></span>
                     <span class="hint" data-i18n="wb.ov_env_hint">启动时注入</span></div>
                   <div class="sec-b" style="padding:0"><div id="env-body"></div></div>
@@ -153,9 +159,18 @@
                       <span class="upd-pin" id="upd-pin" hidden></span>
                     </div>
                     <div id="upd-controls" class="upd-settings"></div>
+                    <!-- 「操作」行：设计稿里更新页有明确的落地动作，而不是只有一行版本号。
+                         按钮本身复用状态栏的下载逻辑（同一个 installProgram）。 -->
+                    <div class="upd-apply-row">
+                      <span class="upd-key" data-i18n="wb.upd_act">操作</span>
+                      <span id="upd-apply" class="upd-apply"></span>
+                    </div>
                     <div class="upd-check">
                       <span class="upd-checked-at" id="upd-checked-at"></span>
                       <button id="upd-check-btn" type="button" class="op" data-i18n="batch.check">检查更新</button>
+                    </div>
+                    <div id="upd-keep-tip" class="upd-keep-tip" hidden data-i18n="wb.upd_keep">
+                      更新保留已填字段，仅替换二进制并重启
                     </div>
                   </div>
                 </div>

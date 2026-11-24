@@ -18,6 +18,7 @@
   --border: rgba(148, 163, 184, 0.28);
   --danger: #e11d48;
   --ok: #16a34a;
+  --warn: #d97706;
 }
 :root[data-theme='dark'] {
   --sidebar-bg: #0b1220;
@@ -39,6 +40,7 @@
   --border: rgba(71, 85, 105, 0.7);
   --danger: #fb7185;
   --ok: #22c55e;
+  --warn: #fbbf24;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
@@ -61,6 +63,7 @@
     --border: rgba(71, 85, 105, 0.7);
     --danger: #fb7185;
     --ok: #22c55e;
+    --warn: #fbbf24;
   }
 }
 
@@ -189,7 +192,7 @@ html[data-sidebar='narrow'] nav#program-tabs.room-list { margin: 4px -2px; paddi
 .field-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .field-label { width: 140px; flex: none; color: var(--text); text-align: right; }
 .field-label.required { color: var(--danger); font-weight: 600; }
-.field-row input[type="text"] {
+.field-row input[type="text"], .field-row input[type="password"] {
   flex: 1; background: var(--panel-2); border: 1px solid var(--border);
   color: var(--text); border-radius: 6px; padding: 7px 10px;
 }
@@ -780,6 +783,45 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 .upd-check { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 10px; }
 .upd-check .op { padding: 2px 10px; font-size: 12px; }
 .upd-checked-at { font-size: 12px; color: var(--muted); white-space: nowrap; }
+/* 「操作」行：版本对比下面直接给落地动作（应用更新 / 已是最新） */
+.upd-apply-row {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
+}
+.upd-apply { font-size: 12px; color: var(--muted); }
+.upd-apply .op { padding: 3px 11px; font-size: 12px; }
+.upd-apply .upd-uptodate { color: var(--ok); font-weight: 600; }
+.upd-keep-tip {
+  margin-top: 8px; padding: 6px 9px; border-radius: 7px; font-size: 10.5px;
+  color: color-mix(in srgb, var(--warn) 82%, var(--text));
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+}
+.upd-keep-tip[hidden] { display: none; }
+/* 调度页「生成的单元文件」：和日志窗同一套深色终端语言，只是不可滚动编辑 */
+.unit-block { padding: 0 !important; overflow: hidden; border-radius: 10px; }
+.unit-head {
+  display: flex; align-items: center; gap: 8px; padding: 7px 11px;
+  font-size: 11px; font-weight: 600; color: #e2e8f0; background: #1e293b;
+  border-bottom: 1px solid rgba(148, 163, 184, .18);
+}
+.unit-head .utitle { flex: 0 0 auto; white-space: nowrap; }
+.unit-head .upath {
+  margin-left: auto; font-weight: 400; font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.unit-pre {
+  margin: 0; padding: 10px 12px; max-height: 260px; overflow: auto;
+  background: #0f172a; color: #cbd5e1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px; line-height: 1.65; tab-size: 2;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.unit-pre::-webkit-scrollbar { width: 8px; height: 8px; }
+.unit-pre::-webkit-scrollbar-track { background: #0f172a; }
+.unit-pre::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+.unit-empty { padding: 12px 11px; font-size: 11.5px; color: var(--muted); }
 .edit-field-del {
   flex: 0 0 auto; background: none; border: none; color: var(--danger);
   font-size: 16px; cursor: pointer;
@@ -948,7 +990,7 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
   button, .op-btn, .log-action { touch-action: manipulation; }
 
   /* iOS：输入框字号 ≥16px，避免聚焦时页面被强制放大 */
-  .field-row input[type="text"], #field-form input,
+  .field-row input[type="text"], .field-row input[type="password"], #field-form input,
   .edit-scroll input:not([type="checkbox"]), .edit-scroll textarea,
   #lib-search input, .log-search,
   #lib-source-bar select, .sources-add input, .source-row input,
@@ -1105,7 +1147,7 @@ body.resizing-log { cursor: ns-resize; user-select: none; }
 
 .prog-item .wb-check { width: 13px; height: 13px; accent-color: var(--accent); margin: 0; flex: none; }
 .wb-tag { font-size: 9.5px; padding: 0 4px; border-radius: 4px; border: 1px solid var(--sidebar-line); color: var(--sidebar-sub); flex: none; }
-.wb-tag.sys { color: #8fb8ff; border-color: rgba(76, 154, 255, .45); }
+.wb-tag.sys { color: color-mix(in srgb, var(--accent) 80%, var(--text)); border-color: rgba(76, 154, 255, .45); }
 .wb-tag.upd { color: #e0b341; border-color: rgba(224, 179, 65, .45); }
 html[data-sidebar='narrow'] .prog-item .wb-check,
 html[data-sidebar='narrow'] .wb-filter { display: none; }
@@ -1131,7 +1173,13 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
 .card h3 { margin: 0 0 10px; font-size: 12.5px; font-weight: 500; color: var(--muted); }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
 .seg button { font: inherit; font-size: 12px; background: transparent; border: 0; color: var(--muted); padding: 5px 12px; cursor: pointer; }
-.seg button.on { background: rgba(76, 154, 255, .16); color: #cfe2ff; }
+/* 选中态用语义色而不是写死的浅蓝：写死 #cfe2ff 在浅色主题下是「白底白字」，
+   选中项直接看不见（系统调度/壳托管 分段控件就是这么消失的）。 */
+.seg button.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: color-mix(in srgb, var(--accent) 78%, var(--text));
+  font-weight: 600;
+}
 .note {
   font-size: 12px; color: var(--muted); background: rgba(76, 154, 255, .07);
   border: 1px solid rgba(76, 154, 255, .28); border-radius: 8px; padding: 8px 10px; margin-top: 10px;
@@ -1470,15 +1518,52 @@ html[data-sidebar='narrow'] .wb-filter { display: none; }
 #pane-cfg .field-label { width: auto; flex: none; text-align: left; font-size: 11px; color: var(--muted); }
 #pane-cfg .field-label.required { color: color-mix(in srgb, var(--danger) 78%, var(--text)); }
 #pane-cfg .field-row input[type="text"],
+#pane-cfg .field-row input[type="password"],
 #pane-cfg .field-row textarea,
 #pane-cfg .field-row select {
   width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 7px 9px;
   border-radius: 8px; background: var(--panel); border: 1px solid var(--border); color: var(--text);
 }
 #pane-cfg .field-row input[type="checkbox"] { align-self: flex-start; transform: none; margin: 0; }
+/* 输入框 + 右侧按钮（浏览 / 眼睛）同一行 */
+#pane-cfg .field-ctl { display: flex; align-items: center; gap: 6px; }
+#pane-cfg .field-ctl > input { flex: 1 1 auto; min-width: 0; width: auto; }
+#pane-cfg .field-ctl > .op-btn, #pane-cfg .field-ctl > .env-reveal { flex: 0 0 auto; }
+/* 字段标签上的原始 key：设计稿写「端口 port」。label 是给人看的，
+   key 是 shell.json 里真正存的键，排查配置时要能对上号。 */
+#pane-cfg .field-label .fkey {
+  margin-left: 6px; padding: 0 4px; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px; color: color-mix(in srgb, var(--muted) 88%, var(--text));
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
+/* 自动保存反馈：贴在区块标题右侧，出现 1.4s 后自己淡出（脚本控制 hidden） */
+.cfg-saved {
+  font-size: 10.5px; font-weight: 500; color: var(--ok);
+  opacity: 0; transition: opacity .18s ease;
+}
+.cfg-saved.on { opacity: 1; }
+.cfg-saved.err { color: var(--danger); }
+/* 环境变量空态：不要整块消失 */
+.env-none { padding: 12px 11px; font-size: 11.5px; color: var(--muted); }
+.env-mask { letter-spacing: 2px; }
+.env-reveal {
+  flex: 0 0 auto; border: 1px solid var(--border); background: var(--panel);
+  color: var(--muted); border-radius: 7px; padding: 4px 7px; font-size: 11px; cursor: pointer;
+}
+.env-reveal:hover { color: var(--text); }
+/* 依赖与关联里的「导入信息」：chips 下面补一段 kv，别另起一张卡 */
+.kv-sub { margin-top: 9px; padding-top: 9px; border-top: 1px dashed var(--border); }
 /* 环境变量：外层已经是 .sec，去掉旧的顶部分隔线 */
 #pane-cfg #env-section { margin-top: 12px; padding-top: 0; border: 1px solid var(--border); }
 #pane-cfg #env-body { padding: 10px 11px; }
+/* env 行是「标签 + 只读值 + 眼睛」，横排才不浪费纵向空间；
+   字段行是「标签在上、输入框在下」，两者不能共用同一套 flex-direction。 */
+#pane-cfg #env-body .field-row { flex-direction: row; align-items: center; gap: 8px; }
+#pane-cfg #env-body .field-label { flex: 0 0 104px; width: auto; font-size: 11px; color: var(--muted); }
+#pane-cfg #env-body .field-row input[type="text"],
+#pane-cfg #env-body .field-row input[type="password"] { flex: 1 1 auto; min-width: 0; width: auto; }
+#pane-cfg #env-body .env-reveal { flex: 0 0 auto; }
 #pane-cfg #svc-form {
   border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); padding: 12px;
 }

@@ -672,3 +672,18 @@ ev.autostart_off: autostart disabled
 ev.sup_native: switched to system scheduler
 ev.sup_managed: switched back to shell
 wb.ov_dep_hint_managed: not applicable under shell supervision
+wb.cfg_saved: Saved
+wb.cfg_save_fail: 'Save failed: %{err}'
+wb.env_none: no environment variables (current fields derive none)
+wb.env_reveal: Show/hide
+wb.ov_import: Import info
+wb.ov_imported_at: Imported at
+wb.ov_source: Template source
+wb.ov_log_follow: Follow
+wb.upd_act: Action
+wb.upd_apply: Apply update
+wb.upd_uptodate: Up to date
+wb.upd_keep: Update keeps your filled fields; only the binary is replaced and restarted
+wb.sched_unit: Generated %{p} unit
+wb.sched_unit_none: Switch to "System scheduler" to see the unit file that will be written
+wb.sched_unit_fail: 'Cannot read unit file: %{err}'

@@ -11,16 +11,35 @@ let usToken =
 if (usToken) localStorage.setItem(TOKEN_STORE, usToken);
 globalThis.usToken = usToken;
 
-globalThis.invoke = async function invoke(cmd, args) {
+// 默认超时。没有它的话，一次挂住的请求会让调用方的 `await` 永远不返回：
+// 切换程序时 get_values 卡住，配置页就会一直显示上一个程序的字段
+// （实测无外网时页面加载的 registry 请求占满浏览器连接池，能卡十几秒）。
+const RPC_TIMEOUT_MS = 20000;
+
+globalThis.invoke = async function invoke(cmd, args, opts) {
   const headers = { "Content-Type": "application/json" };
   if (usToken) headers["X-Universal-Token"] = usToken;
-  const res = await fetch("/api/rpc", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ cmd, args: args || {} }),
-  });
-  if (!res.ok) throw new Error("HTTP " + res.status);
-  const body = await res.json();
-  if (!body.ok) throw new Error(body.error || "rpc error: " + cmd);
-  return body.data;
+  // 下载 / 拉清单 / 联网检查这类天然慢的操作由调用方显式放宽
+  const timeout = (opts && opts.timeout) || RPC_TIMEOUT_MS;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeout);
+  try {
+    const res = await fetch("/api/rpc", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ cmd, args: args || {} }),
+      signal: ac.signal,
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const body = await res.json();
+    if (!body.ok) throw new Error(body.error || "rpc error: " + cmd);
+    return body.data;
+  } catch (e) {
+    if (e && e.name === "AbortError") {
+      throw new Error(`${cmd} 超时（${Math.round(timeout / 1000)}s 未响应）`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 };

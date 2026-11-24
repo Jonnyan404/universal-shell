@@ -70,6 +70,44 @@
         否则深色下看不见）。全部 30px 高 / 8px 圆角，与 D 方案一致。
       - 坑：`<select>` 的固有宽度按最长 option 算，移动端必须 `flex: 1 1 0; min-width: 0`，
         否则要么撑出屏幕、要么把「刷新」挤到下一行。
+- [x] **P13 详情页与设计稿逐项对齐**（四页 25 条差异，逐条核对 `06-merged-bd.html` 后一次做完）：
+      - **配置页**
+        - 字段标签带原始 key：`访问令牌 <code>token</code>`。label 给人看，key 是 `shell.json` 里真正存的键，
+          排查配置时要能对上号；两者相同时不重复。
+        - 区块头补「编辑」按钮 → `openEditModal(current)`。它进的是**程序定义**（id / 名称 / args / 模板字段），
+          不是下面那些即时保存的字段值；之前这个入口只藏在侧栏右键菜单里。
+        - 敏感值打码：`SECRET_ENV_RE`（TOKEN / SECRET / PASSWORD / APIKEY / _KEY / AUTH / COOKIE / SESSION）
+          命中即打码。env 显示成 `••••••` + 眼睛按钮（展开状态记在 `revealedEnv`，按 `programId::key` 存）；
+          **字段本身改成 `input[type=password]`**——env 都打码了、字段里却明文躺着同一个 token，打码就白做了。
+        - 自动保存反馈：`#cfg-save-hint` 在「字段」标题里闪一下绿色「已保存」（1.4s 淡出），
+          失败常驻红色。没有反馈时用户改完不知道存没存进去，只会反复改。
+        - env 空态不再隐藏整块，显示「无环境变量（当前字段没有派生任何 env）」。隐藏会让人以为程序没有 env，
+          而实际可能是字段没填全、派生结果为空——那是要排查的信息。
+      - **概览页**
+        - KPI 顺序改为 运行时长 → 内存 → 版本 → 监听（「现在活不活」比「绑在哪」更该先看到）。
+        - 依赖与关联补**导入信息**：`imported_at`（`YYYY-MM-DD HH:mm`）/ `template_source` / `repo`，
+          用 `.kv-sub` 接在 chips 下面，不另起一张卡。`template_source` 常是整条
+          `raw.githubusercontent.com` URL，只留末尾两段（`…/registry/ech-tunnel`），完整值放 `title`。
+        - 删掉「说明」块（设计稿没有；描述已经在头部 `#prog-desc`）。「最近事件」保留。
+        - 日志卡补「跟随」按钮（贴底 + 触发一次刷新），与「展开」并列。
+      - **调度页**：底部补「生成的 launchd / systemd / schtasks 单元」深色代码块。
+        数据来自新 RPC `program_unit_preview` → `ShellManager::unit_preview()`，
+        直接调 `us-service` 的 `plist` / `unit` / `xml`，**和真正写盘的是同一份渲染**，不是前端拼的。
+        竞态用自增 `unitSeq` 丢弃过期响应。标题不换行、路径省略号截断；代码块 `pre-wrap` 折行
+        （检查器只有 400px 宽，横向滚动等于每行只能看前三分之一）。
+      - **更新页**：补「操作」行——有新版给「应用更新」按钮（复用 `installProgram`），
+        没新版显示绿色「已是最新」，没装过显示「未安装」；下方黄色提示条「更新保留已填字段，仅替换二进制并重启」
+        仅在真有新版时出现。
+      - **顺带修的两个真 bug**
+        - `switchCurrent()` 原来是「先 `await get_values` 再渲染」：没外网时 registry 请求占满浏览器 6 条连接池，
+          RPC 排队十几秒，期间详情区挂着**上一个程序**的字段——点了 A 显示 B 的配置，最坏的正确性问题。
+          改成先用空值渲染骨架，值到了再回填，并用 `wanted` 比对丢弃过期响应。
+          `api.js` 的 `invoke` 同时加 20s 默认超时（慢操作按调用点显式放宽：install 30min、清单/模板 2min、
+          start 60s、restart 90s、batch_status 90s），否则一次挂住的请求会让 `await` 永远不返回。
+        - `.seg button.on` 写死 `color: #cfe2ff`（浅蓝）——浅色主题下是白底白字，「系统调度 / 壳托管」
+          分段控件里**选中项直接看不见**。改成 `color-mix` 语义色。`.wb-tag.sys` 同病同治。
+        另外 `input[type=password]` 没被 `input[type=text]` 的样式覆盖，深色主题下留了浏览器默认白底，
+        四处选择器都补上 `[type="password"]`。
 
 ---
 
@@ -154,6 +192,12 @@ await send("Page.navigate", { url });
    日志页是铺满的深色终端。
 5. **模板库**：按分类分组，组头三角可折叠带计数，卡片栅格 4 列不溢出，导入按钮在卡片内换行不裁切。
 6. **深色**：表格、徽标、开关、表单标签、KPI 卡片、事件时间线对比度正常；终端本来就深色，两种主题一致。
+7. **详情页四页（P13）**：配置页字段标签带 key（`访问令牌 token`）、区块头「编辑」可打开程序定义弹窗、
+   敏感 env 显示 `••••••` 且眼睛可展开、改字段后标题闪「已保存」；概览页 KPI 顺序 运行时长→内存→版本→监听、
+   依赖与关联出现「导入时间 / 模板来源 / 仓库」、无「说明」块、日志卡有「跟随」；调度页底部出现
+   「生成的 launchd 单元」，内容与 `us-service::launchd::plist()` 的输出一致（同一份渲染，不是前端拼的）；更新页有「操作」行。
+   深色主题下 password 输入框是深底（不是浏览器默认白底），`.seg` 选中项清晰可见。
+   390 宽下配置页的字段与 env 行全部在屏内。
 
 搜索过滤时计数显示 `命中 / 总数`（如 `8 / 40`），不过滤时只显示总数。
 
@@ -161,7 +205,7 @@ await send("Page.navigate", { url });
 
 ## 5. 回滚
 
-本次改动集中在 7 个源文件（`index.html` / `workbench.js` / `styles.css` / `main.js` / `rpc.rs` / `runner.rs` / `shell_manager.rs`）
+本次改动集中在 8 个源文件（`index.html` / `workbench.js` / `styles.css` / `main.js` / `api.js` / `rpc.rs` / `runner.rs` / `shell_manager.rs`）
 + 新增 `shared/src/insight.rs` + `web-server/src/lib.rs` 的采样线程 + 两个语言包 + `docs/`。
 若需回退：`git revert <commit>`；`rpc.rs` 的新增字段是**纯增量**，旧前端会忽略，不影响兼容。
 `insight.json` 是新增的数据文件，删掉不影响运行（只是事件时间线清空）。
@@ -174,14 +218,14 @@ await send("Page.navigate", { url });
 |---|---|
 | `shared/src/insight.rs` | **新增**：内存采样环形缓冲 + 事件环形缓冲（落盘 `insight.json`）+ 跨平台 `rss_kb(pid)` |
 | `shared/src/runner.rs` | `Runner.started` 记录启动时刻（`uptime_secs()`）、`exits` 记录退出码（`take_exit()`）；补测试 `uptime_tracks_start_and_stop` |
-| `shared/src/shell_manager.rs` | 持有 `insight`；start/stop/sweep 落事件；`sample_memory()`；删程序时 `forget()` |
+| `shared/src/shell_manager.rs` | 持有 `insight`；start/stop/sweep 落事件；`sample_memory()`；删程序时 `forget()`；**P13 抽出 `derive_service()` + 新增 `unit_preview()`** |
 | `web-server/src/lib.rs` | 新增 `us-mem` 采样线程（5 秒一次） |
-| `web-server/src/rpc.rs` | `workspace_list` 每项多 `category` / `port` / `autostart` / **`uptime`** / **`mem_kb`**；新增 **`program_insight`** RPC；安装成功 / 自启 / 调度切换各记一条事件 |
-| `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；检查器按 D 重写成 `d-head / d-actions / d-tabs / d-body`，**日志搬进「日志」标签页**；移动端加搜索/筛选；**模板库换成 `.lib-shell` + `.lib-hero` + `.lib-bar` 结构（P12）** |
-| `frontend/workbench.js` | `COLS` 增 `uptime` / `actions` 两列 + `fmtUptime()` / `actHTML()` / `quickAct()`；概览页按 D 五块重写（KPI + sparkline / 运行配置 / 依赖与关联 / 最近事件 / 日志卡）；`loadInsight()`；`renderInspHead()` 统一头部；`select()` 移动端先跳转后拉数据 |
+| `web-server/src/rpc.rs` | `workspace_list` 每项多 `category` / `port` / `autostart` / **`uptime`** / **`mem_kb`** / **`external_pid`** / **`imported_at`** / **`template_source`** / **`repo`**；新增 **`program_insight`**、**`program_unit_preview`** RPC；安装成功 / 自启 / 调度切换各记一条事件 |
+| `frontend/index.html` | `.sidebar` → `.iconrail`；`manage-view` 重排成「工具条 + 表格 + 检查器」；检查器按 D 重写成 `d-head / d-actions / d-tabs / d-body`，**日志搬进「日志」标签页**；移动端加搜索/筛选；**模板库换成 `.lib-shell` + `.lib-hero` + `.lib-bar` 结构（P12）**；**P13 配置页加「编辑」+「已保存」、env 块常显、更新页加「操作」行与提示条** |
+| `frontend/workbench.js` | `COLS` 增 `uptime` / `actions` 两列 + `fmtUptime()` / `actHTML()` / `quickAct()`；概览页按 D 五块重写（KPI + sparkline / 运行配置 / 依赖与关联 / 最近事件 / 日志卡）；`loadInsight()`；`renderInspHead()` 统一头部；`select()` 移动端先跳转后拉数据；**P13 概览页 KPI 重排 + 导入信息 + 日志卡「跟随」、调度页 `loadUnitPreview()`、`renderUpdatePane` 二次刷 `updateUpdateCard`** |
 | `frontend/styles.css` | 图标栏、工具条、表格、检查器（`.d-*` / `.kpi` / `.spark` / `.sec` / `.kv` / `.tl`）、深色终端（`.term-body` / logbar）、四档断点、移动端两行列表；**模板库全套（`.lib-hero` / `.lib-bar` / `.btn` / sticky 分组头 / `.lib-card` / 双色变量）**；`body{margin:0}` |
-| `frontend/main.js` | `renderHeader` / `renderChips` / `switchView` 的头部写入全部转调 `renderInspHead`；`logLineEl` 做时间戳/级别 token 化并导出 `usLogLine` / `usLogTail`；`switchCurrent` 先赋值 `current`；boot 不再抢选中；**模板库 `libCard()` 重写 + `libCatColor()` 分类取色 + 分组头色点/`aria-expanded` + 工具条「上次拉取」（P12）** |
-| `shared/locales/zh-CN.yml` / `en.yml` | 补 `wb.col_*`、`wb.ov_*`（含 mem/dep/events/log）、`ev.*` 事件文案、`wb.tab_log` 等，各 671 条 |
+| `frontend/main.js` | `renderHeader` / `renderChips` / `switchView` 的头部写入全部转调 `renderInspHead`；`logLineEl` 做时间戳/级别 token 化并导出 `usLogLine` / `usLogTail`；`switchCurrent` 先赋值 `current`；boot 不再抢选中；**模板库 `libCard()` 重写 + `libCatColor()` 分类取色 + 分组头色点/`aria-expanded` + 工具条「上次拉取」（P12）**；**P13 `switchCurrent` 先渲染骨架再回填 + `flashCfgSaved()` + 字段 key/密码框/env 打码 + 更新页「操作」行** |
+| `shared/locales/zh-CN.yml` / `en.yml` | 补 `wb.col_*`、`wb.ov_*`（含 mem/dep/events/log）、`ev.*` 事件文案、`wb.tab_log` 等；P13 补 `wb.cfg_saved` / `wb.env_none` / `wb.ov_import*` / `wb.upd_apply` / `wb.sched_unit*` 等，各 679 条 |
 
 > 语言包**只改 `shared/locales/*.yml`**。`frontend/locales/*.json` 是 `web-server/build.rs` 生成的，
 > 且被 `.gitignore` 忽略，直接改 JSON 下次编译就没了。
@@ -207,3 +251,10 @@ await send("Page.navigate", { url });
 | `shots/impl-library-collapse.png` | 模板库：折叠 Clipboard 分组后的状态 |
 | `shots/impl-library-mobile.png` | 手机 390：页头按钮换行、搜索/源下拉/刷新单行、单列卡片 |
 | `shots/impl-adopted-process.png` | 外部接管态：列表琥珀色「外部接管」胶囊 + 详情页运行时长显示 `PID xxxxx`（设计见 `docs/process-lifecycle.md`） |
+| `shots/impl-detail-overview.png` | 详情页概览（P13）：KPI 顺序 运行时长 → 内存 → 版本 → 监听；依赖与关联补「导入时间 / 模板来源 / 仓库」；日志卡「跟随 + 展开」 |
+| `shots/impl-detail-config.png` | 详情页配置（P13）：字段标签带原始 key（`访问令牌 token`）、区块头「编辑」、敏感值打码（字段 password + env `••••••` + 眼睛）、env 空态 |
+| `shots/impl-detail-sched.png` | 详情页调度（P13）：底部「生成的 launchd 单元」深色代码块，内容来自后端 `program_unit_preview`（与写盘同一份渲染） |
+| `shots/impl-detail-update.png` | 详情页更新（P13）：「操作」行显示「已是最新」（真实数据，只有 clip9 装过且无版本号） |
+| `shots/impl-detail-update-avail.png` | 详情页更新（P13）：**有新版时**的形态——「应用更新」按钮 + 黄色提示条（版本号是注入的，只为验证这条路径） |
+| `shots/impl-detail-config-dark.png` | 深色主题的配置页（password 输入框必须走 `--panel` 背景，不能留浏览器默认白底） |
+| `shots/impl-detail-config-mobile.png` | 手机 390：配置页字段与 env 行（标签 + 值 + 眼睛）全部在屏内 |

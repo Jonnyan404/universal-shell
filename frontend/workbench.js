@@ -368,7 +368,9 @@
     const actions = $("#actions");
     const svc = $("#svc-form");
     if (form) form.hidden = false;
-    if (env) env.hidden = true;
+    // 环境变量块常显：没有 env 时显示空态说明，而不是整块消失
+    // （隐藏会让人以为程序没有 env，实际可能是字段没填全、派生结果为空）
+    if (env) env.hidden = false;
     if (actions) actions.hidden = false;
     if (svc) {
       svc.hidden = true;
@@ -490,12 +492,19 @@
         (native ? schedForm(spec, "wb-p") : "") +
         (native
           ? `<div class="svc-save-row"><button class="op" id="wb-save-sched">${esc(t("wb.save_sched"))}</button></div>`
-          : "");
+          : "") +
+        // 单元文件预览：设计稿调度页底部就是这块深色代码块。
+        // 后端 program_unit_preview 直接调 us-service 的 render，和真正写盘的是同一份，
+        // 不是前端拼出来糊人的。
+        `<div class="sec unit-block" id="wb-unit" style="margin-bottom:0">` +
+        `<div class="unit-head"><span class="utitle">…</span><span class="upath"></span></div>` +
+        `<div class="unit-empty">…</div></div>`;
       box.querySelectorAll("#wb-seg button").forEach((b) => {
         b.onclick = () => setProgramSupervisor(it, b.dataset.sup === "native");
       });
       const save = $("#wb-save-sched");
       if (save) save.onclick = () => saveProgramSched(it);
+      loadUnitPreview(it.id);
       return;
     }
 
@@ -513,6 +522,41 @@
       `<div class="svc-save-row"><button class="op" id="wb-save-sched">${esc(t("wb.save_sched"))}</button></div>`;
     const save = $("#wb-save-sched");
     if (save) save.onclick = () => saveServiceSched(it);
+  }
+
+  // 单元文件预览。与真正写盘用的是同一套渲染（后端 us-service 的 plist/unit/xml），
+  // 所以这里看到的就是装进系统调度器的那一份。
+  // 竞态处理：连续点几行时只认最后一次请求的结果，否则会把 A 的单元画到 B 上。
+  let unitSeq = 0;
+  async function loadUnitPreview(id) {
+    const box = document.getElementById("wb-unit");
+    if (!box) return;
+    const seq = ++unitSeq;
+    try {
+      const r = await invoke("program_unit_preview", { programId: id });
+      if (seq !== unitSeq) return;
+      const cur = document.getElementById("wb-unit");
+      if (!cur) return;
+      const label = r.platform === "schtasks" ? "Task Scheduler XML" : r.platform;
+      const title = cur.querySelector(".utitle");
+      const upath = cur.querySelector(".upath");
+      if (title) title.textContent = t("wb.sched_unit", { p: label });
+      if (upath) {
+        upath.textContent = r.path || "";
+        upath.title = r.path || "";
+      }
+      cur.innerHTML =
+        `<div class="unit-head"><span class="utitle">${esc(t("wb.sched_unit", { p: label }))}</span>` +
+        `<span class="upath" title="${esc(r.path || "")}">${esc(r.path || "")}</span></div>` +
+        `<pre class="unit-pre">${esc(r.content || "")}</pre>`;
+    } catch (e) {
+      if (seq !== unitSeq) return;
+      const cur = document.getElementById("wb-unit");
+      if (!cur) return;
+      cur.innerHTML =
+        `<div class="unit-head"><span class="utitle">${esc(t("wb.tab_sched"))}</span></div>` +
+        `<div class="unit-empty">${esc(t("wb.sched_unit_fail", { err: String(e) }))}</div>`;
+    }
   }
 
   function schedForm(spec, prefix) {
@@ -710,6 +754,9 @@
     const strip = document.getElementById("upd-settings");
     // 进入「更新」页就是来看它的，折叠状态不该把它藏起来
     if (strip) strip.hidden = false;
+    // updateUpdateCard 在 strip 隐藏时会直接 return，上面那次调用可能什么都没写。
+    // strip 可见之后必须再刷一次，否则版本行和「操作」行停在旧值上。
+    if (typeof updateUpdateCard === "function") updateUpdateCard();
   }
 
   // ---------- 概览页 ----------
@@ -788,6 +835,14 @@
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   }
 
+  // 导入时间是跨月跨年的历史信息，只有时分秒不够用
+  function ymdhm(at) {
+    const d = new Date((at || 0) * 1000);
+    if (isNaN(d.getTime()) || !at) return "—";
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
   // 概览按 D 方案的五块排：KPI → 运行配置 → 依赖与关联 → 最近事件 → 日志。
   // 数字全部来自后端（uptime / RSS / 事件表），没有一处是编的。
   function renderOverview() {
@@ -849,6 +904,36 @@
             .join("")
         : `<span class="chip"><b>${esc(t("wb.ov_tmpl"))}</b> ${esc(it.id)}</span>`;
 
+    // 导入信息：这个程序从哪来、什么时候来的。设计稿里这块本来就有，
+    // 后端 workspace_list 已经带了 imported_at / template_source / repo 三个字段。
+    // 本地程序没有导入时间（手写的），就不硬造一行「—」。
+    // template_source 可能是整条 raw.githubusercontent.com URL，原样铺开会占三行，
+    // 只留末尾两段路径（完整值放 title，鼠标悬停能看全）。
+    const shortSrc = (s) => {
+      if (!s || !/^https?:\/\//i.test(s)) return s;
+      try {
+        const parts = new URL(s).pathname.split("/").filter(Boolean);
+        return "…/" + parts.slice(-2).join("/");
+      } catch {
+        return s;
+      }
+    };
+    const importRows = [];
+    if (it.kind !== "service") {
+      if (it.imported_at) importRows.push([t("wb.ov_imported_at"), ymdhm(it.imported_at), ""]);
+      if (it.template_source)
+        importRows.push([t("wb.ov_source"), shortSrc(it.template_source), it.template_source]);
+      if (p && p.repo) importRows.push([t("wb.ov_repo"), p.repo, ""]);
+    }
+    const importHTML = importRows.length
+      ? `<dl class="kv kv-sub">${importRows
+          .map(
+            ([k, v, full]) =>
+              `<dt>${esc(k)}</dt><dd${full ? ` title="${esc(full)}"` : ""}>${esc(v)}</dd>`
+          )
+          .join("")}</dl>`
+      : "";
+
     // 最近事件：后端 ring buffer，跨重启保留（insight.json）
     const events = (ins && ins.events) || [];
     const evHTML = events.length
@@ -859,8 +944,9 @@
           .join("")}</ul>`
       : `<div class="d-muted">${esc(t("wb.ov_no_events"))}</div>`;
 
-    box.innerHTML =
-      `<div class="kpis">` +
+    // KPI 顺序对齐设计稿：运行时长 → 内存 → 版本 → 监听。
+    // 「现在活不活」比「绑在哪」更该先看到，所以端口放最后。
+    const kpiUptime =
       `<div class="kpi"><div class="k">${esc(t("wb.ov_uptime"))}</div>` +
       // 外部接管：壳没有句柄，拿不到启动时刻，显示 PID 比显示「—」有用得多
       `<div class="v" style="font-size:15px">${esc(
@@ -868,19 +954,24 @@
       )}</div>` +
       `<div class="kh${it.external_pid ? " up" : ""}">${esc(
         it.external_pid ? t("wb.state_external") : running ? t("wb.ov_running") : t("wb.ov_stopped")
-      )}</div></div>` +
-      `<div class="kpi"><div class="k">${esc(t("wb.ov_port"))}</div><div class="v">${port ? ":" + port : "—"}${
-        port ? "<small>TCP</small>" : ""
-      }</div><div class="kh">${port ? "127.0.0.1" : esc(t("wb.ov_nobind"))}</div></div>` +
+      )}</div></div>`;
+    const kpiMem =
       `<div class="kpi"><div class="k">${esc(t("wb.ov_mem"))}</div>` +
       `<div class="v">${esc(mem.v)}${mem.unit ? `<small>${esc(mem.unit)}</small>` : ""}</div>` +
       sparkHTML(ins && ins.mem_hist) +
-      `<div class="kh">${esc(running ? t("wb.ov_mem_live") : t("wb.ov_mem_idle"))}</div></div>` +
+      `<div class="kh">${esc(running ? t("wb.ov_mem_live") : t("wb.ov_mem_idle"))}</div></div>`;
+    const kpiVer =
       `<div class="kpi"><div class="k">${esc(t("wb.ov_ver"))}</div><div class="v" style="font-size:15px">${esc(ver)}</div>` +
       `<div class="kh${upd ? " up" : ""}">${
         !hasVer ? "—" : upd ? esc(t("wb.ov_upd_to", { v: it.latest_version })) : esc(t("wb.ov_latest"))
-      }</div></div>` +
-      `</div>` +
+      }</div></div>`;
+    const kpiPort =
+      `<div class="kpi"><div class="k">${esc(t("wb.ov_port"))}</div><div class="v">${port ? ":" + port : "—"}${
+        port ? "<small>TCP</small>" : ""
+      }</div><div class="kh">${port ? "127.0.0.1" : esc(t("wb.ov_nobind"))}</div></div>`;
+
+    box.innerHTML =
+      `<div class="kpis">${kpiUptime}${kpiMem}${kpiVer}${kpiPort}</div>` +
       `<div class="sec"><div class="sec-h">${esc(t("wb.ov_cfg"))}<span class="spacer"></span>` +
       `<span class="hint">${esc(t("wb.ov_snapshot"))}</span></div><div class="sec-b"><dl class="kv">` +
       rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("") +
@@ -893,18 +984,26 @@
             ? t("wb.ov_dep_hint")
             : t("wb.ov_dep_hint_managed"),
       )}</span></div>` +
-      `<div class="sec-b"><div class="chips">${depChips}${extraChips}</div></div></div>` +
+      `<div class="sec-b"><div class="chips">${depChips}${extraChips}</div>${importHTML}</div></div>` +
       `<div class="sec"><div class="sec-h">${esc(t("wb.ov_events"))}<span class="spacer"></span>` +
       `<span class="hint">${events.length}</span></div><div class="sec-b">${evHTML}</div></div>` +
-      (it.description
-        ? `<div class="sec"><div class="sec-h">${esc(t("wb.ov_desc"))}</div>` +
-          `<div class="sec-b"><p class="d-desc">${esc(it.description)}</p></div></div>`
-        : "") +
       `<div class="sec ov-log" style="margin-bottom:0">` +
       `<div class="manage-log" data-open="1">` +
       `<div class="manage-log-head"><span class="manage-log-title">${esc(t("wb.ov_log"))}</span>` +
-      `<span class="spacer"></span><button class="log-action" data-ovlog="1">${esc(t("wb.ov_log_expand"))}</button></div>` +
+      `<span class="spacer"></span>` +
+      `<button class="log-action" data-ovlog-follow="1">${esc(t("wb.ov_log_follow"))}</button>` +
+      `<button class="log-action" data-ovlog="1">${esc(t("wb.ov_log_expand"))}</button></div>` +
       `<pre class="term-body ov-term"></pre></div></div>`;
+
+    // 「跟随」：滚动到底 + 之后每次刷新都自动贴底。展开则跳到日志页看全量。
+    const followBtn = box.querySelector("[data-ovlog-follow]");
+    if (followBtn) {
+      followBtn.onclick = () => {
+        const t2 = box.querySelector(".ov-term");
+        if (t2) t2.scrollTop = t2.scrollHeight;
+        if (typeof refreshManageLog === "function") refreshManageLog();
+      };
+    }
 
     // 日志卡复用 main.js 的尾随缓存，保证和「日志」页看到的是同一份内容
     const term = box.querySelector(".ov-term");

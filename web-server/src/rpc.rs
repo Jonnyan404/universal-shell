@@ -1036,6 +1036,10 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                     "latest_version": latest,
                     "has_update": has_update,
                     "depends_on": p.native.depends_on,
+                    // 导入信息：概览页「依赖与关联」要显示「从哪来、什么时候来的」
+                    "imported_at": p.imported_at,
+                    "template_source": p.template_source,
+                    "repo": p.repo,
                     "native": json!({
                         "delay_secs": p.native.delay_secs,
                         "restart": p.native.restart_or_default(),
@@ -1125,6 +1129,20 @@ fn handle(state: &RpcState, cmd: &str, args: &serde_json::Map<String, Value>) ->
                 "mem_hist": mgr.insight.hist(&id),
                 "events": mgr.insight.events(&id),
             }))
+        }
+        // 调度页的「生成的单元文件」预览：不看当前 supervisor，managed 的程序
+        // 也能看到「切过去之后调度器会写出什么」，否则用户只能凭想象决定要不要切。
+        "program_unit_preview" => {
+            let id = arg_str(args, "programId");
+            let mgr = state.manager.lock().unwrap();
+            match mgr.unit_preview(&id) {
+                Some((platform, path, content)) => Ok(json!({
+                    "platform": platform,
+                    "path": path,
+                    "content": content,
+                })),
+                None => Err(program_not_found(&id)),
+            }
         }
         "services_list" => {
             let dir = { state.manager.lock().unwrap().data_dir.clone() };
